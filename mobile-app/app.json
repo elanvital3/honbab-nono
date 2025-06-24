@@ -1,0 +1,23 @@
+{
+  "expo": {
+    "name": "혼여 맛집 동행",
+    "slug": "food-companion-app",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "userInterfaceStyle": "light",
+    "splash": {
+      "backgroundColor": "#FF6B6B"
+    },
+    "assetBundlePatterns": [
+      "**/*"
+    ],
+    "ios": {
+      "supportsTablet": true
+    },
+    "android": {
+      "adaptiveIcon": {
+        "backgroundColor": "#FF6B6B"
+      }
+    }
+  }
+}

@@ -1,0 +1,31 @@
+{
+  "name": "food-companion-app",
+  "version": "1.0.0",
+  "description": "혼여 맛집 동행 매칭 앱",
+  "private": true,
+  "workspaces": [
+    "mobile-app",
+    "server"
+  ],
+  "scripts": {
+    "dev": "concurrently \"npm run dev:mobile\" \"npm run dev:server\"",
+    "dev:mobile": "npm run start --workspace=mobile-app",
+    "dev:server": "npm run dev --workspace=server",
+    "build": "npm run build --workspace=mobile-app && npm run build --workspace=server",
+    "test": "npm run test --workspace=mobile-app && npm run test --workspace=server",
+    "lint": "npm run lint --workspace=mobile-app && npm run lint --workspace=server"
+  },
+  "devDependencies": {
+    "concurrently": "^8.2.2"
+  },
+  "keywords": [
+    "food-companion",
+    "dating-app",
+    "react-native",
+    "node",
+    "typescript",
+    "kakao-map"
+  ],
+  "author": "",
+  "license": "MIT"
+}
