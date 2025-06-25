@@ -22,7 +22,7 @@ const LoginScreen = () => {
       <View style={styles.content}>
         <View style={styles.header}>
           <Text style={styles.emoji}>🍽️</Text>
-          <Text style={styles.title}>혼여 맛집 동행</Text>
+          <Text style={styles.title}>혼밥노노</Text>
           <Text style={styles.subtitle}>
             혼자 가기 어려운 맛집을{'\n'}함께 경험해보세요
           </Text>

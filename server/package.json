@@ -1,7 +1,7 @@
 {
-  "name": "food-companion-server",
+  "name": "honbab-nono-server",
   "version": "1.0.0",
-  "description": "Food companion app backend API",
+  "description": "혼밥노노 (HonbabNoNo) backend API",
   "main": "dist/index.js",
   "type": "module",
   "scripts": {

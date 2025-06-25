@@ -1,7 +1,7 @@
 {
-  "name": "food-companion-app",
+  "name": "honbab-nono",
   "version": "1.0.0",
-  "description": "혼여 맛집 동행 매칭 앱",
+  "description": "혼밥노노 - 맛집 동행 매칭 앱",
   "private": true,
   "workspaces": [
     "mobile-app",
@@ -19,8 +19,8 @@
     "concurrently": "^8.2.2"
   },
   "keywords": [
-    "food-companion",
-    "dating-app",
+    "honbab-nono",
+    "dining-companion",
     "react-native",
     "node",
     "typescript",

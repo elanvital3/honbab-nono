@@ -15,7 +15,7 @@ app.use(express.urlencoded({ extended: true }));
 
 app.get('/', (req, res) => {
   res.json({ 
-    message: '혼여 맛집 동행 앱 API 서버',
+    message: '혼뱥노노 (HonbabNoNo) API 서버',
     version: '1.0.0',
     status: 'running'
   });
@@ -27,5 +27,5 @@ app.get('/health', (req, res) => {
 
 app.listen(PORT, () => {
   console.log(`🚀 Server running on port ${PORT}`);
-  console.log(`📱 Food Companion API Server started`);
+  console.log(`📱 혼뱥노노 (HonbabNoNo) API Server started`);
 });
