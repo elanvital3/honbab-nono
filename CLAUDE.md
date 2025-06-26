@@ -4,7 +4,7 @@
 혼자 먹기 싫은 사람들이 **"같이 먹고 싶어~"** 니즈를 해결할 수 있는 안전하고 편리한 맛집 동행 매칭 서비스
 
 ## 🛠️ 기술 스택
-- **Mobile**: React Native + TypeScript
+- **Mobile**: Flutter + Dart
 - **Backend**: Node.js + Express + TypeScript + MongoDB
 - **Map**: 카카오맵 API
 - **Chat**: Socket.io
@@ -13,10 +13,10 @@
 ## 🏗️ 프로젝트 구조
 ```
 honbab-nono/
-├── mobile-app/         # React Native 앱
-│   ├── src/
+├── flutter-app/        # Flutter 앱
+│   ├── lib/
 │   │   ├── components/ # 재사용 컴포넌트
-│   │   │   ├── common/ # 공통 컴포넌트
+│   │   │   ├── common/ # 공통 컴포넌트  
 │   │   │   ├── auth/   # 인증 관련
 │   │   │   ├── meeting/# 모임 관련
 │   │   │   ├── chat/   # 채팅 관련
@@ -24,18 +24,18 @@ honbab-nono/
 │   │   │   └── map/    # 지도 관련
 │   │   ├── screens/    # 화면 컴포넌트
 │   │   │   ├── auth/   # 로그인/회원가입
+│   │   │   ├── home/   # 홈 화면 (4탭 네비게이션)
 │   │   │   ├── meeting/# 모임 생성/리스트/상세
 │   │   │   ├── chat/   # 채팅
 │   │   │   ├── profile/# 마이페이지
 │   │   │   └── map/    # 지도 화면
-│   │   ├── navigation/ # 네비게이션
 │   │   ├── services/   # API 서비스
 │   │   ├── utils/      # 유틸리티
-│   │   ├── types/      # TypeScript 타입
-│   │   ├── assets/     # 이미지/아이콘
-│   │   └── styles/     # 스타일
+│   │   ├── models/     # 데이터 모델
+│   │   └── assets/     # 이미지/아이콘
 │   ├── android/        # 안드로이드 설정
-│   └── ios/           # iOS 설정
+│   ├── ios/           # iOS 설정
+│   └── pubspec.yaml   # Flutter 의존성
 ├── server/            # Node.js 백엔드
 │   ├── src/
 │   │   ├── controllers/# 컨트롤러
@@ -54,8 +54,13 @@ honbab-nono/
 ```
 
 ## 🚀 개발 명령어
-- `npm run dev` - 전체 개발 서버 실행
-- `npm run dev:mobile` - React Native 앱 실행
+### Flutter 앱
+- `flutter run` - Flutter 앱 실행 (개발 모드)
+- `flutter test` - Flutter 앱 테스트 실행
+- `flutter build` - Flutter 앱 빌드
+- `flutter pub get` - 의존성 설치
+
+### 백엔드 (예정)
 - `npm run dev:server` - 백엔드 서버 실행
 - `npm run build` - 전체 빌드
 - `npm run test` - 전체 테스트 실행
@@ -71,11 +76,13 @@ honbab-nono/
 7. **카카오맵 API** 연동
 
 ## 📱 개발 시작 순서
-1. React Native 프로젝트 초기 설정
-2. 회원가입/로그인 화면부터 시작
-3. 모임 리스트 및 상세 화면
-4. 지도 연동 및 식당 검색
-5. 채팅 시스템 구현
+1. ✅ Flutter 프로젝트 초기 설정
+2. ✅ 회원가입/로그인 화면 UI
+3. ✅ 홈 화면 (4탭 네비게이션)
+4. ✅ 모임 리스트 및 카드 컴포넌트 
+5. 🔄 모임 생성/상세 화면 완성
+6. 지도 연동 및 식당 검색
+7. 채팅 시스템 구현
 
 ## 🔄 Claude Code 작업 프로세스
 
@@ -100,7 +107,7 @@ honbab-nono/
 1. 관련 파일 읽기 (기존 패턴 파악)
 2. TodoWrite로 작업 계획 (복잡한 작업만)
 3. 단계별 구현
-4. Expo 실행 테스트 (`npm start`)
+4. Flutter 실행 테스트 (`flutter run`)
 5. 에러 로그 확인
 
 ### 📚 문서 우선순위
@@ -108,19 +115,81 @@ honbab-nono/
 - **PRD.md**: 2차 참조 (기능 명세, 요구사항)
 - **package.json**: 기술 스택 및 스크립트 확인
 
+## 🎨 UI 디자인 시스템
+
+### 📱 UI 참조 이미지 (ui-reference/)
+- `ref_home.jpeg` - 당근마켓 스타일 홈 화면 (카드형 리스트)
+- `ref_chat.jpeg` - 채팅 리스트 화면 (프로필 + 메시지 미리보기)
+- `ref_map.jpeg` - 카카오맵 스타일 지도 화면 (검색바 + 필터 칩)
+- `ref_profile.jpeg` - 마이페이지 (사용자 정보 + 그리드 메뉴)
+- `ref_etc.jpeg` - 동네 모임 스타일 (카테고리 + 텍스트 리스트)
+
+### 🎨 컬러 팔레트 (당근마켓 스타일 + 베이지 포인트)
+- **Primary**: `#D2B48C` (베이지 - 당근마켓 주황색 위치에만!)
+- **Secondary**: `#666666` (당근마켓 회색)
+- **Background**: `#FFFFFF` (당근마켓 순백색)
+- **Surface**: `#FFFFFF` (당근마켓 순백색)
+- **SurfaceContainer**: `#F9F9F9` (당근마켓 연한 회색 배경)
+- **OnSurface**: `#000000` (당근마켓 검은색 텍스트)
+- **Outline**: `#999999` (당근마켓 연한 회색)
+- **베이지 사용처**: FAB, 모집중 배지, 선택된 필터, 중요 버튼만
+- **폰트**: Noto Sans KR (Google Fonts)
+
+### 📐 디자인 가이드라인
+- **카드 스타일**: 당근마켓 참조, 둥근 모서리 12px
+- **간격**: 16px 기본, 8px 작은 간격, 24px 큰 간격
+- **그림자**: elevation 2-4, 베이지 톤 그림자
+- **버튼**: FAB은 Highlight 컬러, 일반 버튼은 Primary
+- **타이포그래피**: 제목 18-24px, 본문 14-16px, 캡션 12px
+
 ## 🚧 현재 개발 상태
-### ✅ 완료된 작업
-- React Native 프로젝트 기본 구조 설정
-- 네비게이션 시스템 (AppNavigator.tsx)
-- 기본 화면들 (HomeScreen, LoginScreen 등)
-- 소셜 로그인 UI (App.tsx)
+### ✅ 완료된 작업 (Flutter 앱)
+- ✅ Flutter 프로젝트 완전 구조 설정 (pubspec.yaml, lib/ 구조)
+- ✅ 소셜 로그인 화면 (카카오/구글/네이버 UI)
+- ✅ 홈 화면 네비게이션 시스템 (4개 탭: 홈/지도/채팅/마이페이지)
+- ✅ 모임 리스트 및 검색/필터링 기능
+- ✅ MeetingCard 컴포넌트 (당근마켓 스타일)
+- ✅ 당근마켓 컬러 팔레트 + 베이지 포인트 적용
+- ✅ Noto Sans KR 폰트 시스템
+- ✅ Material 3 테마 시스템 구축
+- ✅ UI 참조 이미지 기반 디자인 완성
 
 ### 🔄 진행 중인 작업
-- GitHub 레포지토리 설정
-- 프로젝트 문서화 및 프로세스 정형화
+- Git 커밋 및 다음 단계 계획 수립
 
-### 📋 다음 우선순위
-1. 네비게이션 연결 (App.tsx ↔ AppNavigator.tsx)
-2. 로그인 화면 분리 및 상태 관리
-3. Expo 실행 환경 안정화
-4. 기본 화면들 기능 구현
+### 📋 다음 우선순위 (Phase 1 MVP 계속)
+1. **모임 생성 화면 완성** (CreateMeetingScreen)
+   - 식당 검색/선택 기능
+   - 날짜/시간 선택 위젯  
+   - 모임 정보 입력 폼
+   
+2. **모임 상세 화면 완성** (MeetingDetailScreen)
+   - 참여 신청/취소 기능
+   - 참여자 정보 표시
+   - 채팅방 입장 버튼
+   
+3. **지도 탭 구현** 
+   - 카카오맵 API 연동
+   - 현재 위치 기반 식당 표시
+   - 모임 위치 마커 표시
+   
+4. **채팅 탭 기본 UI**
+   - 채팅방 리스트 화면
+   - Socket.io 연동 준비
+   
+5. **마이페이지 탭 구현**
+   - 사용자 프로필 정보
+   - 내 모임 히스토리
+   - 설정 메뉴
+   
+6. **로그인 화면 기능 연결**
+   - 실제 소셜 로그인 API 연동
+   - 전화번호 인증 시스템
+   - 사용자 세션 관리
+
+### 🔧 기술적 다음 단계
+- **상태 관리**: Provider/Riverpod 도입 검토
+- **API 서비스**: HTTP 클라이언트 설정 (Dio)
+- **데이터 모델**: Meeting, User, Chat 모델 확장
+- **라우팅**: Named 라우팅 시스템 개선
+- **백엔드 연동**: Node.js API 서버 구축
