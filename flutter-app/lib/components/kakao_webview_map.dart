@@ -1,4 +1,6 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/gestures.dart';
+import 'package:flutter/foundation.dart';
 import 'package:webview_flutter/webview_flutter.dart';
 
 class KakaoWebViewMap extends StatefulWidget {
@@ -6,6 +8,7 @@ class KakaoWebViewMap extends StatefulWidget {
   final double longitude;
   final int level;
   final List<MapMarker>? markers;
+  final Function(String)? onMarkerClicked;
 
   const KakaoWebViewMap({
     super.key,
@@ -13,6 +16,7 @@ class KakaoWebViewMap extends StatefulWidget {
     this.longitude = 126.9780,
     this.level = 10,
     this.markers,
+    this.onMarkerClicked,
   });
 
   @override
@@ -25,24 +29,58 @@ class _KakaoWebViewMapState extends State<KakaoWebViewMap> {
   @override
   void initState() {
     super.initState();
+    _initializeController();
+  }
+
+  @override
+  void didUpdateWidget(KakaoWebViewMap oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    // 마커 데이터가 변경되면 JavaScript로 마커 업데이트
+    if (oldWidget.markers != widget.markers) {
+      _updateMarkers();
+    }
+  }
+  
+  void _updateMarkers() {
+    final markersData = widget.markers?.map((marker) => {
+      'id': marker.id,
+      'latitude': marker.latitude,
+      'longitude': marker.longitude,
+      'title': marker.title,
+    }).toList() ?? [];
     
+    final markersJson = markersData.map((m) => 
+      '{"id":"${m['id']}", "latitude":${m['latitude']}, "longitude":${m['longitude']}, "title":"${m['title']}"}'
+    ).join(',');
+    
+    _controller.runJavaScript('''
+      updateMarkers([$markersJson]);
+    ''');
+  }
+
+  void _initializeController() {
     _controller = WebViewController()
       ..setJavaScriptMode(JavaScriptMode.unrestricted)
+      ..setBackgroundColor(Colors.transparent)
       ..setNavigationDelegate(
         NavigationDelegate(
           onProgress: (int progress) {
-            print('🔄 지도 로딩 진행률: $progress%');
+            // 진행률 로그 최소화
+            if (progress == 100) print('✅ 지도 로딩 완료');
           },
           onPageStarted: (String url) {
-            print('🚀 지도 페이지 로딩 시작: $url');
+            print('🚀 지도 페이지 로딩 시작');
           },
           onPageFinished: (String url) {
-            print('✅ 지도 페이지 로딩 완료: $url');
-            // 페이지 로딩 완료 후 JavaScript 실행 상태 확인
+            print('✅ 지도 페이지 로딩 완료');
             _checkJavaScriptExecution();
           },
           onWebResourceError: (WebResourceError error) {
-            print('❌ 지도 리소스 로딩 에러: ${error.description} (${error.errorType})');
+            // 에러 로그만 중요한 것만 출력
+            if (error.errorType.toString().contains('TIMEOUT') || 
+                error.errorType.toString().contains('CONNECTION')) {
+              print('❌ 지도 연결 에러: ${error.description}');
+            }
           },
         ),
       )
@@ -51,6 +89,15 @@ class _KakaoWebViewMapState extends State<KakaoWebViewMap> {
         'FlutterLog',
         onMessageReceived: (JavaScriptMessage message) {
           print('🌐 WebView JS: ${message.message}');
+        },
+      )
+      // 마커 클릭 이벤트를 Flutter로 전달
+      ..addJavaScriptChannel(
+        'MarkerClick',
+        onMessageReceived: (JavaScriptMessage message) {
+          final meetingId = message.message;
+          print('🗺️ 마커 클릭: $meetingId');
+          widget.onMarkerClicked?.call(meetingId);
         },
       )
       ..loadHtmlString(_generateMapHtml());
@@ -75,11 +122,19 @@ class _KakaoWebViewMapState extends State<KakaoWebViewMap> {
       });
       
       var infowindow${marker.id} = new kakao.maps.InfoWindow({
-        content: '<div style="padding:5px;">${marker.title}</div>'
+        content: '<div onclick="MarkerClick.postMessage(&quot;${marker.id}&quot;)" style="padding:6px 16px; background:white; border:none; font-size:12px; white-space:nowrap; cursor:pointer; text-align:center;">' +
+                 '<span style="font-weight:600; color:#333;">${marker.title.split(' (')[0]} </span>' +
+                 '<span style="font-weight:bold; color:#D2B48C;">(${(marker.title.split(' (').length > 1 ? marker.title.split(' (')[1].replaceAll(')', '') : '')})</span>' +
+                 '</div>',
+        removable: false
       });
       
+      // 마커 생성과 동시에 인포윈도우 표시
+      infowindow${marker.id}.open(map, marker${marker.id});
+      
       kakao.maps.event.addListener(marker${marker.id}, 'click', function() {
-        infowindow${marker.id}.open(map, marker${marker.id});
+        // Flutter로 마커 클릭 이벤트 전달
+        MarkerClick.postMessage('${marker.id}');
       });
     ''').join('\n') ?? '';
 
@@ -127,7 +182,56 @@ class _KakaoWebViewMapState extends State<KakaoWebViewMap> {
                 var map = new kakao.maps.Map(container, options);
                 FlutterLog.postMessage('✅ 카카오맵 생성 완료');
                 
-                $markersJs
+                // 전역 변수들
+                window.mapInstance = map;
+                window.currentMarkers = [];
+                window.currentInfoWindows = [];
+                
+                // 마커 업데이트 함수
+                window.updateMarkers = function(newMarkers) {
+                  // 기존 마커와 인포윈도우 제거
+                  window.currentMarkers.forEach(function(marker) {
+                    marker.setMap(null);
+                  });
+                  window.currentInfoWindows.forEach(function(infoWindow) {
+                    infoWindow.close();
+                  });
+                  window.currentMarkers = [];
+                  window.currentInfoWindows = [];
+                  
+                  // 새로운 마커 생성
+                  newMarkers.forEach(function(markerData) {
+                    var marker = new kakao.maps.Marker({
+                      position: new kakao.maps.LatLng(markerData.latitude, markerData.longitude),
+                      map: window.mapInstance
+                    });
+                    
+                    var restaurantName = markerData.title.split(' (')[0];
+                    var participantInfo = markerData.title.split(' (').length > 1 ? 
+                      '(' + markerData.title.split(' (')[1].replace(')', '') + ')' : '';
+                    
+                    var infoWindow = new kakao.maps.InfoWindow({
+                      content: '<div onclick="MarkerClick.postMessage(&quot;' + markerData.id + '&quot;)" style="padding:6px 16px; background:white; border:none; font-size:12px; white-space:nowrap; cursor:pointer; text-align:center;">' +
+                               '<span style="font-weight:600; color:#333;">' + restaurantName + ' </span>' +
+                               '<span style="font-weight:bold; color:#D2B48C;">' + participantInfo + '</span>' +
+                               '</div>',
+                      removable: false
+                    });
+                    
+                    infoWindow.open(window.mapInstance, marker);
+                    
+                    kakao.maps.event.addListener(marker, 'click', function() {
+                      MarkerClick.postMessage(markerData.id);
+                    });
+                    
+                    window.currentMarkers.push(marker);
+                    window.currentInfoWindows.push(infoWindow);
+                  });
+                };
+                
+                // 초기 마커 설정
+                var initialMarkers = [${widget.markers?.map((marker) => '{"id":"${marker.id}", "latitude":${marker.latitude}, "longitude":${marker.longitude}, "title":"${marker.title}"}').join(',')}];
+                window.updateMarkers(initialMarkers);
                 
             } catch (error) {
                 FlutterLog.postMessage('❌ 카카오맵 에러: ' + error.message);
@@ -177,7 +281,15 @@ class _KakaoWebViewMapState extends State<KakaoWebViewMap> {
 
   @override
   Widget build(BuildContext context) {
-    return WebViewWidget(controller: _controller);
+    return ClipRect(
+      child: WebViewWidget(
+        controller: _controller,
+        gestureRecognizers: <Factory<OneSequenceGestureRecognizer>>{
+          Factory<PanGestureRecognizer>(() => PanGestureRecognizer()),
+          Factory<TapGestureRecognizer>(() => TapGestureRecognizer()),
+        },
+      ),
+    );
   }
 }
 
