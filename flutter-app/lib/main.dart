@@ -1,12 +1,23 @@
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
+import 'package:kakao_maps_flutter/kakao_maps_flutter.dart';
 import 'screens/auth/login_screen.dart';
 import 'screens/home/home_screen.dart';
 import 'screens/meeting/create_meeting_screen.dart';
 import 'screens/meeting/meeting_detail_screen.dart';
 import 'models/meeting.dart';
 
-void main() {
+void main() async {
+  WidgetsFlutterBinding.ensureInitialized();
+  
+  try {
+    // 카카오맵 초기화 - JavaScript 키 적용
+    await KakaoMapsFlutter.init('72f1d70089c36f4a8c9fabe7dc6be080');
+    print('✅ 카카오맵 초기화 성공');
+  } catch (e) {
+    print('❌ 카카오맵 초기화 실패: $e');
+  }
+  
   runApp(const HonbabNoNoApp());
 }
 

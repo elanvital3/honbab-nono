@@ -153,9 +153,14 @@ honbab-nono/
 - ✅ Noto Sans KR 폰트 시스템
 - ✅ Material 3 테마 시스템 구축
 - ✅ UI 참조 이미지 기반 디자인 완성
+- ✅ 카카오맵 API 연동 완료 (WebView 방식)
+  - Android/iOS 플랫폼 설정 완료
+  - 권한 및 API 키 설정 확인
+  - WebView 기반 카카오맵 컴포넌트 구현
+  - JavaScript 연동 및 테스트 완료 (5/5 성공)
 
 ### 🔄 진행 중인 작업
-- Git 커밋 및 다음 단계 계획 수립
+- 카카오맵 지도 탭 완성 및 다음 기능 개발
 
 ### 📋 다음 우선순위 (Phase 1 MVP 계속)
 1. **모임 생성 화면 완성** (CreateMeetingScreen)

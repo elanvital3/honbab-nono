@@ -1,6 +1,9 @@
 import 'package:flutter/material.dart';
+import 'package:kakao_maps_flutter/kakao_maps_flutter.dart';
 import '../../models/meeting.dart';
 import '../../components/meeting_card.dart';
+import '../../components/kakao_webview_map.dart';
+import '../../components/webview_test.dart';
 import '../chat/chat_screen.dart';
 
 class HomeScreen extends StatefulWidget {
@@ -366,6 +369,7 @@ class _MapTabState extends State<_MapTab> {
   final TextEditingController _searchController = TextEditingController();
   String _selectedFilter = '전체';
   final List<String> _mapFilters = ['전체', '모집중', '일식', '카페', '브런치'];
+  KakaoMapController? _mapController;
   
   // 샘플 지도 데이터 (실제로는 API에서 가져올 데이터)
   final List<MapMeeting> _mapMeetings = [
@@ -404,7 +408,36 @@ class _MapTabState extends State<_MapTab> {
   @override
   void dispose() {
     _searchController.dispose();
+    _mapController?.dispose();
     super.dispose();
+  }
+  
+  void _onMapCreated(KakaoMapController controller) {
+    _mapController = controller;
+    print('✅ 카카오맵 컨트롤러 생성 완료');
+    
+    // 지도가 준비되면 마커들을 추가
+    _addMarkers();
+  }
+  
+  void _addMarkers() async {
+    if (_mapController == null) return;
+    
+    // 필터에 맞는 모임들만 표시
+    final filteredMeetings = _mapMeetings.where((meeting) {
+      if (_selectedFilter == '전체') return true;
+      if (_selectedFilter == '모집중') return meeting.participantCount < meeting.maxParticipants;
+      return meeting.tag == _selectedFilter;
+    }).toList();
+    
+    // 마커 추가 (향후 구현)
+    // for (final meeting in filteredMeetings) {
+    //   await _mapController!.addMarker(
+    //     markerId: meeting.id,
+    //     position: LatLng(latitude: meeting.latitude, longitude: meeting.longitude),
+    //     infoWindow: InfoWindow(title: meeting.title),
+    //   );
+    // }
   }
 
   @override
@@ -456,6 +489,8 @@ class _MapTabState extends State<_MapTab> {
                           setState(() {
                             _selectedFilter = filter;
                           });
+                          // 필터 변경 시 마커 업데이트
+                          _addMarkers();
                         },
                         backgroundColor: Theme.of(context).colorScheme.surfaceContainer,
                         selectedColor: Theme.of(context).colorScheme.primary,
@@ -475,86 +510,36 @@ class _MapTabState extends State<_MapTab> {
           ),
         ),
         
-        // 지도 영역
+        // 카카오맵 영역
         Expanded(
           child: Stack(
             children: [
-              // 임시 지도 배경
               Container(
                 width: double.infinity,
-                color: Theme.of(context).colorScheme.surfaceContainer,
-                child: Center(
-                  child: Column(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      Icon(
-                        Icons.map_outlined,
-                        size: 80,
-                        color: Theme.of(context).colorScheme.outline,
-                      ),
-                      const SizedBox(height: 16),
-                      Text(
-                        '지도',
-                        style: TextStyle(
-                          fontSize: 20,
-                          fontWeight: FontWeight.bold,
-                          color: Theme.of(context).colorScheme.outline,
-                        ),
-                      ),
-                      const SizedBox(height: 8),
-                      Text(
-                        '카카오맵 API 연동 예정',
-                        style: TextStyle(
-                          fontSize: 14,
-                          color: Theme.of(context).colorScheme.outline,
-                        ),
-                      ),
-                    ],
+                height: double.infinity,
+                color: Colors.grey[200],
+                child: const WebViewTest(),
+              ),
+              
+              // 디버깅용 오버레이
+              Positioned(
+                top: 10,
+                left: 10,
+                child: Container(
+                  padding: const EdgeInsets.all(8),
+                  decoration: BoxDecoration(
+                    color: Colors.black54,
+                    borderRadius: BorderRadius.circular(4),
+                  ),
+                  child: Text(
+                    '지도 영역 - ${_mapController != null ? "컨트롤러 준비됨" : "컨트롤러 대기중"}',
+                    style: const TextStyle(
+                      color: Colors.white,
+                      fontSize: 12,
+                    ),
                   ),
                 ),
               ),
-              
-              // 모임 마커들 (임시)
-              ...(_mapMeetings.map((meeting) => Positioned(
-                left: (meeting.longitude - 126.9) * 300, // 임시 좌표 변환
-                top: (37.6 - meeting.latitude) * 400, // 임시 좌표 변환
-                child: GestureDetector(
-                  onTap: () => _showMeetingInfo(meeting),
-                  child: Container(
-                    padding: const EdgeInsets.all(8),
-                    decoration: BoxDecoration(
-                      color: Theme.of(context).colorScheme.primary,
-                      borderRadius: BorderRadius.circular(20),
-                      boxShadow: [
-                        BoxShadow(
-                          color: Theme.of(context).colorScheme.shadow.withOpacity(0.3),
-                          blurRadius: 4,
-                          offset: const Offset(0, 2),
-                        ),
-                      ],
-                    ),
-                    child: Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        const Icon(
-                          Icons.restaurant,
-                          size: 16,
-                          color: Colors.white,
-                        ),
-                        const SizedBox(width: 4),
-                        Text(
-                          '${meeting.participantCount}/${meeting.maxParticipants}',
-                          style: const TextStyle(
-                            color: Colors.white,
-                            fontSize: 12,
-                            fontWeight: FontWeight.bold,
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                ),
-              ))),
               
               // 현재 위치 버튼
               Positioned(
