@@ -6,6 +6,8 @@ import '../../components/meeting_card.dart';
 import '../../components/kakao_webview_map.dart';
 import '../../components/kakao_web_map.dart';
 import '../../components/webview_test.dart';
+import '../../services/meeting_service.dart';
+import '../../services/auth_service.dart';
 import '../chat/chat_screen.dart';
 
 class HomeScreen extends StatefulWidget {
@@ -23,6 +25,7 @@ class _HomeScreenState extends State<HomeScreen> {
   // 공유 필터 상태
   String _selectedStatusFilter = '전체'; // '전체', '모집중'
   String _selectedTimeFilter = '최근 일주일'; // '최근 일주일', '전체기간', '과거 포함'
+  String _selectedLocationFilter = '전체'; // 현재 지역
 
   void _onItemTapped(int index) {
     setState(() {
@@ -41,9 +44,14 @@ class _HomeScreenState extends State<HomeScreen> {
       _selectedTimeFilter = filter;
     });
   }
+  
+  void _updateLocationFilter(String filter) {
+    setState(() {
+      _selectedLocationFilter = filter;
+    });
+  }
 
-  List<Meeting> get _filteredMeetings {
-    List<Meeting> meetings = List.from(_sampleMeetings);
+  List<Meeting> _filterMeetings(List<Meeting> meetings) {
     
     // 1. 시간 필터 적용
     final now = DateTime.now();
@@ -62,6 +70,13 @@ class _HomeScreenState extends State<HomeScreen> {
     // 2. 상태 필터 적용
     if (_selectedStatusFilter == '모집중') {
       meetings = meetings.where((meeting) => meeting.isAvailable).toList();
+    }
+    
+    // 2.5. 지역 필터 적용
+    if (_selectedLocationFilter != '전체') {
+      meetings = meetings.where((meeting) => 
+        meeting.location.contains(_selectedLocationFilter.split(' ').last) // 예: "서울시 중구" -> "중구"
+      ).toList();
     }
     
     // 3. 검색어 필터 적용
@@ -97,104 +112,209 @@ class _HomeScreenState extends State<HomeScreen> {
     return meetings;
   }
 
+  void _showLocationPicker() {
+    final List<String> locationFilters = ['전체', '서울시 중구', '서울시 강남구', '서울시 마포구', '서울시 성동구', '서울시 용산구'];
+    
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: Colors.transparent,
+      builder: (context) => Container(
+        height: MediaQuery.of(context).size.height * 0.4,
+        decoration: BoxDecoration(
+          color: Theme.of(context).colorScheme.surface,
+          borderRadius: const BorderRadius.vertical(top: Radius.circular(20)),
+        ),
+        child: Column(
+          children: [
+            // 핸들
+            Container(
+              margin: const EdgeInsets.only(top: 12),
+              width: 40,
+              height: 4,
+              decoration: BoxDecoration(
+                color: Theme.of(context).colorScheme.outline.withOpacity(0.3),
+                borderRadius: BorderRadius.circular(2),
+              ),
+            ),
+            
+            // 헤더
+            Padding(
+              padding: const EdgeInsets.all(20),
+              child: Row(
+                children: [
+                  Text(
+                    '지역 선택',
+                    style: TextStyle(
+                      fontSize: 20,
+                      fontWeight: FontWeight.bold,
+                      color: Theme.of(context).colorScheme.onSurface,
+                    ),
+                  ),
+                  const Spacer(),
+                  IconButton(
+                    onPressed: () => Navigator.pop(context),
+                    icon: const Icon(Icons.close),
+                  ),
+                ],
+              ),
+            ),
+            
+            // 지역 리스트
+            Expanded(
+              child: ListView.builder(
+                padding: const EdgeInsets.symmetric(horizontal: 20),
+                itemCount: locationFilters.length,
+                itemBuilder: (context, index) {
+                  final location = locationFilters[index];
+                  final isSelected = _selectedLocationFilter == location;
+                  return Container(
+                    margin: const EdgeInsets.only(bottom: 8),
+                    child: Material(
+                      color: Colors.transparent,
+                      child: InkWell(
+                        onTap: () {
+                          setState(() {
+                            _selectedLocationFilter = location;
+                          });
+                          Navigator.pop(context);
+                        },
+                        borderRadius: BorderRadius.circular(8),
+                        child: Container(
+                          padding: const EdgeInsets.all(16),
+                          decoration: BoxDecoration(
+                            borderRadius: BorderRadius.circular(8),
+                            color: isSelected 
+                                ? Theme.of(context).colorScheme.primary.withOpacity(0.1)
+                                : Colors.transparent,
+                          ),
+                          child: Row(
+                            children: [
+                              Icon(
+                                Icons.location_on,
+                                color: isSelected 
+                                    ? Theme.of(context).colorScheme.primary
+                                    : Theme.of(context).colorScheme.outline,
+                                size: 20,
+                              ),
+                              const SizedBox(width: 12),
+                              Expanded(
+                                child: Text(
+                                  location,
+                                  style: TextStyle(
+                                    fontSize: 16,
+                                    color: isSelected 
+                                        ? Theme.of(context).colorScheme.primary
+                                        : Theme.of(context).colorScheme.onSurface,
+                                    fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
+                                  ),
+                                ),
+                              ),
+                              if (isSelected)
+                                Icon(
+                                  Icons.check,
+                                  color: Theme.of(context).colorScheme.primary,
+                                  size: 20,
+                                ),
+                            ],
+                          ),
+                        ),
+                      ),
+                    ),
+                  );
+                },
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
   @override
   void dispose() {
     _searchController.dispose();
     super.dispose();
   }
 
-  List<Meeting> _sampleMeetings = [
-    Meeting(
-      id: '1',
-      title: '강남 맛집 탐방하실 분!',
-      description: '강남역 근처 유명한 일식집에서 같이 저녁 드실 분 모집합니다. 혼자 가기엔 양이 많아서요 ㅠㅠ',
-      location: '강남역 스시로 강남점',
-      dateTime: DateTime.now().add(const Duration(hours: 3)),
-      maxParticipants: 4,
-      currentParticipants: 2,
-      hostName: '김민수',
-      tags: ['일식', '강남', '저녁'],
-    ),
-    Meeting(
-      id: '2',
-      title: '홍대 핫플 카페 투어',
-      description: '인스타에서 본 홍대 카페들 돌아다니며 디저트 먹방! 사진도 서로 찍어줘요~',
-      location: '홍대입구역 일대',
-      dateTime: DateTime.now().add(const Duration(days: 1, hours: 2)),
-      maxParticipants: 3,
-      currentParticipants: 1,
-      hostName: '박지영',
-      tags: ['카페', '디저트', '홍대', '사진'],
-    ),
-    Meeting(
-      id: '3',
-      title: '이태원 멕시칸 맛집',
-      description: '이태원 멕시칸 음식 맛집에서 타코와 부리토 먹어요! 양이 많아서 나눠먹으면 좋을 것 같아요.',
-      location: '이태원 엘 또 타코',
-      dateTime: DateTime.now().add(const Duration(days: 2)),
-      maxParticipants: 4,
-      currentParticipants: 4,
-      hostName: '이준호',
-      tags: ['멕시칸', '이태원', '점심'],
-    ),
-    Meeting(
-      id: '4',
-      title: '성수동 브unch 맛집',
-      description: '성수동 감성 카페에서 브런치 먹고 산책해요~ 20대 여성분들 환영!',
-      location: '성수역 어니언',
-      dateTime: DateTime.now().add(const Duration(days: 3, hours: -2)),
-      maxParticipants: 3,
-      currentParticipants: 2,
-      hostName: '최서연',
-      tags: ['브런치', '성수동', '카페', '산책'],
-    ),
-    Meeting(
-      id: '5',
-      title: '어제 다녀온 용산 맛집',
-      description: '어제 용산 아이파크몰에서 맛있게 먹었던 곳이에요! 후기 공유합니다.',
-      location: '용산 아이파크몰 푸드코트',
-      dateTime: DateTime.now().subtract(const Duration(days: 1)),
-      maxParticipants: 4,
-      currentParticipants: 4,
-      hostName: '박민지',
-      tags: ['한식', '용산', '후기'],
-    ),
-    Meeting(
-      id: '6',
-      title: '지난주 건대 치킨집',
-      description: '지난주에 건대에서 먹었던 치킨이 너무 맛있었어요! 다시 가실 분?',
-      location: '건대입구 굽네치킨',
-      dateTime: DateTime.now().subtract(const Duration(days: 5)),
-      maxParticipants: 3,
-      currentParticipants: 2,
-      hostName: '김철수',
-      tags: ['치킨', '건대', '재방문'],
-    ),
-  ];
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
+    return StreamBuilder<List<Meeting>>(
+      stream: MeetingService.getMeetingsStream(),
+      builder: (context, snapshot) {
+        if (snapshot.connectionState == ConnectionState.waiting) {
+          return const Scaffold(
+            body: Center(child: CircularProgressIndicator()),
+          );
+        }
+
+        if (snapshot.hasError) {
+          return Scaffold(
+            body: Center(
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  const Icon(Icons.error_outline, size: 64, color: Colors.grey),
+                  const SizedBox(height: 16),
+                  Text('데이터를 불러오는 중 오류가 발생했습니다.'),
+                  const SizedBox(height: 8),
+                  ElevatedButton(
+                    onPressed: () => setState(() {}),
+                    child: const Text('다시 시도'),
+                  ),
+                ],
+              ),
+            ),
+          );
+        }
+
+        final allMeetings = snapshot.data ?? [];
+        final filteredMeetings = _filterMeetings(allMeetings);
+
+        return Scaffold(
       appBar: _selectedIndex == 1 ? null : AppBar( // 지도 탭일 때 앱바 숨김
         backgroundColor: Theme.of(context).colorScheme.background,
         foregroundColor: Theme.of(context).colorScheme.onBackground,
         elevation: 0,
-        title: _selectedIndex == 0 && _searchQuery.isNotEmpty
-            ? TextField(
-                controller: _searchController,
-                style: TextStyle(color: Theme.of(context).colorScheme.onBackground),
-                decoration: const InputDecoration(
-                  hintText: '모임 검색...',
-                  border: InputBorder.none,
-                  suffixIcon: Icon(Icons.clear),
-                ),
-                onChanged: (value) {
-                  setState(() {
-                    _searchQuery = value;
-                  });
-                },
-              )
-            : null,  // 제목 제거
+        title: _selectedIndex == 0 
+            ? (_searchQuery.isNotEmpty
+                ? TextField(
+                    controller: _searchController,
+                    style: TextStyle(color: Theme.of(context).colorScheme.onBackground),
+                    decoration: const InputDecoration(
+                      hintText: '모임 검색...',
+                      border: InputBorder.none,
+                      suffixIcon: Icon(Icons.clear),
+                    ),
+                    onChanged: (value) {
+                      setState(() {
+                        _searchQuery = value;
+                      });
+                    },
+                  )
+                : GestureDetector(
+                    onTap: () => _showLocationPicker(),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Text(
+                          _selectedLocationFilter,
+                          style: TextStyle(
+                            fontSize: 18,
+                            fontWeight: FontWeight.bold,
+                            color: Theme.of(context).colorScheme.onBackground,
+                          ),
+                        ),
+                        const SizedBox(width: 4),
+                        Icon(
+                          Icons.keyboard_arrow_down,
+                          color: Theme.of(context).colorScheme.onBackground,
+                          size: 20,
+                        ),
+                      ],
+                    ),
+                  ))
+            : const Text('혼밥노노'),
         actions: [
           if (_selectedIndex == 0)
             IconButton(
@@ -223,11 +343,13 @@ class _HomeScreenState extends State<HomeScreen> {
         index: _selectedIndex,
         children: [
           _MeetingListTab(
-            meetings: _filteredMeetings,
+            meetings: filteredMeetings,
             selectedStatusFilter: _selectedStatusFilter,
             selectedTimeFilter: _selectedTimeFilter,
+            selectedLocationFilter: _selectedLocationFilter,
             onStatusFilterChanged: _updateStatusFilter,
             onTimeFilterChanged: _updateTimeFilter,
+            onLocationFilterChanged: _updateLocationFilter,
           ),
           _MapTab(
             selectedStatusFilter: _selectedStatusFilter,
@@ -268,20 +390,33 @@ class _HomeScreenState extends State<HomeScreen> {
           ? FloatingActionButton(
               heroTag: "home_create_fab",
               onPressed: () async {
+                if (AuthService.currentUserId == null) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(content: Text('로그인이 필요합니다.')),
+                  );
+                  return;
+                }
+                
                 final result = await Navigator.pushNamed(context, '/create-meeting');
                 if (result is Meeting) {
-                  setState(() {
-                    _sampleMeetings.insert(0, result);
-                  });
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(content: Text('새로운 모임이 생성되었습니다!')),
-                  );
+                  try {
+                    await MeetingService.createMeeting(result);
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(content: Text('새로운 모임이 생성되었습니다!')),
+                    );
+                  } catch (e) {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      SnackBar(content: Text('모임 생성 중 오류가 발생했습니다: $e')),
+                    );
+                  }
                 }
               },
               backgroundColor: Theme.of(context).colorScheme.primary,
               child: const Icon(Icons.add, color: Colors.white),
             )
           : null,
+        );
+      },
     );
   }
 }
@@ -290,15 +425,19 @@ class _MeetingListTab extends StatefulWidget {
   final List<Meeting> meetings;
   final String selectedStatusFilter;
   final String selectedTimeFilter;
+  final String selectedLocationFilter;
   final Function(String) onStatusFilterChanged;
   final Function(String) onTimeFilterChanged;
+  final Function(String) onLocationFilterChanged;
   
   const _MeetingListTab({
     required this.meetings,
     required this.selectedStatusFilter,
     required this.selectedTimeFilter,
+    required this.selectedLocationFilter,
     required this.onStatusFilterChanged,
     required this.onTimeFilterChanged,
+    required this.onLocationFilterChanged,
   });
 
   @override
@@ -307,7 +446,8 @@ class _MeetingListTab extends StatefulWidget {
 
 class _MeetingListTabState extends State<_MeetingListTab> {
   final List<String> _statusFilters = ['전체', '모집중'];
-  final List<String> _timeFilters = ['최근 일주일', '전체기간', '과거 포함'];
+  final List<String> _timeFilters = ['최근 일주일', '전체기간'];
+  final List<String> _locationFilters = ['전체', '서울시 중구', '서울시 강남구', '서울시 마포구', '서울시 성동구', '서울시 용산구'];
 
   @override
   Widget build(BuildContext context) {
@@ -343,204 +483,157 @@ class _MeetingListTabState extends State<_MeetingListTab> {
       );
     }
 
-    return RefreshIndicator(
-      onRefresh: () async {
-        // TODO: 모임 리스트 새로고침
-        await Future.delayed(const Duration(seconds: 1));
-      },
-      child: Stack(
-        children: [
-          // 모임 리스트
-          CustomScrollView(
-            slivers: [
-              // 필터 영역을 위한 여백
-              const SliverToBoxAdapter(
-                child: SizedBox(height: 100),
+    return Column(
+      children: [
+        // 필터 칩들 (지도탭과 동일한 스타일)
+        Container(
+          padding: const EdgeInsets.symmetric(vertical: 8),
+          decoration: BoxDecoration(
+            color: Theme.of(context).colorScheme.background,
+            border: Border(
+              bottom: BorderSide(
+                color: Theme.of(context).colorScheme.outline.withOpacity(0.1),
+                width: 1,
               ),
-              
-              // 모임 리스트
-              if (widget.meetings.isEmpty)
-                SliverFillRemaining(
-                  child: Center(
+            ),
+          ),
+          child: SizedBox(
+            height: 40,
+            child: ListView(
+              scrollDirection: Axis.horizontal,
+              padding: const EdgeInsets.symmetric(horizontal: 16),
+              children: [
+                // 상태 필터들
+                ..._statusFilters.map((filter) => _buildFilterChip(
+                  filter, 
+                  widget.selectedStatusFilter == filter,
+                  () => widget.onStatusFilterChanged(filter),
+                )),
+                
+                // 구분자
+                Container(
+                  margin: const EdgeInsets.symmetric(horizontal: 8),
+                  width: 1,
+                  height: 16,
+                  color: Colors.grey.shade300,
+                ),
+                
+                // 시간 필터들  
+                ..._timeFilters.map((filter) => _buildFilterChip(
+                  filter, 
+                  widget.selectedTimeFilter == filter,
+                  () => widget.onTimeFilterChanged(filter),
+                )),
+              ],
+            ),
+          ),
+        ),
+        
+        // 모임 리스트
+        Expanded(
+          child: RefreshIndicator(
+            onRefresh: () async {
+              // TODO: 모임 리스트 새로고침
+              await Future.delayed(const Duration(seconds: 1));
+            },
+            child: widget.meetings.isEmpty
+                ? const Center(
                     child: Column(
                       mainAxisAlignment: MainAxisAlignment.center,
                       children: [
                         Icon(
                           Icons.search_off,
                           size: 64,
-                          color: Colors.grey[400],
+                          color: Colors.grey,
                         ),
-                        const SizedBox(height: 16),
+                        SizedBox(height: 16),
                         Text(
                           '조건에 맞는 모임이 없어요',
                           style: TextStyle(
                             fontSize: 18,
                             fontWeight: FontWeight.bold,
-                            color: Colors.grey[600],
+                            color: Colors.grey,
                           ),
                         ),
-                        const SizedBox(height: 8),
+                        SizedBox(height: 8),
                         Text(
                           '다른 필터를 선택해보세요',
                           style: TextStyle(
                             fontSize: 14,
-                            color: Colors.grey[500],
+                            color: Colors.grey,
                           ),
                         ),
                       ],
                     ),
+                  )
+                : ListView.builder(
+                    padding: const EdgeInsets.symmetric(vertical: 8),
+                    itemCount: widget.meetings.length,
+                    itemBuilder: (context, index) {
+                      final meeting = widget.meetings[index];
+                      return AnimatedContainer(
+                        duration: Duration(milliseconds: 200 + (index * 50)),
+                        curve: Curves.easeOutBack,
+                        child: MeetingCard(
+                          meeting: meeting,
+                          onTap: () {
+                            Navigator.pushNamed(
+                              context,
+                              '/meeting-detail',
+                              arguments: meeting,
+                            );
+                          },
+                        ),
+                      );
+                    },
                   ),
-                )
-              else
-                SliverPadding(
-                  padding: const EdgeInsets.only(bottom: 8),
-                  sliver: SliverList(
-                    delegate: SliverChildBuilderDelegate(
-                      (context, index) {
-                        final meeting = widget.meetings[index];
-                        return AnimatedContainer(
-                          duration: Duration(milliseconds: 200 + (index * 50)),
-                          curve: Curves.easeOutBack,
-                          child: MeetingCard(
-                            meeting: meeting,
-                            onTap: () {
-                              Navigator.pushNamed(
-                                context,
-                                '/meeting-detail',
-                                arguments: meeting,
-                              );
-                            },
-                          ),
-                        );
-                      },
-                      childCount: widget.meetings.length,
-                    ),
-                  ),
-                ),
-            ],
           ),
-          
-          // 플로팅 필터들 (지도와 같은 스타일)
-          Positioned(
-            top: 16,
-            left: 16,
-            right: 16,
-            child: Column(
-              children: [
-                // 상태 필터 (전체, 모집중)
-                SizedBox(
-                  height: 40,
-                  child: ListView.builder(
-                    scrollDirection: Axis.horizontal,
-                    itemCount: _statusFilters.length,
-                    itemBuilder: (context, index) {
-                      final filter = _statusFilters[index];
-                      final isSelected = widget.selectedStatusFilter == filter;
-                      return Padding(
-                        padding: const EdgeInsets.only(right: 8),
-                        child: Container(
-                          decoration: BoxDecoration(
-                            color: isSelected 
-                                ? Theme.of(context).colorScheme.primary
-                                : Colors.white.withOpacity(0.9),
-                            borderRadius: BorderRadius.circular(20),
-                            boxShadow: [
-                              BoxShadow(
-                                color: Colors.black.withOpacity(0.1),
-                                blurRadius: 4,
-                                offset: const Offset(0, 1),
-                              ),
-                            ],
-                          ),
-                          child: Material(
-                            color: Colors.transparent,
-                            child: InkWell(
-                              borderRadius: BorderRadius.circular(20),
-                              onTap: () {
-                                widget.onStatusFilterChanged(filter);
-                              },
-                              child: Padding(
-                                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-                                child: Text(
-                                  filter,
-                                  style: TextStyle(
-                                    color: isSelected 
-                                        ? Colors.white
-                                        : Colors.grey[700],
-                                    fontWeight: isSelected ? FontWeight.bold : FontWeight.w500,
-                                    fontSize: 14,
-                                  ),
-                                ),
-                              ),
-                            ),
-                          ),
-                        ),
-                      );
-                    },
-                  ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildFilterChip(String label, bool isSelected, VoidCallback onTap) {
+    return Padding(
+      padding: const EdgeInsets.only(right: 8),
+      child: Container(
+        decoration: BoxDecoration(
+          color: isSelected 
+              ? Theme.of(context).colorScheme.primary
+              : Colors.white.withOpacity(0.9),
+          borderRadius: BorderRadius.circular(20),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withOpacity(0.1),
+              blurRadius: 4,
+              offset: const Offset(0, 1),
+            ),
+          ],
+        ),
+        child: Material(
+          color: Colors.transparent,
+          child: InkWell(
+            borderRadius: BorderRadius.circular(20),
+            onTap: onTap,
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+              child: Text(
+                label,
+                style: TextStyle(
+                  color: isSelected 
+                      ? Colors.white
+                      : Colors.grey[700],
+                  fontWeight: isSelected ? FontWeight.bold : FontWeight.w500,
+                  fontSize: 14,
                 ),
-                
-                const SizedBox(height: 8),
-                
-                // 시간 필터 (최근 일주일, 전체기간, 과거 포함)
-                SizedBox(
-                  height: 40,
-                  child: ListView.builder(
-                    scrollDirection: Axis.horizontal,
-                    itemCount: _timeFilters.length,
-                    itemBuilder: (context, index) {
-                      final filter = _timeFilters[index];
-                      final isSelected = widget.selectedTimeFilter == filter;
-                      return Padding(
-                        padding: const EdgeInsets.only(right: 8),
-                        child: Container(
-                          decoration: BoxDecoration(
-                            color: isSelected 
-                                ? Theme.of(context).colorScheme.primary
-                                : Colors.white.withOpacity(0.9),
-                            borderRadius: BorderRadius.circular(20),
-                            boxShadow: [
-                              BoxShadow(
-                                color: Colors.black.withOpacity(0.1),
-                                blurRadius: 4,
-                                offset: const Offset(0, 1),
-                              ),
-                            ],
-                          ),
-                          child: Material(
-                            color: Colors.transparent,
-                            child: InkWell(
-                              borderRadius: BorderRadius.circular(20),
-                              onTap: () {
-                                widget.onTimeFilterChanged(filter);
-                              },
-                              child: Padding(
-                                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-                                child: Text(
-                                  filter,
-                                  style: TextStyle(
-                                    color: isSelected 
-                                        ? Colors.white
-                                        : Colors.grey[700],
-                                    fontWeight: isSelected ? FontWeight.bold : FontWeight.w500,
-                                    fontSize: 14,
-                                  ),
-                                ),
-                              ),
-                            ),
-                          ),
-                        ),
-                      );
-                    },
-                  ),
-                ),
-              ],
+              ),
             ),
           ),
-        ],
+        ),
       ),
     );
   }
+
 }
 
 class _MapTab extends StatefulWidget {
@@ -563,7 +656,7 @@ class _MapTab extends StatefulWidget {
 class _MapTabState extends State<_MapTab> {
   final TextEditingController _searchController = TextEditingController();
   final List<String> _statusFilters = ['전체', '모집중'];
-  final List<String> _timeFilters = ['최근 일주일', '전체기간', '과거 포함'];
+  final List<String> _timeFilters = ['최근 일주일', '전체기간'];
   KakaoMapController? _mapController;
   
   // 하단 카드 관련 상태
@@ -668,8 +761,13 @@ class _MapTabState extends State<_MapTab> {
       dateTime: DateTime.now().add(const Duration(days: 1)),
       maxParticipants: meeting.maxParticipants,
       currentParticipants: meeting.participantCount,
+      hostId: 'sample_host_${meeting.id}', // 샘플 데이터용 임시 ID
       hostName: '모임장',
       tags: [meeting.tag],
+      participantIds: List.generate(meeting.participantCount, (index) => 'participant_$index'),
+      latitude: meeting.latitude,
+      longitude: meeting.longitude,
+      restaurantName: meeting.location,
     );
     
     Navigator.pushNamed(

@@ -1,14 +1,82 @@
 import 'package:flutter/material.dart';
+import '../../services/kakao_auth_service.dart';
+import 'signup_complete_screen.dart';
 
-class LoginScreen extends StatelessWidget {
+class LoginScreen extends StatefulWidget {
   const LoginScreen({super.key});
 
+  @override
+  State<LoginScreen> createState() => _LoginScreenState();
+}
+
+class _LoginScreenState extends State<LoginScreen> {
+  bool _isLoading = false;
+
+  Future<void> _handleKakaoLogin() async {
+    setState(() {
+      _isLoading = true;
+    });
+
+    try {
+      final user = await KakaoAuthService.signInWithKakao();
+      
+      if (user != null && mounted) {
+        print('🔍 로그인 결과 확인:');
+        print('  - 사용자 ID: ${user.id}');
+        print('  - 사용자 이름: "${user.name}"');
+        print('  - 카카오 ID: ${user.kakaoId}');
+        print('  - 프로필 사진: ${user.profileImageUrl}');
+        
+        // 신규 사용자인지 기존 사용자인지 확인
+        if (user.name == 'NEW_USER') {
+          // 신규 사용자 - 닉네임 입력 화면으로 이동
+          print('➡️ 신규 사용자 → 닉네임 입력 화면으로 이동');
+          Navigator.pushReplacement(
+            context,
+            MaterialPageRoute(
+              builder: (context) => SignupCompleteScreen(
+                userId: user.id,
+                defaultName: null, // 신규 사용자이므로 기본값 없음
+                profileImageUrl: user.profileImageUrl,
+                email: user.email,
+                kakaoId: user.kakaoId,
+              ),
+            ),
+          );
+        } else {
+          // 기존 사용자 - 바로 홈 화면으로 이동
+          print('➡️ 기존 사용자 → 홈 화면으로 이동');
+          Navigator.pushReplacementNamed(context, '/home');
+        }
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('카카오 로그인 실패: $e'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isLoading = false;
+        });
+      }
+    }
+  }
+
   void _handleSocialLogin(BuildContext context, String provider) {
-    // TODO: 소셜 로그인 구현
+    // TODO: 다른 소셜 로그인 구현
     print('$provider 로그인 시도');
     
-    // 임시로 홈 화면으로 이동
-    Navigator.pushReplacementNamed(context, '/home');
+    if (provider == '카카오') {
+      _handleKakaoLogin();
+    } else {
+      // 임시로 홈 화면으로 이동
+      Navigator.pushReplacementNamed(context, '/home');
+    }
   }
 
   @override
@@ -56,11 +124,12 @@ class LoginScreen extends StatelessWidget {
                 children: [
                   // Kakao Login
                   _buildSocialButton(
-                    onPressed: () => _handleSocialLogin(context, '카카오'),
+                    onPressed: _isLoading ? null : () => _handleSocialLogin(context, '카카오'),
                     backgroundColor: const Color(0xFFFEE500),
                     textColor: const Color(0xFF3C1E1E),
-                    icon: '💬',
-                    text: '카카오로 시작하기',
+                    icon: _isLoading ? null : '💬',
+                    text: _isLoading ? '로그인 중...' : '카카오로 시작하기',
+                    isLoading: _isLoading,
                   ),
                   const SizedBox(height: 12),
                   
@@ -108,12 +177,13 @@ class LoginScreen extends StatelessWidget {
   }
 
   Widget _buildSocialButton({
-    required VoidCallback onPressed,
+    required VoidCallback? onPressed,
     required Color backgroundColor,
     required Color textColor,
-    required String icon,
+    String? icon,
     required String text,
     bool isNaver = false,
+    bool isLoading = false,
   }) {
     return SizedBox(
       width: double.infinity,
@@ -130,20 +200,31 @@ class LoginScreen extends StatelessWidget {
         child: Row(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            if (isNaver)
-              Text(
-                icon,
-                style: TextStyle(
-                  fontSize: 16,
-                  fontWeight: FontWeight.bold,
-                  color: textColor,
+            if (isLoading)
+              SizedBox(
+                width: 20,
+                height: 20,
+                child: CircularProgressIndicator(
+                  strokeWidth: 2,
+                  valueColor: AlwaysStoppedAnimation<Color>(textColor),
                 ),
               )
-            else
-              Text(
-                icon,
-                style: const TextStyle(fontSize: 20),
-              ),
+            else if (icon != null) ...[
+              if (isNaver)
+                Text(
+                  icon!,
+                  style: TextStyle(
+                    fontSize: 16,
+                    fontWeight: FontWeight.bold,
+                    color: textColor,
+                  ),
+                )
+              else
+                Text(
+                  icon!,
+                  style: const TextStyle(fontSize: 20),
+                ),
+            ],
             const SizedBox(width: 10),
             Text(
               text,

@@ -1,5 +1,8 @@
 import 'package:flutter/material.dart';
 import '../../models/meeting.dart';
+import '../../models/restaurant.dart';
+import '../../components/restaurant_search_modal.dart';
+import '../../services/auth_service.dart';
 
 class CreateMeetingScreen extends StatefulWidget {
   const CreateMeetingScreen({super.key});
@@ -17,17 +20,7 @@ class _CreateMeetingScreenState extends State<CreateMeetingScreen> {
   DateTime? _selectedDate;
   TimeOfDay? _selectedTime;
   int _maxParticipants = 4;
-  String? _selectedRestaurant;
-  final List<String> _sampleRestaurants = [
-    '강남역 스시로 강남점',
-    '홍대입구역 일대',
-    '이태원 엘 또 타코',
-    '성수역 어니언',
-    '명동 교자',
-    '강남 본죽',
-    '홍대 맥도날드',
-    '이태원 이탈리키친',
-  ];
+  Restaurant? _selectedRestaurant;
 
   @override
   void dispose() {
@@ -93,16 +86,29 @@ class _CreateMeetingScreenState extends State<CreateMeetingScreen> {
         _selectedTime!.minute,
       );
 
+      final currentUser = AuthService.currentFirebaseUser;
+      if (currentUser == null) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('로그인이 필요합니다.')),
+        );
+        return;
+      }
+
       final newMeeting = Meeting(
         id: DateTime.now().millisecondsSinceEpoch.toString(),
         title: _titleController.text,
         description: _descriptionController.text,
-        location: _selectedRestaurant!,
+        location: _selectedRestaurant!.name,
         dateTime: meetingDateTime,
         maxParticipants: _maxParticipants,
         currentParticipants: 1,
-        hostName: '나', // TODO: 실제 사용자 이름으로 변경
+        hostId: currentUser.uid,
+        hostName: currentUser.displayName ?? '익명',
         tags: _extractTags(_descriptionController.text),
+        participantIds: [currentUser.uid],
+        latitude: _selectedRestaurant!.latitude,
+        longitude: _selectedRestaurant!.longitude,
+        restaurantName: _selectedRestaurant!.name,
       );
 
       Navigator.pop(context, newMeeting);
@@ -229,20 +235,64 @@ class _CreateMeetingScreenState extends State<CreateMeetingScreen> {
                   ),
                   child: Row(
                     children: [
-                      Expanded(
-                        child: Text(
-                          _selectedRestaurant ?? '식당을 선택해주세요',
-                          style: TextStyle(
-                            fontSize: 16,
-                            color: _selectedRestaurant == null 
-                              ? Theme.of(context).colorScheme.outline
-                              : Theme.of(context).colorScheme.onSurface,
+                      if (_selectedRestaurant != null)
+                        Container(
+                          width: 40,
+                          height: 40,
+                          margin: const EdgeInsets.only(right: 12),
+                          decoration: BoxDecoration(
+                            color: Theme.of(context).colorScheme.primary.withOpacity(0.1),
+                            borderRadius: BorderRadius.circular(8),
                           ),
+                          child: Icon(
+                            Icons.restaurant,
+                            color: Theme.of(context).colorScheme.primary,
+                            size: 20,
+                          ),
+                        ),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              _selectedRestaurant?.name ?? '식당을 검색해주세요',
+                              style: TextStyle(
+                                fontSize: 16,
+                                fontWeight: _selectedRestaurant != null ? FontWeight.w600 : FontWeight.normal,
+                                color: _selectedRestaurant == null 
+                                  ? Theme.of(context).colorScheme.outline
+                                  : Theme.of(context).colorScheme.onSurface,
+                              ),
+                            ),
+                            if (_selectedRestaurant != null) ...[
+                              const SizedBox(height: 4),
+                              Text(
+                                _selectedRestaurant!.shortCategory,
+                                style: TextStyle(
+                                  fontSize: 12,
+                                  color: Theme.of(context).colorScheme.primary,
+                                  fontWeight: FontWeight.w500,
+                                ),
+                              ),
+                              const SizedBox(height: 2),
+                              Text(
+                                _selectedRestaurant!.address,
+                                style: TextStyle(
+                                  fontSize: 14,
+                                  color: Theme.of(context).colorScheme.outline,
+                                ),
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                              ),
+                            ],
+                          ],
                         ),
                       ),
                       Icon(
-                        Icons.search,
-                        color: Theme.of(context).colorScheme.outline,
+                        _selectedRestaurant != null ? Icons.edit : Icons.search,
+                        color: _selectedRestaurant != null 
+                            ? Theme.of(context).colorScheme.primary
+                            : Theme.of(context).colorScheme.outline,
                       ),
                     ],
                   ),
@@ -414,145 +464,13 @@ class _CreateMeetingScreenState extends State<CreateMeetingScreen> {
       context: context,
       isScrollControlled: true,
       backgroundColor: Colors.transparent,
-      builder: (context) => Container(
-        height: MediaQuery.of(context).size.height * 0.7,
-        decoration: BoxDecoration(
-          color: Theme.of(context).colorScheme.surface,
-          borderRadius: const BorderRadius.vertical(top: Radius.circular(20)),
-        ),
-        child: Column(
-          children: [
-            // 핸들
-            Container(
-              margin: const EdgeInsets.only(top: 12),
-              width: 40,
-              height: 4,
-              decoration: BoxDecoration(
-                color: Theme.of(context).colorScheme.outline.withOpacity(0.3),
-                borderRadius: BorderRadius.circular(2),
-              ),
-            ),
-            
-            // 헤더
-            Padding(
-              padding: const EdgeInsets.all(20),
-              child: Row(
-                children: [
-                  Text(
-                    '식당 선택',
-                    style: TextStyle(
-                      fontSize: 20,
-                      fontWeight: FontWeight.bold,
-                      color: Theme.of(context).colorScheme.onSurface,
-                    ),
-                  ),
-                  const Spacer(),
-                  IconButton(
-                    onPressed: () => Navigator.pop(context),
-                    icon: const Icon(Icons.close),
-                  ),
-                ],
-              ),
-            ),
-            
-            // 검색바
-            Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 20),
-              child: TextField(
-                decoration: InputDecoration(
-                  hintText: '식당 이름을 검색하세요',
-                  prefixIcon: const Icon(Icons.search),
-                  border: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(8),
-                    borderSide: BorderSide.none,
-                  ),
-                  filled: true,
-                  fillColor: Theme.of(context).colorScheme.surfaceContainer,
-                ),
-              ),
-            ),
-            
-            // 식당 리스트
-            Expanded(
-              child: ListView.builder(
-                padding: const EdgeInsets.all(20),
-                itemCount: _sampleRestaurants.length,
-                itemBuilder: (context, index) {
-                  final restaurant = _sampleRestaurants[index];
-                  return Container(
-                    margin: const EdgeInsets.only(bottom: 8),
-                    child: Material(
-                      color: Colors.transparent,
-                      child: InkWell(
-                        onTap: () {
-                          setState(() {
-                            _selectedRestaurant = restaurant;
-                            _locationController.text = restaurant;
-                          });
-                          Navigator.pop(context);
-                        },
-                        borderRadius: BorderRadius.circular(8),
-                        child: Container(
-                          padding: const EdgeInsets.all(16),
-                          decoration: BoxDecoration(
-                            border: Border.all(
-                              color: Theme.of(context).colorScheme.outline.withOpacity(0.1),
-                            ),
-                            borderRadius: BorderRadius.circular(8),
-                          ),
-                          child: Row(
-                            children: [
-                              Container(
-                                width: 40,
-                                height: 40,
-                                decoration: BoxDecoration(
-                                  color: Theme.of(context).colorScheme.surfaceContainer,
-                                  borderRadius: BorderRadius.circular(8),
-                                ),
-                                child: Icon(
-                                  Icons.restaurant,
-                                  color: Theme.of(context).colorScheme.outline,
-                                ),
-                              ),
-                              const SizedBox(width: 12),
-                              Expanded(
-                                child: Column(
-                                  crossAxisAlignment: CrossAxisAlignment.start,
-                                  children: [
-                                    Text(
-                                      restaurant,
-                                      style: TextStyle(
-                                        fontSize: 16,
-                                        fontWeight: FontWeight.w600,
-                                        color: Theme.of(context).colorScheme.onSurface,
-                                      ),
-                                    ),
-                                    const SizedBox(height: 4),
-                                    Text(
-                                      '⭐ 4.${3 + index % 3} (${100 + index * 30}개)',
-                                      style: TextStyle(
-                                        fontSize: 14,
-                                        color: Theme.of(context).colorScheme.outline,
-                                      ),
-                                    ),
-                                  ],
-                                ),
-                              ),
-                              Icon(
-                                Icons.chevron_right,
-                                color: Theme.of(context).colorScheme.outline,
-                              ),
-                            ],
-                          ),
-                        ),
-                      ),
-                    ),
-                  );
-                },
-              ),
-            ),
-          ],
-        ),
+      builder: (context) => RestaurantSearchModal(
+        onRestaurantSelected: (restaurant) {
+          setState(() {
+            _selectedRestaurant = restaurant;
+            _locationController.text = restaurant.name;
+          });
+        },
       ),
     );
   }
