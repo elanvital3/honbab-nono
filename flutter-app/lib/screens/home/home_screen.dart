@@ -20,6 +20,10 @@ import '../../models/message.dart';
 import '../../models/restaurant.dart';
 import '../chat/chat_screen.dart';
 import '../chat/chat_room_screen.dart';
+import '../../constants/app_design_tokens.dart';
+import '../../styles/text_styles.dart';
+import '../../components/common/common_card.dart';
+import '../../components/common/common_button.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -135,7 +139,7 @@ class _HomeScreenState extends State<HomeScreen> {
               padding: const EdgeInsets.all(2),
               decoration: BoxDecoration(
                 color: Colors.red,
-                borderRadius: BorderRadius.circular(10),
+                borderRadius: BorderRadius.circular(AppDesignTokens.spacing2),
               ),
               constraints: const BoxConstraints(
                 minWidth: 16,
@@ -143,10 +147,9 @@ class _HomeScreenState extends State<HomeScreen> {
               ),
               child: Text(
                 _totalUnreadCount > 99 ? '99+' : '$_totalUnreadCount',
-                style: const TextStyle(
+                style: AppTextStyles.labelSmall.copyWith(
                   color: Colors.white,
-                  fontSize: 10,
-                  fontWeight: FontWeight.bold,
+                  fontWeight: AppDesignTokens.fontWeightBold,
                 ),
                 textAlign: TextAlign.center,
               ),
@@ -473,14 +476,14 @@ class _HomeScreenState extends State<HomeScreen> {
 
         return Scaffold(
       appBar: _selectedIndex == 1 ? null : AppBar( // 지도 탭일 때 앱바 숨김
-        backgroundColor: Theme.of(context).colorScheme.background,
-        foregroundColor: Theme.of(context).colorScheme.onBackground,
+        backgroundColor: AppDesignTokens.background,
+        foregroundColor: AppDesignTokens.onSurface,
         elevation: 0,
         title: _selectedIndex == 0 
             ? (_searchQuery.isNotEmpty
                 ? TextField(
                     controller: _searchController,
-                    style: TextStyle(color: Theme.of(context).colorScheme.onBackground),
+                    style: AppTextStyles.bodyLarge,
                     decoration: const InputDecoration(
                       hintText: '모임 검색...',
                       border: InputBorder.none,
@@ -498,28 +501,20 @@ class _HomeScreenState extends State<HomeScreen> {
                       children: [
                         Text(
                           _selectedLocationFilter,
-                          style: TextStyle(
-                            fontSize: 18,
-                            fontWeight: FontWeight.bold,
-                            color: Theme.of(context).colorScheme.onBackground,
-                          ),
+                          style: AppTextStyles.headlineMedium,
                         ),
-                        const SizedBox(width: 4),
+                        const SizedBox(width: AppDesignTokens.spacing1),
                         Icon(
                           Icons.keyboard_arrow_down,
-                          color: Theme.of(context).colorScheme.onBackground,
-                          size: 20,
+                          color: AppDesignTokens.onSurface,
+                          size: AppDesignTokens.iconDefault,
                         ),
                       ],
                     ),
                   ))
             : Text(
                 _selectedIndex == 2 ? '채팅' : _selectedIndex == 3 ? '마이페이지' : '혼뱥노노',
-                style: TextStyle(
-                  fontSize: 18,
-                  fontWeight: FontWeight.bold,
-                  color: Theme.of(context).colorScheme.onBackground,
-                ),
+                style: AppTextStyles.headlineMedium,
               ),
         actions: [
           if (_selectedIndex == 0)
@@ -731,8 +726,8 @@ class _MeetingListTabState extends State<_MeetingListTab> {
                         Text(
                           '조건에 맞는 모임이 없어요',
                           style: TextStyle(
-                            fontSize: 18,
-                            fontWeight: FontWeight.bold,
+                            fontSize: AppDesignTokens.fontSizeH3,
+                            fontWeight: AppDesignTokens.fontWeightSemiBold,
                             color: Colors.grey,
                           ),
                         ),

@@ -20,21 +20,43 @@
 # hide the original source file name.
 #-renamesourcefileattribute SourceFile
 
-# Keep Kakao SDK classes
+# Keep ALL Kakao SDK classes and methods (CRITICAL for Play Store)
+-keep class com.kakao.** { *; }
 -keep class com.kakao.sdk.** { *; }
 -keep class com.kakao.auth.** { *; }
 -dontwarn com.kakao.**
 
-# Additional Kakao SDK rules for Play Store
--keep class com.kakao.sdk.auth.AuthCodeHandlerActivity { *; }
--keep class com.kakao.sdk.flutter.AuthCodeCustomTabsActivity { *; }
--keepclassmembers class com.kakao.sdk.auth.** { *; }
--keepclassmembers class com.kakao.sdk.flutter.** { *; }
-
-# Keep all Kakao SDK resources
--keepclasseswithmembernames class * {
-    @com.kakao.sdk.* <methods>;
+# Force keep specific activity classes that were missing
+-keep public class com.kakao.sdk.auth.AuthCodeHandlerActivity { 
+    public *; 
+    protected *; 
+    private *; 
+}
+-keep public class com.kakao.sdk.flutter.AuthCodeCustomTabsActivity { 
+    public *; 
+    protected *; 
+    private *; 
+}
+-keep public class com.kakao.sdk.flutter.AppsHandlerActivity { 
+    public *; 
+    protected *; 
+    private *; 
+}
+-keep public class com.kakao.sdk.flutter.TalkAuthCodeActivity { 
+    public *; 
+    protected *; 
+    private *; 
 }
 
-# Prevent obfuscation of Kakao SDK interfaces
+# Keep all methods and fields in Kakao SDK packages
+-keepclassmembers class com.kakao.** { *; }
+-keepnames class com.kakao.** { *; }
+-keepclasseswithmembers class com.kakao.** { *; }
+
+# Prevent any optimizations on Kakao SDK
+-keep,allowobfuscation class com.kakao.**
+-keep,allowshrinking class com.kakao.**
+
+# Keep interfaces and annotations
 -keep interface com.kakao.** { *; }
+-keepattributes *Annotation*,Signature,InnerClasses,EnclosingMethod

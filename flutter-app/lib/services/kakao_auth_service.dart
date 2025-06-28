@@ -7,47 +7,34 @@ import 'user_service.dart';
 import 'auth_service.dart';
 
 class KakaoAuthService {
-  // 카카오 로그인
+  // 카카오 로그인 (카카오톡 앱 우선, 실패시 브라우저)
   static Future<app_user.User?> signInWithKakao() async {
     try {
-      // 카카오톡 설치 여부 확인
-      final isKakaoTalkAvailable = await isKakaoTalkInstalled();
       if (kDebugMode) {
-        print('🔍 카카오톡 설치 여부: $isKakaoTalkAvailable');
+        print('🚀 카카오 로그인 시도');
       }
       
-      if (isKakaoTalkAvailable) {
+      // 1. 카카오톡 앱으로 로그인 시도
+      if (await isKakaoTalkInstalled()) {
         try {
-          if (kDebugMode) {
-            print('📱 카카오톡 앱으로 로그인 시도...');
-          }
-          // 카카오톡으로 로그인
           await UserApi.instance.loginWithKakaoTalk();
           if (kDebugMode) {
-            print('✅ 카카오톡으로 로그인 성공');
+            print('✅ 카카오톡 앱 로그인 성공');
           }
         } catch (error) {
           if (kDebugMode) {
-            print('❌ 카카오톡으로 로그인 실패: $error');
-            if (error is PlatformException && error.code == 'NotSupportError') {
-              print('💡 원인: 카카오톡이 카카오 계정에 연결되지 않음 (에뮬레이터 환경)');
-            }
-            print('🔄 웹 브라우저 로그인으로 자동 전환...');
+            print('❌ 카카오톡 앱 로그인 실패: $error');
           }
           
-          // 카카오톡 로그인 실패시 카카오 계정으로 로그인
           if (error is PlatformException && error.code == 'CANCELED') {
             return null; // 사용자가 로그인을 취소한 경우
           }
           
-          // 카카오 계정으로 로그인 시도
+          // 카카오톡 앱 로그인 실패시 브라우저로 시도
           await _loginWithKakaoAccount();
         }
       } else {
-        if (kDebugMode) {
-          print('🌐 카카오톡이 설치되어 있지 않음 - 웹 로그인으로 진행');
-        }
-        // 카카오톡이 설치되어 있지 않으면 카카오 계정으로 로그인
+        // 카카오톡 앱이 설치되지 않은 경우 브라우저로 로그인
         await _loginWithKakaoAccount();
       }
 

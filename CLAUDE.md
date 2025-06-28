@@ -16,12 +16,12 @@ honbab-nono/
 ├── flutter-app/        # Flutter 앱
 │   ├── lib/
 │   │   ├── components/ # 재사용 컴포넌트
-│   │   │   ├── common/ # 공통 컴포넌트  
+│   │   │   ├── common/ # 공통 컴포넌트 (CommonCard, CommonButton)
 │   │   │   ├── auth/   # 인증 관련
-│   │   │   ├── meeting/# 모임 관련
+│   │   │   ├── meeting/# 모임 관련 (MeetingCard)
 │   │   │   ├── chat/   # 채팅 관련
 │   │   │   ├── profile/# 프로필 관련
-│   │   │   └── map/    # 지도 관련
+│   │   │   └── map/    # 지도 관련 (KakaoWebMap, RestaurantSearch)
 │   │   ├── screens/    # 화면 컴포넌트
 │   │   │   ├── auth/   # 로그인/회원가입
 │   │   │   ├── home/   # 홈 화면 (4탭 네비게이션)
@@ -32,6 +32,8 @@ honbab-nono/
 │   │   ├── services/   # API 서비스
 │   │   ├── utils/      # 유틸리티
 │   │   ├── models/     # 데이터 모델
+│   │   ├── constants/  # 디자인 토큰 및 상수
+│   │   ├── styles/     # 텍스트 스타일 시스템
 │   │   └── assets/     # 이미지/아이콘
 │   ├── android/        # 안드로이드 설정
 │   ├── ios/           # iOS 설정
@@ -224,6 +226,24 @@ honbab-nono/
   - Firebase Auth + Firestore 연동 완료
 - ✅ 완전한 탭 네비게이션 시스템
 
+#### 🎨 **UI 일관성 시스템 완성** (2024-12-28 추가)
+- ✅ **디자인 토큰 시스템**
+  - 8px 그리드 시스템 적용
+  - 색상, 공백, 폰트 크기 표준화
+  - BorderRadius, Elevation 일관성
+- ✅ **통합 TextStyle 클래스**
+  - H1~H3, Body, Caption 등 체계적 템스타일
+  - FontWeight, FontSize 일관성
+  - Primary/White 등 변형 스타일 제공
+- ✅ **공통 컴포넌트 시스템**
+  - CommonCard: 기본/선택/하이라이트 변형
+  - CommonButton: Primary/Secondary/Outline/Text 변형
+  - CommonFAB, CommonChip 등 전체 UI 요소 통일
+- ✅ **전체 화면 적용 완료**
+  - 모임 상세 화면: 카드, 버튼, 텍스트 통일
+  - 홈 화면: AppBar, 제목, 채팅 배지 스타일 일관성
+  - 빌드 테스트 완료 및 정상 동작 확인
+
 ### 🎯 **Phase 2 현재 우선순위 작업들**
 
 #### 🔥 **최우선 (현재 진행)**
@@ -366,7 +386,7 @@ honbab-nono/
 - **Frontend**: Flutter + Dart로 크로스 플랫폼 앱 개발
 - **Backend**: Firebase Auth + Firestore + Storage 완전 연동
 - **외부 API**: 카카오맵, 카카오 검색, 카카오 로그인 통합
-- **UX/UI**: 당근마켓 스타일 + 베이지 포인트 컬러의 세련된 디자인
+- **UX/UI**: 당근마켓 스타일 + 베이지 포인트 컬러 + 완전한 UI 일관성 시스템
 - **DevOps**: 키스토어, 앱 서명, Play Store 배포 파이프라인 구축
 
 ### 🎯 **완성된 핵심 기능들**

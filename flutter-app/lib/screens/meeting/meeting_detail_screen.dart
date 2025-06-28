@@ -9,6 +9,10 @@ import '../../services/chat_service.dart';
 import '../chat/chat_room_screen.dart';
 import 'edit_meeting_screen.dart';
 import 'participant_management_screen.dart';
+import '../../constants/app_design_tokens.dart';
+import '../../styles/text_styles.dart';
+import '../../components/common/common_card.dart';
+import '../../components/common/common_button.dart';
 
 class MeetingDetailScreen extends StatefulWidget {
   final Meeting meeting;
@@ -148,10 +152,10 @@ class _MeetingDetailScreenState extends State<MeetingDetailScreen> {
     if (_isLoading) {
       return Scaffold(
         appBar: AppBar(
-          backgroundColor: Theme.of(context).colorScheme.background,
-          foregroundColor: Theme.of(context).colorScheme.onBackground,
+          backgroundColor: AppDesignTokens.background,
+          foregroundColor: AppDesignTokens.onSurface,
           elevation: 0,
-          title: const Text('모임 상세'),
+          title: Text('모임 상세', style: AppTextStyles.titleLarge),
         ),
         body: const Center(
           child: CircularProgressIndicator(),
@@ -181,10 +185,10 @@ class _MeetingDetailScreenState extends State<MeetingDetailScreen> {
 
         return Scaffold(
           appBar: AppBar(
-            backgroundColor: Theme.of(context).colorScheme.background,
-            foregroundColor: Theme.of(context).colorScheme.onBackground,
+            backgroundColor: AppDesignTokens.background,
+            foregroundColor: AppDesignTokens.onSurface,
             elevation: 0,
-            title: const Text('모임 상세'),
+            title: Text('모임 상세', style: AppTextStyles.titleLarge),
             actions: [
               IconButton(
                 icon: const Icon(Icons.share),
@@ -219,21 +223,9 @@ class _MeetingDetailScreenState extends State<MeetingDetailScreen> {
   }
 
   Widget _buildHeader(Meeting meeting) {
-    return Container(
-      width: double.infinity,
-      margin: const EdgeInsets.fromLTRB(16, 8, 16, 4),
-      padding: const EdgeInsets.all(20),
-      decoration: BoxDecoration(
-        color: Theme.of(context).colorScheme.surface,
-        borderRadius: BorderRadius.circular(12),
-        boxShadow: [
-          BoxShadow(
-            color: Theme.of(context).colorScheme.shadow.withOpacity(0.1),
-            blurRadius: 8,
-            offset: const Offset(0, 2),
-          ),
-        ],
-      ),
+    return CommonCard(
+      padding: AppPadding.all20,
+      margin: const EdgeInsets.fromLTRB(AppDesignTokens.spacing4, AppDesignTokens.spacing2, AppDesignTokens.spacing4, AppDesignTokens.spacing1),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -242,55 +234,43 @@ class _MeetingDetailScreenState extends State<MeetingDetailScreen> {
               Expanded(
                 child: Text(
                   meeting.restaurantName ?? meeting.location,  // 식당 이름을 메인 타이틀로
-                  style: TextStyle(
-                    fontSize: 20,
-                    fontWeight: FontWeight.bold,
-                    color: Theme.of(context).colorScheme.onSurface,
-                  ),
+                  style: AppTextStyles.headlineMedium,
                 ),
               ),
               Container(
-                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                padding: const EdgeInsets.symmetric(horizontal: AppDesignTokens.spacing3, vertical: AppDesignTokens.spacing1),
                 decoration: BoxDecoration(
                   color: meeting.status == 'completed'
-                      ? Theme.of(context).colorScheme.outline.withOpacity(0.6)
+                      ? AppDesignTokens.outline.withOpacity(0.6)
                       : meeting.isAvailable 
-                          ? Theme.of(context).colorScheme.primary
-                          : Theme.of(context).colorScheme.outline,
-                  borderRadius: BorderRadius.circular(16),
+                          ? AppDesignTokens.primary
+                          : AppDesignTokens.outline,
+                  borderRadius: AppBorderRadius.large,
                 ),
                 child: Text(
                   meeting.status == 'completed' 
                       ? '완료'
                       : meeting.isAvailable ? '모집중' : '마감',
-                  style: const TextStyle(
-                    color: Colors.white,
-                    fontWeight: FontWeight.bold,
-                    fontSize: 12,
-                  ),
+                  style: AppTextStyles.labelSmall.white,
                 ),
               ),
             ],
           ),
           
           if (widget.meeting.tags.isNotEmpty) ...[
-            const SizedBox(height: 16),
+            const SizedBox(height: AppDesignTokens.spacing4),
             Wrap(
-              spacing: 6,
-              runSpacing: 6,
+              spacing: AppDesignTokens.spacing1,
+              runSpacing: AppDesignTokens.spacing1,
               children: widget.meeting.tags.map((tag) => Container(
-                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                padding: const EdgeInsets.symmetric(horizontal: AppDesignTokens.spacing2, vertical: AppDesignTokens.spacing1),
                 decoration: BoxDecoration(
-                  color: Theme.of(context).colorScheme.surfaceContainer,
-                  borderRadius: BorderRadius.circular(12),
+                  color: AppDesignTokens.surfaceContainer,
+                  borderRadius: AppBorderRadius.medium,
                 ),
                 child: Text(
                   tag,
-                  style: TextStyle(
-                    fontSize: 12,
-                    color: Theme.of(context).colorScheme.onSurface,
-                    fontWeight: FontWeight.w500,
-                  ),
+                  style: AppTextStyles.labelSmall,
                 ),
               )).toList(),
             ),
@@ -301,20 +281,9 @@ class _MeetingDetailScreenState extends State<MeetingDetailScreen> {
   }
 
   Widget _buildInfo(Meeting meeting) {
-    return Container(
-      margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-      padding: const EdgeInsets.all(20),
-      decoration: BoxDecoration(
-        color: Theme.of(context).colorScheme.surface,
-        borderRadius: BorderRadius.circular(12),
-        boxShadow: [
-          BoxShadow(
-            color: Theme.of(context).colorScheme.shadow.withOpacity(0.1),
-            blurRadius: 8,
-            offset: const Offset(0, 2),
-          ),
-        ],
-      ),
+    return CommonCard(
+      padding: AppPadding.all20,
+      margin: AppPadding.vertical8.add(AppPadding.horizontal16),
       child: Column(
         children: [
           _buildInfoRow(
@@ -322,13 +291,13 @@ class _MeetingDetailScreenState extends State<MeetingDetailScreen> {
             '장소',
             meeting.fullAddress ?? meeting.location,
           ),
-          const SizedBox(height: 16),
+          const SizedBox(height: AppDesignTokens.spacing4),
           _buildInfoRow(
             Icons.access_time,
             '시간',
             meeting.formattedDateTime,
           ),
-          const SizedBox(height: 16),
+          const SizedBox(height: AppDesignTokens.spacing4),
           _buildInfoRow(
             Icons.group,
             '인원',
@@ -345,18 +314,14 @@ class _MeetingDetailScreenState extends State<MeetingDetailScreen> {
       children: [
         Icon(
           icon,
-          size: 20,
-          color: Theme.of(context).colorScheme.outline,
+          size: AppDesignTokens.iconDefault,
+          color: AppDesignTokens.outline,
         ),
-        const SizedBox(width: 12),
+        const SizedBox(width: AppDesignTokens.spacing3),
         Expanded(
           child: Text(
             value,
-            style: TextStyle(
-              fontSize: 16,
-              fontWeight: FontWeight.w600,
-              color: Theme.of(context).colorScheme.onSurface,
-            ),
+            style: AppTextStyles.bodyLarge.semiBold,
           ),
         ),
       ],
@@ -364,50 +329,30 @@ class _MeetingDetailScreenState extends State<MeetingDetailScreen> {
   }
 
   Widget _buildDescription(Meeting meeting) {
-    return Container(
-      width: double.infinity,
-      margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-      padding: const EdgeInsets.all(20),
-      decoration: BoxDecoration(
-        color: Theme.of(context).colorScheme.surface,
-        borderRadius: BorderRadius.circular(12),
-        boxShadow: [
-          BoxShadow(
-            color: Theme.of(context).colorScheme.shadow.withOpacity(0.1),
-            blurRadius: 8,
-            offset: const Offset(0, 2),
-          ),
-        ],
-      ),
+    return CommonCard(
+      padding: AppPadding.all20,
+      margin: AppPadding.vertical8.add(AppPadding.horizontal16),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Text(
             '모임 설명',
-            style: TextStyle(
-              fontSize: 18,
-              fontWeight: FontWeight.bold,
-              color: Theme.of(context).colorScheme.onSurface,
-            ),
+            style: AppTextStyles.headlineMedium,
           ),
-          const SizedBox(height: 16),
+          const SizedBox(height: AppDesignTokens.spacing4),
           Container(
             width: double.infinity,
-            padding: const EdgeInsets.all(16),
+            padding: AppPadding.all16,
             decoration: BoxDecoration(
-              color: Theme.of(context).colorScheme.surfaceContainer.withOpacity(0.5),
-              borderRadius: BorderRadius.circular(8),
+              color: AppDesignTokens.surfaceContainer.withOpacity(0.5),
+              borderRadius: AppBorderRadius.small,
               border: Border.all(
-                color: Theme.of(context).colorScheme.outline.withOpacity(0.1),
+                color: AppDesignTokens.outline.withOpacity(0.1),
               ),
             ),
             child: Text(
               meeting.description,
-              style: TextStyle(
-                fontSize: 16,
-                height: 1.5,
-                color: Theme.of(context).colorScheme.onSurface,
-              ),
+              style: AppTextStyles.bodyLarge.copyWith(height: 1.5),
             ),
           ),
         ],
@@ -417,20 +362,9 @@ class _MeetingDetailScreenState extends State<MeetingDetailScreen> {
 
 
   Widget _buildParticipants(Meeting meeting) {
-    return Container(
-      margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-      padding: const EdgeInsets.all(20),
-      decoration: BoxDecoration(
-        color: Theme.of(context).colorScheme.surface,
-        borderRadius: BorderRadius.circular(12),
-        boxShadow: [
-          BoxShadow(
-            color: Theme.of(context).colorScheme.shadow.withOpacity(0.1),
-            blurRadius: 8,
-            offset: const Offset(0, 2),
-          ),
-        ],
-      ),
+    return CommonCard(
+      padding: AppPadding.all20,
+      margin: AppPadding.vertical8.add(AppPadding.horizontal16),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -438,40 +372,32 @@ class _MeetingDetailScreenState extends State<MeetingDetailScreen> {
             children: [
               Text(
                 '참여자',
-                style: TextStyle(
-                  fontSize: 16,
-                  fontWeight: FontWeight.bold,
-                  color: Theme.of(context).colorScheme.onSurface,
-                ),
+                style: AppTextStyles.titleMedium.semiBold,
               ),
               const Spacer(),
               Container(
-                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                padding: const EdgeInsets.symmetric(horizontal: AppDesignTokens.spacing2, vertical: AppDesignTokens.spacing1),
                 decoration: BoxDecoration(
-                  color: Theme.of(context).colorScheme.surfaceContainer,
-                  borderRadius: BorderRadius.circular(12),
+                  color: AppDesignTokens.surfaceContainer,
+                  borderRadius: AppBorderRadius.medium,
                 ),
                 child: Text(
                   '${meeting.currentParticipants}/${meeting.maxParticipants}명',
-                  style: TextStyle(
-                    fontSize: 12,
-                    fontWeight: FontWeight.w600,
-                    color: Theme.of(context).colorScheme.onSurface,
-                  ),
+                  style: AppTextStyles.labelMedium.semiBold,
                 ),
               ),
             ],
           ),
-          const SizedBox(height: 16),
+          const SizedBox(height: AppDesignTokens.spacing4),
           // 실시간 참여자 리스트
           meeting.participantIds.isEmpty
-              ? const Padding(
-                  padding: EdgeInsets.all(20.0),
+              ? Padding(
+                  padding: const EdgeInsets.all(AppDesignTokens.spacing5),
                   child: Text(
                     '참여자가 없습니다',
                     style: TextStyle(
-                      fontSize: 14,
-                      color: Colors.grey,
+                      fontSize: AppDesignTokens.fontSizeBodySmall,
+                      color: AppDesignTokens.onSurfaceVariant,
                     ),
                     textAlign: TextAlign.center,
                   ),
@@ -482,8 +408,10 @@ class _MeetingDetailScreenState extends State<MeetingDetailScreen> {
                     if (snapshot.connectionState == ConnectionState.waiting) {
                       return const Center(
                         child: Padding(
-                          padding: EdgeInsets.all(20.0),
-                          child: CircularProgressIndicator(),
+                          padding: EdgeInsets.all(AppDesignTokens.spacing5),
+                          child: CircularProgressIndicator(
+                            color: AppDesignTokens.primary,
+                          ),
                         ),
                       );
                     }
@@ -497,31 +425,30 @@ class _MeetingDetailScreenState extends State<MeetingDetailScreen> {
                         final participant = participants[index];
                         final isHost = participant.id == meeting.hostId;
                         return Container(
-                          margin: EdgeInsets.only(bottom: index == participants.length - 1 ? 0 : 12),
+                          margin: EdgeInsets.only(bottom: index == participants.length - 1 ? 0 : AppDesignTokens.spacing3),
                           child: Row(
                             children: [
                               CircleAvatar(
-                                radius: 16,
+                                radius: AppDesignTokens.spacing4,
                                 backgroundColor: isHost 
-                                    ? Theme.of(context).colorScheme.primary
-                                    : Theme.of(context).colorScheme.surfaceContainer,
+                                    ? AppDesignTokens.primary
+                                    : AppDesignTokens.surfaceContainer,
                                 backgroundImage: participant.profileImageUrl != null && participant.profileImageUrl!.isNotEmpty
                                     ? NetworkImage(participant.profileImageUrl!)
                                     : null,
                                 child: participant.profileImageUrl == null || participant.profileImageUrl!.isEmpty
                                     ? Text(
                                         participant.name[0],
-                                        style: TextStyle(
-                                          fontSize: 12,
+                                        style: AppTextStyles.labelMedium.copyWith(
                                           color: isHost 
                                             ? Colors.white
-                                            : Theme.of(context).colorScheme.onSurface,
-                                          fontWeight: FontWeight.bold,
+                                            : AppDesignTokens.onSurface,
+                                          fontWeight: AppDesignTokens.fontWeightBold,
                                         ),
                                       )
                                     : null,
                               ),
-                              const SizedBox(width: 12),
+                              const SizedBox(width: AppDesignTokens.spacing3),
                               Expanded(
                                 child: Column(
                                   crossAxisAlignment: CrossAxisAlignment.start,
@@ -530,26 +457,23 @@ class _MeetingDetailScreenState extends State<MeetingDetailScreen> {
                                       children: [
                                         Text(
                                           participant.name,
-                                          style: TextStyle(
-                                            fontSize: 15,
-                                            color: Theme.of(context).colorScheme.onSurface,
-                                            fontWeight: isHost ? FontWeight.w600 : FontWeight.normal,
+                                          style: AppTextStyles.bodyMedium.copyWith(
+                                            fontWeight: isHost ? AppDesignTokens.fontWeightSemiBold : AppDesignTokens.fontWeightRegular,
                                           ),
                                         ),
                                         if (isHost) ...[
-                                          const SizedBox(width: 6),
+                                          const SizedBox(width: AppDesignTokens.spacing1),
                                           Container(
-                                            padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                                            padding: const EdgeInsets.symmetric(horizontal: AppDesignTokens.spacing1, vertical: 2),
                                             decoration: BoxDecoration(
-                                              color: Theme.of(context).colorScheme.primary,
-                                              borderRadius: BorderRadius.circular(8),
+                                              color: AppDesignTokens.primary,
+                                              borderRadius: AppBorderRadius.small,
                                             ),
-                                            child: const Text(
+                                            child: Text(
                                               '호스트',
-                                              style: TextStyle(
-                                                fontSize: 10,
+                                              style: AppTextStyles.labelSmall.copyWith(
                                                 color: Colors.white,
-                                                fontWeight: FontWeight.bold,
+                                                fontWeight: AppDesignTokens.fontWeightBold,
                                               ),
                                             ),
                                           ),
@@ -559,10 +483,7 @@ class _MeetingDetailScreenState extends State<MeetingDetailScreen> {
                                     if (participant.bio != null && participant.bio!.isNotEmpty)
                                       Text(
                                         participant.bio!,
-                                        style: TextStyle(
-                                          fontSize: 12,
-                                          color: Theme.of(context).colorScheme.outline,
-                                        ),
+                                        style: AppTextStyles.bodySmall,
                                         maxLines: 1,
                                         overflow: TextOverflow.ellipsis,
                                       ),
@@ -634,13 +555,13 @@ class _MeetingDetailScreenState extends State<MeetingDetailScreen> {
 
   Widget _buildJoinButton(Meeting meeting, bool isCurrentlyJoined, bool isCurrentlyHost) {
     return Container(
-      padding: const EdgeInsets.all(16),
+      padding: AppPadding.all16,
       decoration: BoxDecoration(
-        color: Theme.of(context).colorScheme.surface,
+        color: AppDesignTokens.surface,
         boxShadow: [
           BoxShadow(
-            color: Theme.of(context).colorScheme.shadow.withOpacity(0.1),
-            blurRadius: 8,
+            color: Colors.black.withOpacity(0.05),
+            blurRadius: AppDesignTokens.elevationMedium,
             offset: const Offset(0, -2),
           ),
         ],
@@ -655,48 +576,20 @@ class _MeetingDetailScreenState extends State<MeetingDetailScreen> {
     return Row(
       children: [
         Expanded(
-          child: OutlinedButton(
-            onPressed: () {
-              _showChatRoom();
-            },
-            style: OutlinedButton.styleFrom(
-              side: BorderSide(color: Theme.of(context).colorScheme.primary),
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(8),
-              ),
-              padding: const EdgeInsets.symmetric(vertical: 16),
-            ),
-            child: Text(
-              '채팅방',
-              style: TextStyle(
-                fontSize: 16,
-                fontWeight: FontWeight.bold,
-                color: Theme.of(context).colorScheme.primary,
-              ),
-            ),
+          child: CommonButton(
+            text: '채팅방',
+            variant: ButtonVariant.outline,
+            onPressed: _showChatRoom,
+            fullWidth: true,
           ),
         ),
-        const SizedBox(width: 12),
+        const SizedBox(width: AppDesignTokens.spacing3),
         Expanded(
-          child: ElevatedButton(
-            onPressed: () {
-              _showMeetingManagement();
-            },
-            style: ElevatedButton.styleFrom(
-              backgroundColor: Theme.of(context).colorScheme.primary,
-              foregroundColor: Colors.white,
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(8),
-              ),
-              padding: const EdgeInsets.symmetric(vertical: 16),
-            ),
-            child: const Text(
-              '모임 관리',
-              style: TextStyle(
-                fontSize: 16,
-                fontWeight: FontWeight.bold,
-              ),
-            ),
+          child: CommonButton(
+            text: '모임 관리',
+            variant: ButtonVariant.primary,
+            onPressed: _showMeetingManagement,
+            fullWidth: true,
           ),
         ),
       ],
@@ -708,87 +601,38 @@ class _MeetingDetailScreenState extends State<MeetingDetailScreen> {
       return Row(
         children: [
           Expanded(
-            child: OutlinedButton(
+            child: CommonButton(
+              text: '참여 취소',
+              variant: ButtonVariant.outline,
               onPressed: _isLoading ? null : () async {
                 await _leaveMeeting();
               },
-              style: OutlinedButton.styleFrom(
-                side: BorderSide(color: Theme.of(context).colorScheme.outline),
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(8),
-                ),
-                padding: const EdgeInsets.symmetric(vertical: 16),
-              ),
-              child: Text(
-                '참여 취소',
-                style: TextStyle(
-                  fontSize: 16,
-                  fontWeight: FontWeight.bold,
-                  color: Theme.of(context).colorScheme.outline,
-                ),
-              ),
+              isLoading: _isLoading,
+              fullWidth: true,
             ),
           ),
-          const SizedBox(width: 12),
+          const SizedBox(width: AppDesignTokens.spacing3),
           Expanded(
-            child: ElevatedButton(
-              onPressed: () {
-                _showChatRoom();
-              },
-              style: ElevatedButton.styleFrom(
-                backgroundColor: Theme.of(context).colorScheme.primary,
-                foregroundColor: Colors.white,
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(8),
-                ),
-                padding: const EdgeInsets.symmetric(vertical: 16),
-              ),
-              child: const Text(
-                '채팅방 입장',
-                style: TextStyle(
-                  fontSize: 16,
-                  fontWeight: FontWeight.bold,
-                ),
-              ),
+            child: CommonButton(
+              text: '채팅방 입장',
+              variant: ButtonVariant.primary,
+              onPressed: _showChatRoom,
+              fullWidth: true,
             ),
           ),
         ],
       );
     } else {
-      return SizedBox(
-        width: double.infinity,
-        child: ElevatedButton(
-          onPressed: (meeting.isAvailable && !_isLoading && _currentUserId != null)
-              ? () async {
-                  await _joinMeeting();
-                }
-              : null,
-          style: ElevatedButton.styleFrom(
-            backgroundColor: Theme.of(context).colorScheme.primary,
-            foregroundColor: Colors.white,
-            disabledBackgroundColor: Theme.of(context).colorScheme.outline,
-            shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(8),
-            ),
-            padding: const EdgeInsets.symmetric(vertical: 16),
-          ),
-          child: _isLoading 
-            ? const SizedBox(
-                width: 20,
-                height: 20,
-                child: CircularProgressIndicator(
-                  strokeWidth: 2,
-                  valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
-                ),
-              )
-            : Text(
-                meeting.isAvailable ? '모임 참여하기' : '모집 마감',
-                style: const TextStyle(
-                  fontSize: 16,
-                  fontWeight: FontWeight.bold,
-                ),
-              ),
-        ),
+      return CommonButton(
+        text: meeting.isAvailable ? '모임 참여하기' : '모집 마감',
+        variant: ButtonVariant.primary,
+        onPressed: (meeting.isAvailable && !_isLoading && _currentUserId != null)
+            ? () async {
+                await _joinMeeting();
+              }
+            : null,
+        isLoading: _isLoading,
+        fullWidth: true,
       );
     }
   }
@@ -825,8 +669,8 @@ class _MeetingDetailScreenState extends State<MeetingDetailScreen> {
   Widget _buildMeetingManagementModal() {
     return Container(
       decoration: BoxDecoration(
-        color: Theme.of(context).colorScheme.surface,
-        borderRadius: const BorderRadius.vertical(top: Radius.circular(20)),
+        color: AppDesignTokens.surface,
+        borderRadius: const BorderRadius.vertical(top: Radius.circular(AppDesignTokens.radiusLarge)),
       ),
       child: SafeArea(
         child: Column(
@@ -834,33 +678,29 @@ class _MeetingDetailScreenState extends State<MeetingDetailScreen> {
           children: [
           // 핸들
           Container(
-            margin: const EdgeInsets.only(top: 12),
+            margin: const EdgeInsets.only(top: AppDesignTokens.spacing3),
             width: 40,
             height: 4,
             decoration: BoxDecoration(
-              color: Theme.of(context).colorScheme.outline.withOpacity(0.3),
+              color: AppDesignTokens.outline.withOpacity(0.3),
               borderRadius: BorderRadius.circular(2),
             ),
           ),
           
           // 헤더 (더 컴팩트하게)
           Padding(
-            padding: const EdgeInsets.fromLTRB(20, 16, 12, 12),
+            padding: const EdgeInsets.fromLTRB(AppDesignTokens.spacing5, AppDesignTokens.spacing4, AppDesignTokens.spacing3, AppDesignTokens.spacing3),
             child: Row(
               children: [
                 Icon(
                   Icons.settings,
-                  color: Theme.of(context).colorScheme.primary,
+                  color: AppDesignTokens.primary,
                   size: 22,
                 ),
-                const SizedBox(width: 10),
+                const SizedBox(width: AppDesignTokens.spacing2),
                 Text(
                   '모임 관리',
-                  style: TextStyle(
-                    fontSize: 18,
-                    fontWeight: FontWeight.bold,
-                    color: Theme.of(context).colorScheme.onSurface,
-                  ),
+                  style: AppTextStyles.headlineMedium,
                 ),
                 const Spacer(),
                 IconButton(
