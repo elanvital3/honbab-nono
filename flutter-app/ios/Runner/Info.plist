@@ -13,7 +13,9 @@
 	<key>CFBundleInfoDictionaryVersion</key>
 	<string>6.0</string>
 	<key>CFBundleName</key>
-	<string>honbab_nono</string>
+	<string>혼밥노노</string>
+	<key>CFBundleDisplayName</key>
+	<string>혼밥노노</string>
 	<key>CFBundlePackageType</key>
 	<string>APPL</string>
 	<key>CFBundleShortVersionString</key>

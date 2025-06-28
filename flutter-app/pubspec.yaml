@@ -1,5 +1,5 @@
 name: honbab_nono
-description: "A new Flutter project."
+description: "혼밥노노 - 맛집 동행 매칭 앱. 혼자 먹기 싫은 사람들을 위한 안전하고 편리한 동행 매칭 서비스"
 # The following line prevents the package from being accidentally published to
 # pub.dev using `flutter pub publish`. This is preferred for private packages.
 publish_to: 'none' # Remove this line if you wish to publish to pub.dev
