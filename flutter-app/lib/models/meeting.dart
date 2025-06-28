@@ -2,7 +2,6 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 
 class Meeting {
   final String id;
-  final String title;
   final String description;
   final String location;
   final DateTime dateTime;
@@ -16,12 +15,15 @@ class Meeting {
   final double? latitude;
   final double? longitude;
   final String? restaurantName;
+  final String genderPreference; // 성별 선호도: '무관', '동성만', '이성만', '동성 1명이상'
+  final String? city; // 도시 정보 (예: '천안시', '서울시')
+  final String? fullAddress; // 전체 주소
+  final String status; // 모임 상태: 'active', 'completed'
   final DateTime createdAt;
   final DateTime updatedAt;
 
   Meeting({
     required this.id,
-    required this.title,
     required this.description,
     required this.location,
     required this.dateTime,
@@ -35,6 +37,10 @@ class Meeting {
     this.latitude,
     this.longitude,
     this.restaurantName,
+    this.genderPreference = '무관',
+    this.city,
+    this.fullAddress,
+    this.status = 'active',
     DateTime? createdAt,
     DateTime? updatedAt,
   }) : createdAt = createdAt ?? DateTime.now(),
@@ -66,7 +72,6 @@ class Meeting {
     final data = doc.data() as Map<String, dynamic>;
     return Meeting(
       id: doc.id,
-      title: data['title'] ?? '',
       description: data['description'] ?? '',
       location: data['location'] ?? '',
       dateTime: (data['dateTime'] as Timestamp).toDate(),
@@ -80,6 +85,10 @@ class Meeting {
       latitude: data['latitude']?.toDouble(),
       longitude: data['longitude']?.toDouble(),
       restaurantName: data['restaurantName'],
+      genderPreference: data['genderPreference'] ?? '무관',
+      city: data['city'] as String?,
+      fullAddress: data['fullAddress'] as String?,
+      status: data['status'] ?? 'active',
       createdAt: (data['createdAt'] as Timestamp?)?.toDate() ?? DateTime.now(),
       updatedAt: (data['updatedAt'] as Timestamp?)?.toDate() ?? DateTime.now(),
     );
@@ -87,7 +96,6 @@ class Meeting {
 
   Map<String, dynamic> toFirestore() {
     return {
-      'title': title,
       'description': description,
       'location': location,
       'dateTime': Timestamp.fromDate(dateTime),
@@ -101,6 +109,10 @@ class Meeting {
       'latitude': latitude,
       'longitude': longitude,
       'restaurantName': restaurantName,
+      'genderPreference': genderPreference,
+      'city': city,
+      'fullAddress': fullAddress,
+      'status': status,
       'createdAt': Timestamp.fromDate(createdAt),
       'updatedAt': Timestamp.fromDate(updatedAt),
     };
@@ -108,7 +120,6 @@ class Meeting {
 
   Meeting copyWith({
     String? id,
-    String? title,
     String? description,
     String? location,
     DateTime? dateTime,
@@ -122,12 +133,15 @@ class Meeting {
     double? latitude,
     double? longitude,
     String? restaurantName,
+    String? genderPreference,
+    String? city,
+    String? fullAddress,
+    String? status,
     DateTime? createdAt,
     DateTime? updatedAt,
   }) {
     return Meeting(
       id: id ?? this.id,
-      title: title ?? this.title,
       description: description ?? this.description,
       location: location ?? this.location,
       dateTime: dateTime ?? this.dateTime,
@@ -141,6 +155,10 @@ class Meeting {
       latitude: latitude ?? this.latitude,
       longitude: longitude ?? this.longitude,
       restaurantName: restaurantName ?? this.restaurantName,
+      genderPreference: genderPreference ?? this.genderPreference,
+      city: city ?? this.city,
+      fullAddress: fullAddress ?? this.fullAddress,
+      status: status ?? this.status,
       createdAt: createdAt ?? this.createdAt,
       updatedAt: updatedAt ?? this.updatedAt,
     );

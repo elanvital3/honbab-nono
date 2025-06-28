@@ -1,8 +1,12 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/foundation.dart';
 import '../../models/meeting.dart';
 import '../../models/restaurant.dart';
+import '../../models/user.dart' as app_user;
 import '../../components/restaurant_search_modal.dart';
 import '../../services/auth_service.dart';
+import '../../services/meeting_service.dart';
+import '../../services/user_service.dart';
 
 class CreateMeetingScreen extends StatefulWidget {
   const CreateMeetingScreen({super.key});
@@ -13,21 +17,47 @@ class CreateMeetingScreen extends StatefulWidget {
 
 class _CreateMeetingScreenState extends State<CreateMeetingScreen> {
   final _formKey = GlobalKey<FormState>();
-  final _titleController = TextEditingController();
   final _descriptionController = TextEditingController();
   final _locationController = TextEditingController();
   
   DateTime? _selectedDate;
   TimeOfDay? _selectedTime;
   int _maxParticipants = 4;
+  String _genderPreference = '무관';
   Restaurant? _selectedRestaurant;
+  bool _isLoading = false;
 
   @override
   void dispose() {
-    _titleController.dispose();
     _descriptionController.dispose();
     _locationController.dispose();
     super.dispose();
+  }
+
+  @override
+  void initState() {
+    super.initState();
+    // 기본 설명 텍스트 설정
+    _descriptionController.text = '함께 맛있는 식사하실 분 구해요!';
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    
+    // arguments로 전달된 식당 정보 확인 및 자동 선택
+    final arguments = ModalRoute.of(context)?.settings.arguments as Map<String, dynamic>?;
+    if (arguments != null && arguments['restaurant'] != null && _selectedRestaurant == null) {
+      final Restaurant restaurant = arguments['restaurant'] as Restaurant;
+      setState(() {
+        _selectedRestaurant = restaurant;
+        _locationController.text = restaurant.name;
+      });
+      
+      if (kDebugMode) {
+        print('✅ 선택된 식당 자동 설정: ${restaurant.name}');
+      }
+    }
   }
 
   Future<void> _selectDate() async {
@@ -36,6 +66,10 @@ class _CreateMeetingScreenState extends State<CreateMeetingScreen> {
       initialDate: DateTime.now().add(const Duration(days: 1)),
       firstDate: DateTime.now(),
       lastDate: DateTime.now().add(const Duration(days: 30)),
+      locale: const Locale('ko', 'KR'),
+      helpText: '날짜 선택',
+      cancelText: '취소',
+      confirmText: '확인',
     );
     if (picked != null) {
       setState(() {
@@ -48,6 +82,11 @@ class _CreateMeetingScreenState extends State<CreateMeetingScreen> {
     final TimeOfDay? picked = await showTimePicker(
       context: context,
       initialTime: const TimeOfDay(hour: 18, minute: 0),
+      helpText: '시간 선택',
+      cancelText: '취소',
+      confirmText: '확인',
+      hourLabelText: '시간',
+      minuteLabelText: '분',
     );
     if (picked != null) {
       setState(() {
@@ -56,28 +95,48 @@ class _CreateMeetingScreenState extends State<CreateMeetingScreen> {
     }
   }
 
-  void _createMeeting() {
-    if (_formKey.currentState!.validate()) {
-      if (_selectedDate == null || _selectedTime == null) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: const Text('날짜와 시간을 모두 선택해주세요'),
-            backgroundColor: Theme.of(context).colorScheme.primary,
-          ),
-        );
+  Future<void> _createMeeting() async {
+    if (!_formKey.currentState!.validate()) return;
+    
+    // 필수 필드 검증
+    if (_selectedDate == null || _selectedTime == null) {
+      _showErrorSnackBar('날짜와 시간을 모두 선택해주세요');
+      return;
+    }
+
+    if (_selectedRestaurant == null) {
+      _showErrorSnackBar('식당을 선택해주세요');
+      return;
+    }
+
+    setState(() {
+      _isLoading = true;
+    });
+
+    try {
+      // 현재 로그인된 Firebase 사용자 확인
+      final currentFirebaseUser = AuthService.currentFirebaseUser;
+      if (currentFirebaseUser == null) {
+        _showErrorSnackBar('로그인이 필요합니다');
         return;
       }
 
-      if (_selectedRestaurant == null) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: const Text('식당을 선택해주세요'),
-            backgroundColor: Theme.of(context).colorScheme.primary,
-          ),
-        );
+      if (kDebugMode) {
+        print('🔍 모임 생성 시작 - Firebase UID: ${currentFirebaseUser.uid}');
+      }
+
+      // Firestore에서 사용자 정보 가져오기
+      final currentUser = await UserService.getUser(currentFirebaseUser.uid);
+      if (currentUser == null) {
+        _showErrorSnackBar('사용자 정보를 찾을 수 없습니다');
         return;
       }
 
+      if (kDebugMode) {
+        print('✅ 사용자 정보 확인: ${currentUser.name}');
+      }
+
+      // 모임 날짜/시간 결합
       final meetingDateTime = DateTime(
         _selectedDate!.year,
         _selectedDate!.month,
@@ -86,33 +145,89 @@ class _CreateMeetingScreenState extends State<CreateMeetingScreen> {
         _selectedTime!.minute,
       );
 
-      final currentUser = AuthService.currentFirebaseUser;
-      if (currentUser == null) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('로그인이 필요합니다.')),
-        );
-        return;
-      }
-
+      // 선택된 식당 주소에서 도시 정보 추출
+      String city = _extractCityFromAddress(_selectedRestaurant!.address);
+      
+      // 새 모임 생성
       final newMeeting = Meeting(
-        id: DateTime.now().millisecondsSinceEpoch.toString(),
-        title: _titleController.text,
-        description: _descriptionController.text,
+        id: '', // MeetingService에서 자동 생성
+        description: _descriptionController.text.trim(),
         location: _selectedRestaurant!.name,
         dateTime: meetingDateTime,
         maxParticipants: _maxParticipants,
         currentParticipants: 1,
-        hostId: currentUser.uid,
-        hostName: currentUser.displayName ?? '익명',
+        hostId: currentUser.id,
+        hostName: currentUser.name,
         tags: _extractTags(_descriptionController.text),
-        participantIds: [currentUser.uid],
+        participantIds: [currentUser.id],
         latitude: _selectedRestaurant!.latitude,
         longitude: _selectedRestaurant!.longitude,
         restaurantName: _selectedRestaurant!.name,
+        genderPreference: _genderPreference,
+        city: city, // 도시 정보 추가
+        fullAddress: _selectedRestaurant!.address, // 전체 주소 추가
       );
 
-      Navigator.pop(context, newMeeting);
+      if (kDebugMode) {
+        print('📝 모임 정보:');
+        print('  - 식당: ${newMeeting.restaurantName}');
+        print('  - 설명: ${newMeeting.description}');
+        print('  - 날짜: ${newMeeting.dateTime}');
+        print('  - 성별선호: ${newMeeting.genderPreference}');
+        print('  - 호스트: ${newMeeting.hostName}');
+        print('  - 도시: ${newMeeting.city}');
+        print('  - 주소: ${newMeeting.fullAddress}');
+      }
+
+      // Firestore에 저장
+      final createdMeetingId = await MeetingService.createMeeting(newMeeting);
+      
+      if (kDebugMode) {
+        print('✅ 모임 생성 완료 - ID: $createdMeetingId');
+      }
+
+      // 호스팅 횟수 증가
+      await UserService.incrementHostedMeetings(currentUser.id);
+
+      if (mounted) {
+        // 성공 메시지 표시
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: const Text('모임이 성공적으로 생성되었습니다! 🎉'),
+            backgroundColor: Colors.green,
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
+
+        // 홈 화면으로 돌아가기
+        Navigator.pop(context);
+      }
+
+    } catch (e) {
+      if (kDebugMode) {
+        print('❌ 모임 생성 실패: $e');
+      }
+      
+      if (mounted) {
+        _showErrorSnackBar('모임 생성 중 오류가 발생했습니다: $e');
+      }
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isLoading = false;
+        });
+      }
     }
+  }
+
+  void _showErrorSnackBar(String message) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(message),
+        backgroundColor: Colors.red,
+        behavior: SnackBarBehavior.floating,
+      ),
+    );
   }
 
   List<String> _extractTags(String description) {
@@ -127,6 +242,55 @@ class _CreateMeetingScreenState extends State<CreateMeetingScreen> {
     return tags;
   }
 
+  String _extractCityFromAddress(String address) {
+    print('🏙️ 주소에서 도시 추출: "$address"');
+    
+    // 주소를 공백으로 분리하여 각 부분 검사
+    final parts = address.split(' ');
+    print('🔍 주소 부분들: $parts');
+    
+    // 특별시/광역시 처리 ("서울시", "부산시" 등으로 통일)
+    for (final part in parts) {
+      if (part.contains('특별시') || part.contains('광역시')) {
+        String cityName;
+        if (part == '서울특별시') cityName = '서울시';
+        else if (part == '부산광역시') cityName = '부산시';
+        else if (part == '대구광역시') cityName = '대구시';
+        else if (part == '인천광역시') cityName = '인천시';
+        else if (part == '광주광역시') cityName = '광주시';
+        else if (part == '대전광역시') cityName = '대전시';
+        else if (part == '울산광역시') cityName = '울산시';
+        else if (part == '세종특별자치시') cityName = '세종시';
+        else cityName = part.replaceAll('특별시', '시').replaceAll('광역시', '시');
+        
+        print('✅ 특별시/광역시 도시 추출: "$cityName"');
+        return cityName;
+      }
+    }
+    
+    // 일반 도 + 시/군 처리
+    for (int i = 0; i < parts.length - 1; i++) {
+      if (parts[i].endsWith('도')) {
+        final nextPart = parts[i + 1];
+        if (nextPart.endsWith('시') || nextPart.endsWith('군')) {
+          print('✅ 도 + 시/군 도시 추출: "$nextPart"');
+          return nextPart;
+        }
+      }
+    }
+    
+    // "시"로 끝나는 첫 번째 단어 찾기
+    for (final part in parts) {
+      if (part.endsWith('시')) {
+        print('✅ 시 단위 도시 추출: "$part"');
+        return part;
+      }
+    }
+    
+    print('❌ 도시 추출 실패, 기타로 설정');
+    return '기타';
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -136,16 +300,27 @@ class _CreateMeetingScreenState extends State<CreateMeetingScreen> {
         elevation: 0,
         title: const Text('모임 만들기'),
         actions: [
-          TextButton(
-            onPressed: _createMeeting,
-            child: Text(
-              '완료',
-              style: TextStyle(
+          if (_isLoading)
+            Container(
+              margin: const EdgeInsets.all(16),
+              width: 20,
+              height: 20,
+              child: CircularProgressIndicator(
+                strokeWidth: 2,
                 color: Theme.of(context).colorScheme.primary,
-                fontWeight: FontWeight.bold,
+              ),
+            )
+          else
+            TextButton(
+              onPressed: _createMeeting,
+              child: Text(
+                '완료',
+                style: TextStyle(
+                  color: Theme.of(context).colorScheme.primary,
+                  fontWeight: FontWeight.bold,
+                ),
               ),
             ),
-          ),
         ],
       ),
       body: Form(
@@ -155,68 +330,6 @@ class _CreateMeetingScreenState extends State<CreateMeetingScreen> {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              _buildSectionTitle('모임 정보'),
-              const SizedBox(height: 16),
-              
-              TextFormField(
-                controller: _titleController,
-                style: const TextStyle(fontSize: 16),
-                decoration: InputDecoration(
-                  labelText: '모임 제목',
-                  hintText: '예: 강남 맛집 탐방하실 분!',
-                  border: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(8),
-                    borderSide: BorderSide(color: Theme.of(context).colorScheme.outline),
-                  ),
-                  enabledBorder: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(8),
-                    borderSide: BorderSide(color: Theme.of(context).colorScheme.outline.withOpacity(0.3)),
-                  ),
-                  focusedBorder: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(8),
-                    borderSide: BorderSide(color: Theme.of(context).colorScheme.primary),
-                  ),
-                  contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
-                ),
-                validator: (value) {
-                  if (value == null || value.isEmpty) {
-                    return '모임 제목을 입력해주세요';
-                  }
-                  return null;
-                },
-              ),
-              const SizedBox(height: 16),
-              
-              TextFormField(
-                controller: _descriptionController,
-                style: const TextStyle(fontSize: 16),
-                decoration: InputDecoration(
-                  labelText: '모임 설명',
-                  hintText: '어떤 모임인지 간단히 설명해주세요',
-                  border: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(8),
-                    borderSide: BorderSide(color: Theme.of(context).colorScheme.outline),
-                  ),
-                  enabledBorder: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(8),
-                    borderSide: BorderSide(color: Theme.of(context).colorScheme.outline.withOpacity(0.3)),
-                  ),
-                  focusedBorder: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(8),
-                    borderSide: BorderSide(color: Theme.of(context).colorScheme.primary),
-                  ),
-                  contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
-                ),
-                maxLines: 3,
-                validator: (value) {
-                  if (value == null || value.isEmpty) {
-                    return '모임 설명을 입력해주세요';
-                  }
-                  return null;
-                },
-              ),
-              const SizedBox(height: 24),
-              
               _buildSectionTitle('장소 및 시간'),
               const SizedBox(height: 16),
               
@@ -381,9 +494,10 @@ class _CreateMeetingScreenState extends State<CreateMeetingScreen> {
               ),
               const SizedBox(height: 24),
               
-              _buildSectionTitle('모집 인원'),
+              _buildSectionTitle('모집 옵션'),
               const SizedBox(height: 16),
               
+              // 최대 인원 설정
               Container(
                 padding: const EdgeInsets.all(16),
                 decoration: BoxDecoration(
@@ -440,6 +554,43 @@ class _CreateMeetingScreenState extends State<CreateMeetingScreen> {
                   ],
                 ),
               ),
+              const SizedBox(height: 16),
+              
+              // 성별 선호도 설정
+              _buildGenderPreferenceSection(),
+              const SizedBox(height: 24),
+              
+              _buildSectionTitle('모임 설명'),
+              const SizedBox(height: 16),
+              
+              TextFormField(
+                controller: _descriptionController,
+                style: const TextStyle(fontSize: 16),
+                decoration: InputDecoration(
+                  labelText: '모임 설명',
+                  hintText: '어떤 모임인지 간단히 설명해주세요',
+                  border: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(8),
+                    borderSide: BorderSide(color: Theme.of(context).colorScheme.outline),
+                  ),
+                  enabledBorder: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(8),
+                    borderSide: BorderSide(color: Theme.of(context).colorScheme.outline.withOpacity(0.3)),
+                  ),
+                  focusedBorder: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(8),
+                    borderSide: BorderSide(color: Theme.of(context).colorScheme.primary),
+                  ),
+                  contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
+                ),
+                maxLines: 3,
+                validator: (value) {
+                  if (value == null || value.isEmpty) {
+                    return '모임 설명을 입력해주세요';
+                  }
+                  return null;
+                },
+              ),
               const SizedBox(height: 32),
             ],
           ),
@@ -471,6 +622,70 @@ class _CreateMeetingScreenState extends State<CreateMeetingScreen> {
             _locationController.text = restaurant.name;
           });
         },
+      ),
+    );
+  }
+
+  Widget _buildGenderPreferenceSection() {
+    final List<String> genderOptions = ['무관', '동성만', '이성만', '동성 1명이상'];
+    
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: Theme.of(context).colorScheme.surfaceContainer,
+        borderRadius: BorderRadius.circular(8),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            '성별 선호도',
+            style: TextStyle(
+              fontSize: 16,
+              fontWeight: FontWeight.w600,
+              color: Theme.of(context).colorScheme.onSurface,
+            ),
+          ),
+          const SizedBox(height: 12),
+          Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            children: genderOptions.map((option) {
+              final isSelected = _genderPreference == option;
+              return GestureDetector(
+                onTap: () {
+                  setState(() {
+                    _genderPreference = option;
+                  });
+                },
+                child: Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                  decoration: BoxDecoration(
+                    color: isSelected 
+                        ? Theme.of(context).colorScheme.primary
+                        : Theme.of(context).colorScheme.surface,
+                    borderRadius: BorderRadius.circular(20),
+                    border: Border.all(
+                      color: isSelected 
+                          ? Theme.of(context).colorScheme.primary
+                          : Theme.of(context).colorScheme.outline.withOpacity(0.3),
+                    ),
+                  ),
+                  child: Text(
+                    option,
+                    style: TextStyle(
+                      fontSize: 14,
+                      fontWeight: FontWeight.w500,
+                      color: isSelected 
+                          ? Colors.white
+                          : Theme.of(context).colorScheme.onSurface,
+                    ),
+                  ),
+                ),
+              );
+            }).toList(),
+          ),
+        ],
       ),
     );
   }

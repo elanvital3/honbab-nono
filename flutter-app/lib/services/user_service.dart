@@ -9,14 +9,29 @@ class UserService {
   // 사용자 생성
   static Future<void> createUser(User user) async {
     try {
+      if (kDebugMode) {
+        print('📝 사용자 생성 시작:');
+        print('  - 사용자 ID: ${user.id}');
+        print('  - 사용자 이름: ${user.name}');
+        print('  - 카카오 ID: ${user.kakaoId}');
+        print('  - 이메일: ${user.email}');
+        print('  - Firestore 데이터: ${user.toFirestore()}');
+      }
+      
       await _firestore.collection(_collection).doc(user.id).set(user.toFirestore());
       
       if (kDebugMode) {
-        print('✅ User created: ${user.id}');
+        print('✅ User created successfully: ${user.id}');
+        
+        // 생성 확인
+        final createdUser = await getUser(user.id);
+        print('🔍 생성 확인: ${createdUser != null ? "성공 (${createdUser.name})" : "실패"}');
       }
     } catch (e) {
       if (kDebugMode) {
         print('❌ Error creating user: $e');
+        print('❌ Error type: ${e.runtimeType}');
+        print('❌ Error details: ${e.toString()}');
       }
       rethrow;
     }
@@ -73,9 +88,22 @@ class UserService {
   // 사용자 삭제
   static Future<void> deleteUser(String id) async {
     try {
+      if (kDebugMode) {
+        print('🗑️ 사용자 삭제 시작: $id');
+      }
+      
+      // 삭제 전 사용자가 존재하는지 확인
+      final existingUser = await getUser(id);
+      if (kDebugMode) {
+        print('🔍 삭제 전 사용자 확인: ${existingUser != null ? "존재함 (${existingUser.name}, 카카오ID: ${existingUser.kakaoId})" : "존재하지 않음"}');
+      }
+      
       await _firestore.collection(_collection).doc(id).delete();
       
+      // 삭제 후 확인
+      final deletedUser = await getUser(id);
       if (kDebugMode) {
+        print('🔍 삭제 후 확인: ${deletedUser != null ? "아직 존재함 ⚠️" : "완전히 삭제됨 ✅"}');
         print('✅ User deleted: $id');
       }
     } catch (e) {
@@ -131,19 +159,39 @@ class UserService {
   // 카카오 ID로 사용자 찾기
   static Future<User?> getUserByKakaoId(String kakaoId) async {
     try {
+      if (kDebugMode) {
+        print('🔍 카카오 ID로 사용자 검색 시작: $kakaoId');
+      }
+      
       final query = await _firestore
           .collection(_collection)
           .where('kakaoId', isEqualTo: kakaoId)
           .limit(1)
           .get();
       
+      if (kDebugMode) {
+        print('🔍 검색 결과: ${query.docs.length}개 문서 발견');
+        if (query.docs.isNotEmpty) {
+          print('🔍 발견된 사용자 데이터: ${query.docs.first.data()}');
+        }
+      }
+      
       if (query.docs.isNotEmpty) {
-        return User.fromFirestore(query.docs.first);
+        final user = User.fromFirestore(query.docs.first);
+        if (kDebugMode) {
+          print('✅ 카카오 ID 검색 성공: ${user.name} (ID: ${user.id})');
+        }
+        return user;
+      }
+      
+      if (kDebugMode) {
+        print('❌ 카카오 ID 검색 결과 없음: $kakaoId');
       }
       return null;
     } catch (e) {
       if (kDebugMode) {
-        print('❌ Error getting user by kakaoId: $e');
+        print('❌ Error getting user by kakao ID: $e');
+        print('❌ Error type: ${e.runtimeType}');
       }
       return null;
     }

@@ -71,6 +71,41 @@ class MeetingService {
     }
   }
 
+  // 모임 전체 업데이트 (Meeting 객체)
+  static Future<void> updateMeetingFromModel(Meeting meeting) async {
+    try {
+      await _firestore.collection(_collection).doc(meeting.id).update(meeting.toFirestore());
+      
+      if (kDebugMode) {
+        print('✅ Meeting updated: ${meeting.id}');
+      }
+    } catch (e) {
+      if (kDebugMode) {
+        print('❌ Error updating meeting: $e');
+      }
+      rethrow;
+    }
+  }
+
+  // 모임 완료 (호스트만)
+  static Future<void> completeMeeting(String meetingId) async {
+    try {
+      await _firestore.collection(_collection).doc(meetingId).update({
+        'status': 'completed',
+        'updatedAt': Timestamp.fromDate(DateTime.now()),
+      });
+      
+      if (kDebugMode) {
+        print('✅ Meeting completed: $meetingId');
+      }
+    } catch (e) {
+      if (kDebugMode) {
+        print('❌ Error completing meeting: $e');
+      }
+      rethrow;
+    }
+  }
+
   // 모임 삭제
   static Future<void> deleteMeeting(String id) async {
     try {

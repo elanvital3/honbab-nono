@@ -1,6 +1,6 @@
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
-import 'package:kakao_flutter_sdk_user/kakao_flutter_sdk_user.dart';
+import 'package:kakao_flutter_sdk/kakao_flutter_sdk.dart';
 import 'package:firebase_auth/firebase_auth.dart' as firebase_auth;
 import '../models/user.dart' as app_user;
 import 'user_service.dart';
@@ -29,6 +29,10 @@ class KakaoAuthService {
         } catch (error) {
           if (kDebugMode) {
             print('❌ 카카오톡으로 로그인 실패: $error');
+            if (error is PlatformException && error.code == 'NotSupportError') {
+              print('💡 원인: 카카오톡이 카카오 계정에 연결되지 않음 (에뮬레이터 환경)');
+            }
+            print('🔄 웹 브라우저 로그인으로 자동 전환...');
           }
           
           // 카카오톡 로그인 실패시 카카오 계정으로 로그인
@@ -74,6 +78,9 @@ class KakaoAuthService {
   // 카카오 계정으로 로그인
   static Future<void> _loginWithKakaoAccount() async {
     try {
+      if (kDebugMode) {
+        print('🌐 카카오 계정 로그인 시작...');
+      }
       await UserApi.instance.loginWithKakaoAccount();
       if (kDebugMode) {
         print('✅ 카카오 계정으로 로그인 성공');
@@ -81,6 +88,13 @@ class KakaoAuthService {
     } catch (error) {
       if (kDebugMode) {
         print('❌ 카카오 계정으로 로그인 실패: $error');
+      }
+      // 사용자 취소 외에는 예외를 다시 던지지 않고 null 반환
+      if (error is PlatformException && error.code != 'CANCELED') {
+        if (kDebugMode) {
+          print('🚫 로그인 실패 - 오류 무시하고 계속');
+        }
+        return; // 예외를 던지지 않고 종료
       }
       rethrow;
     }
@@ -112,7 +126,13 @@ class KakaoAuthService {
         }
 
         // Firestore에서 카카오 ID로 기존 사용자 찾기
+        if (kDebugMode) {
+          print('🔍 카카오 ID로 기존 사용자 검색 중: $kakaoId');
+        }
         app_user.User? existingUser = await UserService.getUserByKakaoId(kakaoId);
+        if (kDebugMode) {
+          print('🔍 기존 사용자 검색 결과: ${existingUser != null ? "발견됨 (${existingUser.name})" : "없음"}');
+        }
         
         if (existingUser == null) {
           // 신규 사용자 - 특별한 표시자와 함께 반환
@@ -121,6 +141,8 @@ class KakaoAuthService {
             print('  - 카카오 ID: $kakaoId');
             print('  - Firebase UID: ${firebaseUser.uid}');
             print('  - 카카오 닉네임: $name');
+            print('  - 이메일: $email');
+            print('  - 프로필 이미지: $profileImage');
           }
           
           // 신규 사용자임을 명확히 표시 (name을 "NEW_USER"로 설정)
@@ -139,21 +161,26 @@ class KakaoAuthService {
             print('  - 새 Firebase UID: ${firebaseUser.uid}');
           }
 
-          // 기존 사용자의 Firebase UID와 프로필 사진 업데이트
-          await UserService.updateUser(existingUser.id, {
-            'id': firebaseUser.uid,
-            'profileImageUrl': profileImage, // 최신 프로필 사진으로 업데이트
-            'updatedAt': DateTime.now(),
-          });
+          // 기존 사용자 문서 삭제 (이전 UID)
+          if (kDebugMode) {
+            print('🗑️ 기존 사용자 문서 삭제 중: ${existingUser.id}');
+          }
+          await UserService.deleteUser(existingUser.id);
           
-          // 업데이트된 사용자 정보 반환
+          // 새로운 UID로 사용자 문서 생성
           final updatedUser = existingUser.copyWith(
             id: firebaseUser.uid,
             profileImageUrl: profileImage,
+            updatedAt: DateTime.now(),
           );
           
           if (kDebugMode) {
-            print('✅ 기존 사용자 정보 업데이트 완료');
+            print('📝 새로운 UID로 사용자 문서 생성: ${firebaseUser.uid}');
+          }
+          await UserService.createUser(updatedUser);
+          
+          if (kDebugMode) {
+            print('✅ 기존 사용자 정보 마이그레이션 완료');
           }
           return updatedUser;
         }
@@ -187,16 +214,56 @@ class KakaoAuthService {
 
   // 카카오 연결 끊기 (회원 탈퇴)
   static Future<void> unlink() async {
+    String? lastError;
+    
     try {
-      await UserApi.instance.unlink();
-      await AuthService.deleteAccount();
+      if (kDebugMode) {
+        print('🔄 회원탈퇴 프로세스 시작');
+      }
+      
+      // 1. 카카오 연결 끊기 (실패해도 계속 진행)
+      try {
+        if (kDebugMode) {
+          print('🔄 카카오 연결 끊기 시도...');
+        }
+        await UserApi.instance.unlink();
+        if (kDebugMode) {
+          print('✅ 카카오 연결 끊기 성공');
+        }
+      } catch (kakaoError) {
+        lastError = kakaoError.toString();
+        if (kDebugMode) {
+          print('⚠️ 카카오 연결 끊기 실패 (계속 진행): $kakaoError');
+        }
+      }
+      
+      // 2. Firebase 계정 삭제 (반드시 실행)
+      try {
+        if (kDebugMode) {
+          print('🔄 Firebase 계정 삭제 시도...');
+        }
+        await AuthService.deleteAccount();
+        if (kDebugMode) {
+          print('✅ Firebase 계정 삭제 성공');
+        }
+      } catch (firebaseError) {
+        if (kDebugMode) {
+          print('❌ Firebase 계정 삭제 실패: $firebaseError');
+        }
+        throw firebaseError; // Firebase 삭제는 반드시 성공해야 함
+      }
       
       if (kDebugMode) {
-        print('✅ 카카오 연결 끊기 성공');
+        if (lastError != null) {
+          print('⚠️ 회원탈퇴 완료 (카카오 연결 끊기 실패했지만 Firebase 계정은 삭제됨)');
+        } else {
+          print('✅ 회원탈퇴 완전 성공');
+        }
       }
+      
     } catch (error) {
       if (kDebugMode) {
-        print('❌ 카카오 연결 끊기 실패: $error');
+        print('❌ 회원탈퇴 실패: $error');
       }
       rethrow;
     }

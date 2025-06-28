@@ -4,15 +4,19 @@ import 'package:kakao_maps_flutter/kakao_maps_flutter.dart';
 import 'package:kakao_flutter_sdk_user/kakao_flutter_sdk_user.dart';
 import 'package:provider/provider.dart';
 import 'package:firebase_auth/firebase_auth.dart' as firebase_auth;
+import 'package:flutter_localizations/flutter_localizations.dart';
 import 'config/firebase_config.dart';
 import 'services/auth_service.dart';
 import 'services/user_service.dart';
+import 'services/location_service.dart';
+import 'screens/auth/auth_wrapper.dart';
 import 'screens/auth/login_screen.dart';
 import 'screens/auth/signup_complete_screen.dart';
 import 'screens/home/home_screen.dart';
 import 'screens/meeting/create_meeting_screen.dart';
 import 'screens/meeting/meeting_detail_screen.dart';
 import 'screens/test/firebase_test_screen.dart';
+import 'screens/splash/splash_screen.dart';
 import 'models/meeting.dart';
 import 'models/user.dart' as app_user;
 
@@ -39,6 +43,17 @@ void main() async {
     print('❌ 카카오맵 초기화 실패: $e');
   }
   
+  // 백그라운드에서 위치 미리 가져오기 (캐시용)
+  LocationService.getCurrentLocation().then((location) {
+    if (location != null) {
+      print('📍 앱 시작 시 위치 캐시 완료: ${location.latitude}, ${location.longitude}');
+    } else {
+      print('📍 앱 시작 시 위치 가져오기 실패');
+    }
+  }).catchError((e) {
+    print('📍 앱 시작 시 위치 가져오기 에러: $e');
+  });
+  
   runApp(const HonbabNoNoApp());
 }
 
@@ -52,6 +67,16 @@ class HonbabNoNoApp extends StatelessWidget {
       initialData: null,
       child: MaterialApp(
       title: '혼밥노노',
+      locale: const Locale('ko', 'KR'),
+      localizationsDelegates: const [
+        GlobalMaterialLocalizations.delegate,
+        GlobalWidgetsLocalizations.delegate,
+        GlobalCupertinoLocalizations.delegate,
+      ],
+      supportedLocales: const [
+        Locale('ko', 'KR'),
+        Locale('en', 'US'),
+      ],
       theme: ThemeData(
         colorScheme: const ColorScheme.light(
           primary: Color(0xFFD2B48C),        // 베이지 - 당근마켓 주황색 위치에
@@ -101,71 +126,29 @@ class HonbabNoNoApp extends StatelessWidget {
           surfaceTintColor: Color(0xFFFFFFFF),
         ),
       ),
-      home: const AuthWrapper(),
+      home: const SplashScreen(),
       onGenerateRoute: (settings) {
         switch (settings.name) {
           case '/home':
             return MaterialPageRoute(builder: (context) => const HomeScreen());
           case '/create-meeting':
-            return MaterialPageRoute(builder: (context) => const CreateMeetingScreen());
+            return MaterialPageRoute(
+              builder: (context) => const CreateMeetingScreen(),
+              settings: settings, // arguments 전달을 위해 settings 추가
+            );
           case '/meeting-detail':
             final meeting = settings.arguments as Meeting;
             return MaterialPageRoute(
               builder: (context) => MeetingDetailScreen(meeting: meeting),
             );
+          case '/test':
+            return MaterialPageRoute(builder: (context) => const FirebaseTestScreen());
           default:
             return MaterialPageRoute(builder: (context) => const LoginScreen());
         }
       },
       debugShowCheckedModeBanner: false,
       ),
-    );
-  }
-}
-
-class AuthWrapper extends StatelessWidget {
-  const AuthWrapper({super.key});
-
-  @override
-  Widget build(BuildContext context) {
-    final firebaseUser = Provider.of<firebase_auth.User?>(context);
-    
-    // Firebase 사용자가 없으면 로그인 화면
-    if (firebaseUser == null) {
-      return const LoginScreen();
-    }
-    
-    // Firebase 사용자는 있지만 Firestore 데이터 확인 필요
-    return FutureBuilder<app_user.User?>(
-      future: UserService.getUser(firebaseUser.uid),
-      builder: (context, snapshot) {
-        if (snapshot.connectionState == ConnectionState.waiting) {
-          // 로딩 중
-          return const Scaffold(
-            backgroundColor: Colors.white,
-            body: Center(
-              child: CircularProgressIndicator(
-                color: Color(0xFFD2B48C),
-              ),
-            ),
-          );
-        }
-        
-        if (snapshot.hasError) {
-          // 에러 발생 시 로그인 화면으로
-          return const LoginScreen();
-        }
-        
-        final firestoreUser = snapshot.data;
-        
-        if (firestoreUser != null && firestoreUser.name.isNotEmpty && firestoreUser.name != 'NEW_USER') {
-          // 완전한 사용자 데이터가 있으면 홈 화면
-          return const HomeScreen();
-        } else {
-          // Firestore에 데이터가 없거나 불완전하면 로그인 화면
-          return const LoginScreen();
-        }
-      },
     );
   }
 }

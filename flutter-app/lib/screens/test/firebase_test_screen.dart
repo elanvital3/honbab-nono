@@ -15,6 +15,36 @@ class _FirebaseTestScreenState extends State<FirebaseTestScreen> {
   bool _isLoading = false;
   String _message = '';
 
+  Future<void> _deleteProblematicUser() async {
+    setState(() {
+      _isLoading = true;
+      _message = '문제 사용자 삭제 중...';
+    });
+
+    try {
+      // 카카오 ID로 사용자 찾기
+      final user = await UserService.getUserByKakaoId('4323196821');
+      if (user != null) {
+        // 사용자 삭제
+        await UserService.deleteUser(user.id);
+        setState(() {
+          _message = '✅ 문제 사용자 삭제 완료! (${user.name})';
+          _isLoading = false;
+        });
+      } else {
+        setState(() {
+          _message = '❌ 해당 카카오 ID의 사용자를 찾을 수 없음';
+          _isLoading = false;
+        });
+      }
+    } catch (e) {
+      setState(() {
+        _message = '❌ 사용자 삭제 실패: $e';
+        _isLoading = false;
+      });
+    }
+  }
+
   Future<void> _addSampleData() async {
     setState(() {
       _isLoading = true;
@@ -35,7 +65,6 @@ class _FirebaseTestScreenState extends State<FirebaseTestScreen> {
       // 샘플 모임 생성
       final sampleMeeting = Meeting(
         id: 'test_meeting_${DateTime.now().millisecondsSinceEpoch}',
-        title: '강남역 맛집 탐방!',
         description: 'Firebase 테스트용 모임입니다. 같이 맛있는 거 먹어요!',
         location: '서울시 강남구 강남역',
         dateTime: DateTime.now().add(const Duration(hours: 3)),
@@ -79,6 +108,15 @@ class _FirebaseTestScreenState extends State<FirebaseTestScreen> {
               style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold),
             ),
             const SizedBox(height: 40),
+            ElevatedButton(
+              onPressed: _isLoading ? null : _deleteProblematicUser,
+              style: ElevatedButton.styleFrom(
+                backgroundColor: Colors.red,
+                foregroundColor: Colors.white,
+              ),
+              child: const Text('문제 사용자 삭제'),
+            ),
+            const SizedBox(height: 10),
             ElevatedButton(
               onPressed: _isLoading ? null : _addSampleData,
               child: const Text('샘플 데이터 추가'),

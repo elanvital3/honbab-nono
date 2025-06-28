@@ -57,7 +57,7 @@ class MeetingCard extends StatelessWidget {
                       children: [
                         Expanded(
                           child: Text(
-                            meeting.title,
+                            meeting.restaurantName ?? meeting.location,  // 식당 이름을 메인 타이틀로
                             style: TextStyle(
                               fontSize: 15,  // 당근마켓 스타일
                               fontWeight: FontWeight.w600,  // 당근마켓 스타일
@@ -72,18 +72,24 @@ class MeetingCard extends StatelessWidget {
                         Container(
                           padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
                           decoration: BoxDecoration(
-                            color: meeting.isAvailable 
-                                ? Theme.of(context).colorScheme.primary  // 베이지 포인트!
-                                : Theme.of(context).colorScheme.outline.withOpacity(0.3),
+                            color: meeting.status == 'completed'
+                                ? Theme.of(context).colorScheme.outline.withOpacity(0.6)  // 완료된 모임
+                                : meeting.isAvailable 
+                                    ? Theme.of(context).colorScheme.primary  // 베이지 포인트!
+                                    : Theme.of(context).colorScheme.outline.withOpacity(0.3),
                             borderRadius: BorderRadius.circular(12),
                           ),
                           child: Text(
-                            meeting.isAvailable ? '모집중' : '마감',
+                            meeting.status == 'completed' 
+                                ? '완료'
+                                : meeting.isAvailable ? '모집중' : '마감',
                             style: TextStyle(
                               fontSize: 11,
-                              color: meeting.isAvailable 
-                                  ? Colors.white  // 베이지 배경에 흰 글씨
-                                  : Theme.of(context).colorScheme.outline,
+                              color: meeting.status == 'completed'
+                                  ? Colors.white  // 완료된 모임은 흰 글씨
+                                  : meeting.isAvailable 
+                                      ? Colors.white  // 베이지 배경에 흰 글씨
+                                      : Theme.of(context).colorScheme.outline,
                               fontWeight: FontWeight.w600,
                             ),
                           ),
@@ -92,14 +98,16 @@ class MeetingCard extends StatelessWidget {
                     ),
                     const SizedBox(height: 4),
                     
-                    // 당근마켓 스타일 가격 정보
+                    // 모임 설명 (간단히)
                     Text(
-                      '1인당 예상 15,000원',  // 임시 가격
+                      meeting.description,
                       style: TextStyle(
-                        fontSize: 14,
-                        fontWeight: FontWeight.w600,
-                        color: Theme.of(context).colorScheme.onSurface,
+                        fontSize: 13,
+                        color: Theme.of(context).colorScheme.outline,
+                        height: 1.3,
                       ),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
                     ),
                     const SizedBox(height: 6),
                     
@@ -114,7 +122,7 @@ class MeetingCard extends StatelessWidget {
                         const SizedBox(width: 2),
                         Expanded(
                           child: Text(
-                            meeting.location,
+                            meeting.fullAddress ?? meeting.location,
                             style: TextStyle(
                               fontSize: 12,  // 당근마켓 스타일
                               color: Theme.of(context).colorScheme.outline,
@@ -204,13 +212,34 @@ class MeetingCard extends StatelessWidget {
                       ],
                     ),
                     
-                    // 태그들
-                    if (meeting.tags.isNotEmpty) ...[
-                      const SizedBox(height: 8),
-                      Wrap(
-                        spacing: 4,
-                        runSpacing: 4,
-                        children: meeting.tags.take(3).map((tag) => Container(
+                    // 태그들 (성별 선호도 포함)
+                    const SizedBox(height: 8),
+                    Wrap(
+                      spacing: 4,
+                      runSpacing: 4,
+                      children: [
+                        // 성별 선호도 태그 (항상 표시)
+                        Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                          decoration: BoxDecoration(
+                            color: Theme.of(context).colorScheme.primary.withOpacity(0.1),
+                            borderRadius: BorderRadius.circular(8),
+                            border: Border.all(
+                              color: Theme.of(context).colorScheme.primary.withOpacity(0.3),
+                              width: 0.5,
+                            ),
+                          ),
+                          child: Text(
+                            meeting.genderPreference,
+                            style: TextStyle(
+                              fontSize: 10,
+                              color: Theme.of(context).colorScheme.primary,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                        ),
+                        // 기존 태그들 (최대 2개)
+                        ...meeting.tags.take(2).map((tag) => Container(
                           padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
                           decoration: BoxDecoration(
                             color: Theme.of(context).colorScheme.surfaceContainer,
@@ -225,8 +254,8 @@ class MeetingCard extends StatelessWidget {
                             ),
                           ),
                         )).toList(),
-                      ),
-                    ],
+                      ],
+                    ),
                   ],
                 ),
               ),

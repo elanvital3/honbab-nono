@@ -1,6 +1,9 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import '../models/restaurant.dart';
 import '../services/kakao_search_service.dart';
+import '../services/location_service.dart';
+import 'hierarchical_location_picker.dart';
 
 class RestaurantSearchModal extends StatefulWidget {
   final Function(Restaurant) onRestaurantSelected;
@@ -17,15 +20,29 @@ class RestaurantSearchModal extends StatefulWidget {
 class _RestaurantSearchModalState extends State<RestaurantSearchModal> {
   final _searchController = TextEditingController();
   List<Restaurant> _searchResults = [];
-  List<Restaurant> _popularRestaurants = [];
   bool _isLoading = false;
   bool _isInitialLoading = true;
-  String _selectedCategory = '';
+  String? _selectedLocation; // null = 현재 위치 사용
 
   @override
   void initState() {
     super.initState();
-    _loadPopularRestaurants();
+    // 즉시 UI 표시
+    setState(() {
+      _isInitialLoading = false;
+    });
+    // 백그라운드에서 위치 초기화
+    _initializeLocation();
+  }
+
+  Future<void> _initializeLocation() async {
+    // 백그라운드에서 현재 위치 초기화 (UI 블로킹 없음)
+    try {
+      final currentLocation = await LocationService.getCurrentLocation();
+      // 위치 확인만 하고 별도 처리 없음 (거리 계산은 검색 시에 수행)
+    } catch (e) {
+      // 위치 실패해도 검색은 가능하므로 무시
+    }
   }
 
   @override
@@ -34,77 +51,56 @@ class _RestaurantSearchModalState extends State<RestaurantSearchModal> {
     super.dispose();
   }
 
-  Future<void> _loadPopularRestaurants() async {
-    setState(() {
-      _isInitialLoading = true;
-    });
-
-    try {
-      final results = await KakaoSearchService.searchNearbyRestaurants(size: 10);
-      setState(() {
-        _popularRestaurants = results;
-        _searchResults = results;
-        _isInitialLoading = false;
-      });
-    } catch (e) {
-      print('❌ 인기 식당 로딩 에러: $e');
-      setState(() {
-        _isInitialLoading = false;
-      });
-    }
-  }
 
   Future<void> _searchRestaurants(String query) async {
     if (query.trim().isEmpty) {
-      setState(() {
-        _searchResults = _popularRestaurants;
-      });
+      if (mounted) {
+        setState(() {
+          _searchResults = [];
+        });
+      }
       return;
     }
 
-    setState(() {
-      _isLoading = true;
-    });
+    if (mounted) {
+      setState(() {
+        _isLoading = true;
+      });
+    }
 
     try {
-      final results = await KakaoSearchService.searchRestaurants(
-        query: query.trim(),
-        category: _selectedCategory.isEmpty ? null : _selectedCategory,
-      );
-
-      setState(() {
-        _searchResults = results;
-        _isLoading = false;
-      });
+      final results = await _performSearch(query);
+      
+      if (mounted) {
+        setState(() {
+          _searchResults = results;
+          _isLoading = false;
+        });
+      }
     } catch (e) {
-      print('❌ 식당 검색 에러: $e');
-      setState(() {
-        _searchResults = [];
-        _isLoading = false;
-      });
+      if (mounted) {
+        setState(() {
+          _searchResults = [];
+          _isLoading = false;
+        });
+      }
     }
   }
 
-  Future<void> _searchByCategory(String category) async {
-    setState(() {
-      _selectedCategory = category;
-      _isLoading = true;
-    });
-
-    try {
-      final results = await KakaoSearchService.searchByCategory(category: category);
-      setState(() {
-        _searchResults = results;
-        _isLoading = false;
-      });
-    } catch (e) {
-      print('❌ 카테고리 검색 에러: $e');
-      setState(() {
-        _searchResults = [];
-        _isLoading = false;
-      });
-    }
+  Future<List<Restaurant>> _performSearch(String query) async {
+    // 한국 내 위치로 고정 (에뮬레이터는 해외 위치이므로)
+    KakaoSearchService.setSelectedCity('서울시');
+    
+    // 실시간 카카오 API 검색 (서울 기준)
+    final results = await KakaoSearchService.searchRestaurants(
+      query: query.trim(),
+      size: 15,
+      nationwide: true, // 전국 검색 유지
+    );
+    
+    return results;
   }
+
 
   @override
   Widget build(BuildContext context) {
@@ -149,6 +145,7 @@ class _RestaurantSearchModalState extends State<RestaurantSearchModal> {
             ),
           ),
           
+          
           // 검색바
           Padding(
             padding: const EdgeInsets.symmetric(horizontal: 20),
@@ -158,14 +155,23 @@ class _RestaurantSearchModalState extends State<RestaurantSearchModal> {
               keyboardType: TextInputType.text,
               textInputAction: TextInputAction.search,
               decoration: InputDecoration(
-                hintText: '식당 이름을 검색하세요',
-                prefixIcon: const Icon(Icons.search),
+                hintText: '식당 이름 검색 (예: 은희네, 맘스터치)',
+                hintStyle: TextStyle(
+                  color: Theme.of(context).colorScheme.outline.withOpacity(0.6),
+                  fontSize: 16,
+                ),
+                prefixIcon: Icon(
+                  Icons.search,
+                  color: Theme.of(context).colorScheme.outline.withOpacity(0.8),
+                ),
                 suffixIcon: _searchController.text.isNotEmpty
                     ? IconButton(
                         icon: const Icon(Icons.clear),
                         onPressed: () {
                           _searchController.clear();
-                          setState(() {}); // suffixIcon 업데이트
+                          if (mounted) {
+                            setState(() {}); // suffixIcon 업데이트
+                          }
                           _searchRestaurants('');
                         },
                       )
@@ -178,7 +184,9 @@ class _RestaurantSearchModalState extends State<RestaurantSearchModal> {
                 fillColor: Theme.of(context).colorScheme.surfaceContainer,
               ),
               onChanged: (value) {
-                setState(() {}); // suffixIcon 업데이트
+                if (mounted) {
+                  setState(() {}); // suffixIcon 업데이트
+                }
                 _searchRestaurants(value);
               },
               onSubmitted: (value) {
@@ -187,72 +195,22 @@ class _RestaurantSearchModalState extends State<RestaurantSearchModal> {
             ),
           ),
           
-          const SizedBox(height: 16),
-          
-          // 카테고리 필터
-          SizedBox(
-            height: 40,
-            child: ListView.builder(
-              scrollDirection: Axis.horizontal,
-              padding: const EdgeInsets.symmetric(horizontal: 20),
-              itemCount: KakaoSearchService.popularCategories.length,
-              itemBuilder: (context, index) {
-                final category = KakaoSearchService.popularCategories[index];
-                final isSelected = _selectedCategory == category;
-                return Padding(
-                  padding: const EdgeInsets.only(right: 8),
-                  child: FilterChip(
-                    label: Text(category),
-                    selected: isSelected,
-                    onSelected: (selected) {
-                      if (selected) {
-                        _searchByCategory(category);
-                      } else {
-                        setState(() {
-                          _selectedCategory = '';
-                        });
-                        _searchRestaurants(_searchController.text);
-                      }
-                    },
-                    backgroundColor: Theme.of(context).colorScheme.surfaceContainer,
-                    selectedColor: Theme.of(context).colorScheme.primary,
-                    checkmarkColor: Colors.white,
-                    labelStyle: TextStyle(
-                      color: isSelected 
-                          ? Colors.white
-                          : Theme.of(context).colorScheme.onSurface,
-                      fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
-                    ),
-                  ),
-                );
-              },
-            ),
-          ),
-          
-          const SizedBox(height: 16),
+          const SizedBox(height: 20),
           
           // 결과 리스트
           Expanded(
             child: _buildSearchResults(),
           ),
+          
+          // 하단 여백 (Safe Area 고려)
+          SizedBox(height: MediaQuery.of(context).padding.bottom),
         ],
       ),
     );
   }
 
   Widget _buildSearchResults() {
-    if (_isInitialLoading) {
-      return const Center(
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            CircularProgressIndicator(),
-            SizedBox(height: 16),
-            Text('근처 맛집을 찾고 있어요...'),
-          ],
-        ),
-      );
-    }
+    // 초기 로딩 제거 - 즉시 검색창 표시
 
     if (_isLoading) {
       return const Center(
@@ -266,14 +224,14 @@ class _RestaurantSearchModalState extends State<RestaurantSearchModal> {
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
             Icon(
-              Icons.restaurant_menu,
+              _searchController.text.isEmpty ? Icons.search : Icons.restaurant_menu,
               size: 64,
               color: Colors.grey[400],
             ),
             const SizedBox(height: 16),
             Text(
               _searchController.text.isEmpty 
-                  ? '근처 맛집을 찾을 수 없어요'
+                  ? '검색어를 입력하세요'
                   : '검색 결과가 없어요',
               style: TextStyle(
                 fontSize: 18,
@@ -283,11 +241,14 @@ class _RestaurantSearchModalState extends State<RestaurantSearchModal> {
             ),
             const SizedBox(height: 8),
             Text(
-              '다른 검색어를 시도해보세요',
+              _searchController.text.isEmpty
+                  ? '식당 이름을 검색해보세요 (예: 은희네, 맘스터치)'
+                  : '다른 검색어를 시도해보세요',
               style: TextStyle(
                 fontSize: 14,
                 color: Colors.grey[500],
               ),
+              textAlign: TextAlign.center,
             ),
           ],
         ),
@@ -383,7 +344,7 @@ class _RestaurantSearchModalState extends State<RestaurantSearchModal> {
                 // 거리 정보
                 Column(
                   children: [
-                    if (restaurant.displayDistance.isNotEmpty)
+                    if (restaurant.formattedDistance.isNotEmpty)
                       Container(
                         padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
                         decoration: BoxDecoration(
@@ -391,7 +352,7 @@ class _RestaurantSearchModalState extends State<RestaurantSearchModal> {
                           borderRadius: BorderRadius.circular(12),
                         ),
                         child: Text(
-                          restaurant.displayDistance,
+                          restaurant.formattedDistance,
                           style: TextStyle(
                             fontSize: 12,
                             color: Theme.of(context).colorScheme.outline,
@@ -414,4 +375,5 @@ class _RestaurantSearchModalState extends State<RestaurantSearchModal> {
       ),
     );
   }
+
 }

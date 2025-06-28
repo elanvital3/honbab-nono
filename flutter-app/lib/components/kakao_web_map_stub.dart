@@ -27,11 +27,15 @@ class WebMapMarker {
   final double latitude;
   final double longitude;
   final String title;
+  final String? color;
+  final double? rating;
 
   WebMapMarker({
     required this.id,
     required this.latitude,
     required this.longitude,
     required this.title,
+    this.color,
+    this.rating,
   });
 }

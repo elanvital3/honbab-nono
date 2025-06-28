@@ -2,6 +2,7 @@ import 'package:firebase_auth/firebase_auth.dart' as firebase_auth;
 import 'package:flutter/foundation.dart';
 import '../models/user.dart';
 import 'user_service.dart';
+import 'privacy_consent_service.dart';
 
 class AuthService {
   static final firebase_auth.FirebaseAuth _auth = firebase_auth.FirebaseAuth.instance;
@@ -217,19 +218,45 @@ class AuthService {
     try {
       final user = _auth.currentUser;
       if (user != null) {
-        // Firestore에서 사용자 데이터 삭제
-        await UserService.deleteUser(user.uid);
+        if (kDebugMode) {
+          print('🗑️ 계정 삭제 시작: ${user.uid}');
+        }
         
-        // Firebase Auth 계정 삭제
+        // 1. 개인정보 동의 기록 삭제
+        try {
+          await PrivacyConsentService.deleteAllConsents(user.uid);
+          if (kDebugMode) {
+            print('✅ 개인정보 동의 기록 삭제 완료');
+          }
+        } catch (e) {
+          if (kDebugMode) {
+            print('⚠️ 개인정보 동의 기록 삭제 실패: $e');
+          }
+        }
+        
+        // 2. Firestore에서 사용자 데이터 삭제
+        await UserService.deleteUser(user.uid);
+        if (kDebugMode) {
+          print('✅ Firestore 사용자 데이터 삭제 완료');
+        }
+        
+        // 3. Firebase Auth 계정 삭제
         await user.delete();
+        if (kDebugMode) {
+          print('✅ Firebase Auth 계정 삭제 완료');
+        }
         
         if (kDebugMode) {
-          print('✅ User account deleted');
+          print('🎉 전체 계정 삭제 완료');
+        }
+      } else {
+        if (kDebugMode) {
+          print('⚠️ 삭제할 사용자가 없음');
         }
       }
     } catch (e) {
       if (kDebugMode) {
-        print('❌ Error deleting account: $e');
+        print('❌ 계정 삭제 실패: $e');
       }
       rethrow;
     }

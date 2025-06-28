@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import '../../services/kakao_auth_service.dart';
-import 'signup_complete_screen.dart';
+import 'nickname_input_screen.dart';
+import 'privacy_policy_screen.dart';
 
 class LoginScreen extends StatefulWidget {
   const LoginScreen({super.key});
@@ -29,20 +30,32 @@ class _LoginScreenState extends State<LoginScreen> {
         
         // 신규 사용자인지 기존 사용자인지 확인
         if (user.name == 'NEW_USER') {
-          // 신규 사용자 - 닉네임 입력 화면으로 이동
-          print('➡️ 신규 사용자 → 닉네임 입력 화면으로 이동');
-          Navigator.pushReplacement(
+          // 신규 사용자 - 개인정보 처리방침 화면으로 이동
+          print('➡️ 신규 사용자 → 개인정보 처리방침 화면으로 이동');
+          final result = await Navigator.push<Map<String, bool>>(
             context,
             MaterialPageRoute(
-              builder: (context) => SignupCompleteScreen(
-                userId: user.id,
-                defaultName: null, // 신규 사용자이므로 기본값 없음
-                profileImageUrl: user.profileImageUrl,
-                email: user.email,
-                kakaoId: user.kakaoId,
+              builder: (context) => const PrivacyPolicyScreen(
+                showConsentOptions: true,
               ),
             ),
           );
+          
+          if (result != null && result['essential'] == true) {
+            // 개인정보 동의 완료 - 닉네임 입력 화면으로 이동
+            print('➡️ 개인정보 동의 완료 → 닉네임 입력 화면으로 이동');
+            Navigator.pushReplacement(
+              context,
+              MaterialPageRoute(
+                builder: (context) => NicknameInputScreen(
+                  userId: user.id,
+                  profileImageUrl: user.profileImageUrl,
+                  email: user.email,
+                  kakaoId: user.kakaoId,
+                ),
+              ),
+            );
+          }
         } else {
           // 기존 사용자 - 바로 홈 화면으로 이동
           print('➡️ 기존 사용자 → 홈 화면으로 이동');
@@ -85,19 +98,40 @@ class _LoginScreenState extends State<LoginScreen> {
       backgroundColor: Colors.white,
       body: SafeArea(
         child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 30.0),
+          padding: const EdgeInsets.symmetric(horizontal: 24),
           child: Column(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
               // Header Section
               Column(
                 children: [
-                  const SizedBox(height: 100),
-                  const Text(
-                    '🍽️',
-                    style: TextStyle(fontSize: 80),
+                  const SizedBox(height: 80),
+                  
+                  // 앱 아이콘 (스플래시 화면과 동일)
+                  Container(
+                    width: 80,
+                    height: 80,
+                    decoration: BoxDecoration(
+                      borderRadius: BorderRadius.circular(16),
+                      boxShadow: [
+                        BoxShadow(
+                          color: Colors.black.withOpacity(0.1),
+                          blurRadius: 20,
+                          offset: const Offset(0, 8),
+                        ),
+                      ],
+                    ),
+                    child: ClipRRect(
+                      borderRadius: BorderRadius.circular(16),
+                      child: Image.asset(
+                        'assets/images/app_icon.png',
+                        width: 80,
+                        height: 80,
+                        fit: BoxFit.cover,
+                      ),
+                    ),
                   ),
-                  const SizedBox(height: 20),
+                  const SizedBox(height: 24),
                   const Text(
                     '혼밥노노',
                     style: TextStyle(
@@ -106,12 +140,13 @@ class _LoginScreenState extends State<LoginScreen> {
                       color: Color(0xFF333333),
                     ),
                   ),
-                  const SizedBox(height: 12),
+                  const SizedBox(height: 16),
                   const Text(
-                    '혼자 가기 어려운 맛집을\n함께 경험해보세요',
+                    '혼여는 좋지만 맛집은 함께 🥹',
                     textAlign: TextAlign.center,
                     style: TextStyle(
                       fontSize: 16,
+                      fontWeight: FontWeight.w500,
                       color: Color(0xFF666666),
                       height: 1.5,
                     ),
@@ -163,6 +198,7 @@ class _LoginScreenState extends State<LoginScreen> {
                     textAlign: TextAlign.center,
                     style: TextStyle(
                       fontSize: 12,
+                      fontWeight: FontWeight.w500,
                       color: Color(0xFF999999),
                     ),
                   ),
@@ -191,7 +227,7 @@ class _LoginScreenState extends State<LoginScreen> {
         onPressed: onPressed,
         style: ElevatedButton.styleFrom(
           backgroundColor: backgroundColor,
-          padding: const EdgeInsets.symmetric(vertical: 16),
+          padding: const EdgeInsets.symmetric(vertical: 16, horizontal: 24),
           shape: RoundedRectangleBorder(
             borderRadius: BorderRadius.circular(12),
           ),

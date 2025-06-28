@@ -46,7 +46,6 @@ class SampleDataSeeder {
       final sampleMeetings = [
         Meeting(
           id: 'sample_meeting_1',
-          title: '강남 맛집 탐방하실 분!',
           description: '강남역 근처 유명한 일식집에서 같이 저녁 드실 분 모집합니다. 혼자 가기엔 양이 많아서요 ㅠㅠ',
           location: '서울시 강남구 강남역 스시로',
           dateTime: DateTime.now().add(const Duration(hours: 3)),
@@ -62,7 +61,6 @@ class SampleDataSeeder {
         ),
         Meeting(
           id: 'sample_meeting_2',
-          title: '홍대 핫플 카페 투어',
           description: '인스타에서 본 홍대 카페들 돌아다니며 디저트 먹방! 사진도 서로 찍어줘요~',
           location: '서울시 마포구 홍대입구역 일대',
           dateTime: DateTime.now().add(const Duration(days: 1, hours: 2)),
@@ -78,7 +76,6 @@ class SampleDataSeeder {
         ),
         Meeting(
           id: 'sample_meeting_3',
-          title: '이태원 멕시칸 맛집',
           description: '이태원 멕시칸 음식 맛집에서 타코와 부리토 먹어요! 양이 많아서 나눠먹으면 좋을 것 같아요.',
           location: '서울시 용산구 이태원 엘 또 타코',
           dateTime: DateTime.now().add(const Duration(days: 2)),
@@ -94,7 +91,6 @@ class SampleDataSeeder {
         ),
         Meeting(
           id: 'sample_meeting_4',
-          title: '성수동 브런치 맛집',
           description: '성수동 감성 카페에서 브런치 먹고 산책해요~ 20대 여성분들 환영!',
           location: '서울시 성동구 성수역 어니언',
           dateTime: DateTime.now().add(const Duration(days: 3, hours: -2)),
@@ -110,7 +106,6 @@ class SampleDataSeeder {
         ),
         Meeting(
           id: 'sample_meeting_5',
-          title: '어제 다녀온 용산 맛집',
           description: '어제 용산 아이파크몰에서 맛있게 먹었던 곳이에요! 후기 공유합니다.',
           location: '서울시 용산구 아이파크몰 푸드코트',
           dateTime: DateTime.now().subtract(const Duration(days: 1)),

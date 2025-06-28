@@ -9,6 +9,7 @@ class KakaoWebViewMap extends StatefulWidget {
   final int level;
   final List<MapMarker>? markers;
   final Function(String)? onMarkerClicked;
+  final VoidCallback? onMapLoaded;
 
   const KakaoWebViewMap({
     super.key,
@@ -17,13 +18,15 @@ class KakaoWebViewMap extends StatefulWidget {
     this.level = 10,
     this.markers,
     this.onMarkerClicked,
+    this.onMapLoaded,
   });
 
   @override
-  State<KakaoWebViewMap> createState() => _KakaoWebViewMapState();
+  State<KakaoWebViewMap> createState() => KakaoWebViewMapState();
 }
 
-class _KakaoWebViewMapState extends State<KakaoWebViewMap> {
+class KakaoWebViewMapState extends State<KakaoWebViewMap> {
+  bool _isMapLoaded = false;
   late final WebViewController _controller;
 
   @override
@@ -35,10 +38,34 @@ class _KakaoWebViewMapState extends State<KakaoWebViewMap> {
   @override
   void didUpdateWidget(KakaoWebViewMap oldWidget) {
     super.didUpdateWidget(oldWidget);
-    // 마커 데이터가 변경되면 JavaScript로 마커 업데이트
-    if (oldWidget.markers != widget.markers) {
+    
+    // 마커 데이터가 실제로 변경된 경우에만 업데이트
+    if (_isMapLoaded && _hasMarkersChanged(oldWidget.markers, widget.markers)) {
       _updateMarkers();
     }
+    
+    // 위치가 의미있게 변경된 경우에만 지도 중심 이동 (0.001도 이상 차이)
+    if (_isMapLoaded && 
+        ((oldWidget.latitude - widget.latitude).abs() > 0.001 || 
+         (oldWidget.longitude - widget.longitude).abs() > 0.001)) {
+      _updateMapCenter();
+    }
+  }
+  
+  bool _hasMarkersChanged(List<MapMarker>? oldMarkers, List<MapMarker>? newMarkers) {
+    if (oldMarkers == null && newMarkers == null) return false;
+    if (oldMarkers == null || newMarkers == null) return true;
+    if (oldMarkers.length != newMarkers.length) return true;
+    
+    for (int i = 0; i < oldMarkers.length; i++) {
+      if (oldMarkers[i].id != newMarkers[i].id ||
+          oldMarkers[i].latitude != newMarkers[i].latitude ||
+          oldMarkers[i].longitude != newMarkers[i].longitude ||
+          oldMarkers[i].title != newMarkers[i].title) {
+        return true;
+      }
+    }
+    return false;
   }
   
   void _updateMarkers() {
@@ -47,15 +74,40 @@ class _KakaoWebViewMapState extends State<KakaoWebViewMap> {
       'latitude': marker.latitude,
       'longitude': marker.longitude,
       'title': marker.title,
+      'color': marker.color ?? '',
+      'rating': marker.rating ?? 0,
     }).toList() ?? [];
     
     final markersJson = markersData.map((m) => 
-      '{"id":"${m['id']}", "latitude":${m['latitude']}, "longitude":${m['longitude']}, "title":"${m['title']}"}'
+      '{"id":"${m['id']}", "latitude":${m['latitude']}, "longitude":${m['longitude']}, "title":"${m['title']}", "color":"${m['color']}", "rating":${m['rating']}}'
     ).join(',');
     
     _controller.runJavaScript('''
       updateMarkers([$markersJson]);
     ''');
+  }
+  
+  void _updateMapCenter() {
+    _controller.runJavaScript('''
+      if (window.mapInstance) {
+        var newCenter = new kakao.maps.LatLng(${widget.latitude}, ${widget.longitude});
+        window.mapInstance.setCenter(newCenter);
+        FlutterLog.postMessage('지도 중심 이동: ${widget.latitude}, ${widget.longitude}');
+      }
+    ''');
+  }
+  
+  // 외부에서 호출할 수 있는 지도 중심 업데이트 메서드
+  void updateMapCenter(double latitude, double longitude) {
+    if (_isMapLoaded) {
+      _controller.runJavaScript('''
+        if (window.mapInstance) {
+          var newCenter = new kakao.maps.LatLng($latitude, $longitude);
+          window.mapInstance.setCenter(newCenter);
+          FlutterLog.postMessage('외부 요청에 의한 지도 중심 이동: $latitude, $longitude');
+        }
+      ''');
+    }
   }
 
   void _initializeController() {
@@ -74,6 +126,10 @@ class _KakaoWebViewMapState extends State<KakaoWebViewMap> {
           onPageFinished: (String url) {
             print('✅ 지도 페이지 로딩 완료');
             _checkJavaScriptExecution();
+            if (!_isMapLoaded) {
+              _isMapLoaded = true;
+              widget.onMapLoaded?.call();
+            }
           },
           onWebResourceError: (WebResourceError error) {
             // 에러 로그만 중요한 것만 출력
@@ -116,21 +172,32 @@ class _KakaoWebViewMapState extends State<KakaoWebViewMap> {
 
   String _generateMapHtml() {
     final markersJs = widget.markers?.map((marker) => '''
+      var markerImageSrc${marker.id}, markerImageSize${marker.id}, markerImageOption${marker.id};
+      
+      // 마커 색상에 따른 이미지 설정 - SVG 기반 커스텀 마커 생성
+      var markerImage${marker.id};
+      if ('${marker.color ?? ''}' === 'green') {
+        // 그린색 SVG 마커 (검색된 식당)
+        var svgGreenMarker = 'data:image/svg+xml;base64,' + btoa('<svg width="32" height="40" viewBox="0 0 32 40" xmlns="http://www.w3.org/2000/svg"><path d="M16 0C7.163 0 0 7.163 0 16c0 8.837 16 24 16 24s16-15.163 16-24C32 7.163 24.837 0 16 0z" fill="#4CAF50"/><circle cx="16" cy="16" r="8" fill="white"/><circle cx="16" cy="16" r="5" fill="#2E7D32"/></svg>');
+        markerImageSrc${marker.id} = svgGreenMarker;
+      } else {
+        // 베이지색 SVG 마커 (기존 모임)
+        var svgBeigeMarker = 'data:image/svg+xml;base64,' + btoa('<svg width="32" height="40" viewBox="0 0 32 40" xmlns="http://www.w3.org/2000/svg"><path d="M16 0C7.163 0 0 7.163 0 16c0 8.837 16 24 16 24s16-15.163 16-24C32 7.163 24.837 0 16 0z" fill="#D2B48C"/><circle cx="16" cy="16" r="8" fill="white"/><circle cx="16" cy="16" r="5" fill="#8B7355"/></svg>');
+        markerImageSrc${marker.id} = svgBeigeMarker;
+      }
+      
+      markerImageSize${marker.id} = new kakao.maps.Size(32, 40);
+      markerImageOption${marker.id} = {offset: new kakao.maps.Point(16, 40)};
+      
+      var markerImage${marker.id} = new kakao.maps.MarkerImage(markerImageSrc${marker.id}, markerImageSize${marker.id}, markerImageOption${marker.id});
+      
       var marker${marker.id} = new kakao.maps.Marker({
         position: new kakao.maps.LatLng(${marker.latitude}, ${marker.longitude}),
+        image: markerImage${marker.id},
         map: map
       });
       
-      var infowindow${marker.id} = new kakao.maps.InfoWindow({
-        content: '<div onclick="MarkerClick.postMessage(&quot;${marker.id}&quot;)" style="padding:6px 16px; background:white; border:none; font-size:12px; white-space:nowrap; cursor:pointer; text-align:center;">' +
-                 '<span style="font-weight:600; color:#333;">${marker.title.split(' (')[0]} </span>' +
-                 '<span style="font-weight:bold; color:#D2B48C;">(${(marker.title.split(' (').length > 1 ? marker.title.split(' (')[1].replaceAll(')', '') : '')})</span>' +
-                 '</div>',
-        removable: false
-      });
-      
-      // 마커 생성과 동시에 인포윈도우 표시
-      infowindow${marker.id}.open(map, marker${marker.id});
+      // 커스텀 인포박스는 updateMarkers 함수에서 처리됩니다
       
       kakao.maps.event.addListener(marker${marker.id}, 'click', function() {
         // Flutter로 마커 클릭 이벤트 전달
@@ -155,6 +222,49 @@ class _KakaoWebViewMapState extends State<KakaoWebViewMap> {
             height: 100%; 
             font-size: 16px; 
             color: #666; 
+        }
+        
+        /* 커스텀 인포박스 스타일 - 단순화 버전 */
+        .custom-infobox {
+            cursor: pointer;
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            text-align: center;
+            max-width: 150px;
+        }
+        
+        .infobox-title {
+            font-size: 12px;
+            font-weight: 700;
+            color: #333333;
+            line-height: 1.1;
+            margin-bottom: 2px;
+            background: rgba(255, 255, 255, 0.85);
+            padding: 4px 8px;
+            border-radius: 8px;
+            backdrop-filter: blur(4px);
+            border: 1px solid rgba(255, 255, 255, 0.3);
+        }
+        
+        .infobox-rating {
+            font-size: 10px;
+            color: #FF9500;
+            font-weight: 600;
+            background: rgba(255, 255, 255, 0.85);
+            padding: 2px 6px;
+            border-radius: 6px;
+            backdrop-filter: blur(4px);
+            border: 1px solid rgba(255, 255, 255, 0.3);
+            margin-top: 2px;
+        }
+        
+        /* 그린 마커용 텍스트 색상 */
+        .custom-infobox.green .infobox-title {
+            color: #2E7D32;
+        }
+        
+        /* 베이지 마커용 텍스트 색상 */
+        .custom-infobox.beige .infobox-title {
+            color: #8B7355;
         }
     </style>
 </head>
@@ -193,44 +303,77 @@ class _KakaoWebViewMapState extends State<KakaoWebViewMap> {
                   window.currentMarkers.forEach(function(marker) {
                     marker.setMap(null);
                   });
-                  window.currentInfoWindows.forEach(function(infoWindow) {
-                    infoWindow.close();
+                  window.currentInfoWindows.forEach(function(overlay) {
+                    overlay.setMap(null);
                   });
                   window.currentMarkers = [];
                   window.currentInfoWindows = [];
                   
                   // 새로운 마커 생성
                   newMarkers.forEach(function(markerData) {
+                    var markerImageSrc, markerImageSize, markerImageOption;
+                    
+                    // 마커 색상에 따른 이미지 설정 - SVG 기반 커스텀 마커 생성
+                    var markerImage;
+                    if (markerData.color === 'green') {
+                      // 그린색 SVG 마커 (검색된 식당)
+                      var svgGreenMarker = 'data:image/svg+xml;base64,' + btoa('<svg width="32" height="40" viewBox="0 0 32 40" xmlns="http://www.w3.org/2000/svg"><path d="M16 0C7.163 0 0 7.163 0 16c0 8.837 16 24 16 24s16-15.163 16-24C32 7.163 24.837 0 16 0z" fill="#4CAF50"/><circle cx="16" cy="16" r="8" fill="white"/><circle cx="16" cy="16" r="5" fill="#2E7D32"/></svg>');
+                      markerImageSrc = svgGreenMarker;
+                    } else {
+                      // 베이지색 SVG 마커 (기존 모임)
+                      var svgBeigeMarker = 'data:image/svg+xml;base64,' + btoa('<svg width="32" height="40" viewBox="0 0 32 40" xmlns="http://www.w3.org/2000/svg"><path d="M16 0C7.163 0 0 7.163 0 16c0 8.837 16 24 16 24s16-15.163 16-24C32 7.163 24.837 0 16 0z" fill="#D2B48C"/><circle cx="16" cy="16" r="8" fill="white"/><circle cx="16" cy="16" r="5" fill="#8B7355"/></svg>');
+                      markerImageSrc = svgBeigeMarker;
+                    }
+                    
+                    markerImageSize = new kakao.maps.Size(32, 40);
+                    markerImageOption = {offset: new kakao.maps.Point(16, 40)};
+                    
+                    var markerImage = new kakao.maps.MarkerImage(markerImageSrc, markerImageSize, markerImageOption);
+                    
                     var marker = new kakao.maps.Marker({
                       position: new kakao.maps.LatLng(markerData.latitude, markerData.longitude),
+                      image: markerImage,
                       map: window.mapInstance
                     });
                     
-                    var restaurantName = markerData.title.split(' (')[0];
-                    var participantInfo = markerData.title.split(' (').length > 1 ? 
-                      '(' + markerData.title.split(' (')[1].replace(')', '') + ')' : '';
+                    var ratingDisplay = '';
+                    if (markerData.rating && markerData.rating > 0) {
+                      ratingDisplay = '<div style="font-size:10px; color:#FF9500; margin-top:1px;">⭐ ' + markerData.rating.toFixed(1) + '</div>';
+                    }
                     
-                    var infoWindow = new kakao.maps.InfoWindow({
-                      content: '<div onclick="MarkerClick.postMessage(&quot;' + markerData.id + '&quot;)" style="padding:6px 16px; background:white; border:none; font-size:12px; white-space:nowrap; cursor:pointer; text-align:center;">' +
-                               '<span style="font-weight:600; color:#333;">' + restaurantName + ' </span>' +
-                               '<span style="font-weight:bold; color:#D2B48C;">' + participantInfo + '</span>' +
-                               '</div>',
-                      removable: false
+                    // 커스텀 인포박스 HTML 생성
+                    var customContent = document.createElement('div');
+                    customContent.className = 'custom-infobox ' + (markerData.color === 'green' ? 'green' : 'beige');
+                    customContent.onclick = function() {
+                      MarkerClick.postMessage(markerData.id);
+                    };
+                    
+                    customContent.innerHTML = 
+                      '<div class="infobox-title">' + markerData.title + '</div>' +
+                      (ratingDisplay ? '<div class="infobox-rating">' + ratingDisplay.replace(/<[^>]*>/g, '').replace('⭐ ', '⭐ ') + '</div>' : '');
+                    
+                    // 커스텀 오버레이 생성 - 마커 상단에 위치 (겹치지 않게)
+                    var customOverlay = new kakao.maps.CustomOverlay({
+                      content: customContent,
+                      position: new kakao.maps.LatLng(markerData.latitude, markerData.longitude),
+                      xAnchor: 0.5,
+                      yAnchor: 2.2,
+                      zIndex: 3
                     });
                     
-                    infoWindow.open(window.mapInstance, marker);
+                    customOverlay.setMap(window.mapInstance);
                     
                     kakao.maps.event.addListener(marker, 'click', function() {
                       MarkerClick.postMessage(markerData.id);
                     });
                     
                     window.currentMarkers.push(marker);
-                    window.currentInfoWindows.push(infoWindow);
+                    window.currentInfoWindows.push(customOverlay);
                   });
                 };
                 
                 // 초기 마커 설정
-                var initialMarkers = [${widget.markers?.map((marker) => '{"id":"${marker.id}", "latitude":${marker.latitude}, "longitude":${marker.longitude}, "title":"${marker.title}"}').join(',')}];
+                var initialMarkers = [${widget.markers?.map((marker) => '{"id":"${marker.id}", "latitude":${marker.latitude}, "longitude":${marker.longitude}, "title":"${marker.title}", "color":"${marker.color ?? ''}", "rating":${marker.rating ?? 0}}').join(',')}];
                 window.updateMarkers(initialMarkers);
                 
             } catch (error) {
@@ -298,11 +441,15 @@ class MapMarker {
   final double latitude;
   final double longitude;
   final String title;
+  final String? color;
+  final double? rating;
 
   MapMarker({
     required this.id,
     required this.latitude,
     required this.longitude,
     required this.title,
+    this.color,
+    this.rating,
   });
 }
