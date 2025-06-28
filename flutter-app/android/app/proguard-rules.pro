@@ -24,3 +24,17 @@
 -keep class com.kakao.sdk.** { *; }
 -keep class com.kakao.auth.** { *; }
 -dontwarn com.kakao.**
+
+# Additional Kakao SDK rules for Play Store
+-keep class com.kakao.sdk.auth.AuthCodeHandlerActivity { *; }
+-keep class com.kakao.sdk.flutter.AuthCodeCustomTabsActivity { *; }
+-keepclassmembers class com.kakao.sdk.auth.** { *; }
+-keepclassmembers class com.kakao.sdk.flutter.** { *; }
+
+# Keep all Kakao SDK resources
+-keepclasseswithmembernames class * {
+    @com.kakao.sdk.* <methods>;
+}
+
+# Prevent obfuscation of Kakao SDK interfaces
+-keep interface com.kakao.** { *; }

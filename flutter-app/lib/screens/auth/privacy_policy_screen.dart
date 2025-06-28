@@ -366,7 +366,7 @@ class _PrivacyPolicyScreenState extends State<PrivacyPolicyScreen> {
           // 필수 동의
           _buildConsentItem(
             title: '필수 동의 항목',
-            description: '서비스 이용 및 안전한 매칭을 위한 개인정보 처리 (나이, 성별, 프로필 정보 포함)',
+            description: '서비스 이용 및 안전한 매칭을 위한 개인정보 처리 (닉네임, 성별, 연령대, 출생년도)',
             isRequired: true,
             value: _essentialConsent,
             onChanged: (value) {

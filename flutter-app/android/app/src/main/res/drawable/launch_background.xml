@@ -1,12 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- Modify this file to customize your launch splash screen -->
+<!-- 빈 스플래시 화면 (Flutter 커스텀 스플래시만 사용) -->
 <layer-list xmlns:android="http://schemas.android.com/apk/res/android">
     <item android:drawable="@android:color/white" />
-
-    <!-- 앱 아이콘 표시 -->
-    <item>
-        <bitmap
-            android:gravity="center"
-            android:src="@mipmap/launcher_icon" />
-    </item>
 </layer-list>

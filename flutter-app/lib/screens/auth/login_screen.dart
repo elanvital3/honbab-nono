@@ -57,8 +57,9 @@ class _LoginScreenState extends State<LoginScreen> {
             );
           }
         } else {
-          // 기존 사용자 - 바로 홈 화면으로 이동
-          print('➡️ 기존 사용자 → 홈 화면으로 이동');
+          // 기존 사용자 - 약간의 지연 후 홈 화면으로 이동 (Firestore 업데이트 완료 대기)
+          print('➡️ 기존 사용자 → 홈 화면으로 이동 (Firestore 완료 대기 중...)');
+          await Future.delayed(const Duration(milliseconds: 500));
           Navigator.pushReplacementNamed(context, '/home');
         }
       }

@@ -16,7 +16,6 @@ import 'screens/home/home_screen.dart';
 import 'screens/meeting/create_meeting_screen.dart';
 import 'screens/meeting/meeting_detail_screen.dart';
 import 'screens/test/firebase_test_screen.dart';
-import 'screens/splash/splash_screen.dart';
 import 'models/meeting.dart';
 import 'models/user.dart' as app_user;
 
@@ -126,7 +125,7 @@ class HonbabNoNoApp extends StatelessWidget {
           surfaceTintColor: Color(0xFFFFFFFF),
         ),
       ),
-      home: const SplashScreen(),
+      home: const AuthWrapper(),
       onGenerateRoute: (settings) {
         switch (settings.name) {
           case '/home':

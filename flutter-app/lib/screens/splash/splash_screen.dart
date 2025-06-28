@@ -97,8 +97,8 @@ class _SplashScreenState extends State<SplashScreen>
     await Future.delayed(const Duration(milliseconds: 200));
     _loadingController.repeat();
     
-    // 최소 스플래시 시간 보장 (2초)
-    await Future.delayed(const Duration(milliseconds: 1200));
+    // 최소 스플래시 시간 보장 (1.5초로 단축)
+    await Future.delayed(const Duration(milliseconds: 800));
     
     if (mounted) {
       Navigator.of(context).pushReplacement(
