@@ -37,7 +37,7 @@ class ChatService {
         print('✅ 메시지 전송 성공: ${docRef.id}');
       }
 
-      // 채팅 메시지 알림 발송 (발송자 제외)
+      // 채팅 메시지 알림 발송
       try {
         final meeting = await MeetingService.getMeeting(meetingId);
         if (meeting != null && type == MessageType.text) {

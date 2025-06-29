@@ -248,7 +248,7 @@ class NotificationService {
       presentSound: true,
     );
     
-    const details = NotificationDetails(
+    final details = NotificationDetails(
       android: androidDetails,
       iOS: iosDetails,
     );
@@ -282,7 +282,7 @@ class NotificationService {
       presentSound: true,
     );
     
-    const details = NotificationDetails(
+    final details = NotificationDetails(
       android: androidDetails,
       iOS: iosDetails,
     );
@@ -316,7 +316,7 @@ class NotificationService {
       presentSound: true,
     );
     
-    const details = NotificationDetails(
+    final details = NotificationDetails(
       android: androidDetails,
       iOS: iosDetails,
     );
@@ -357,7 +357,7 @@ class NotificationService {
       presentSound: true,
     );
     
-    const details = NotificationDetails(
+    final details = NotificationDetails(
       android: androidDetails,
       iOS: iosDetails,
     );
@@ -394,7 +394,7 @@ class NotificationService {
       presentSound: true,
     );
     
-    const details = NotificationDetails(
+    final details = NotificationDetails(
       android: androidDetails,
       iOS: iosDetails,
     );

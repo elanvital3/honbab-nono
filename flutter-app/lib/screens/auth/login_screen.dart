@@ -160,10 +160,10 @@ class _LoginScreenState extends State<LoginScreen> {
                 ],
               ),
 
-              // Social Login Buttons
+              // Social Login Buttons - 카카오만 활성화
               Column(
                 children: [
-                  // Kakao Login
+                  // Kakao Login (활성화)
                   _buildSocialButton(
                     onPressed: _isLoading ? null : () => _handleSocialLogin(context, '카카오'),
                     backgroundColor: const Color(0xFFFEE500),
@@ -174,24 +174,26 @@ class _LoginScreenState extends State<LoginScreen> {
                   ),
                   const SizedBox(height: 12),
                   
-                  // Google Login
+                  // Google Login (비활성화)
                   _buildSocialButton(
-                    onPressed: () => _handleSocialLogin(context, '구글'),
-                    backgroundColor: const Color(0xFF4285F4),
-                    textColor: Colors.white,
+                    onPressed: null, // 비활성화
+                    backgroundColor: const Color(0xFFF5F5F5),
+                    textColor: const Color(0xFF999999),
                     icon: '🌐',
-                    text: '구글로 시작하기',
+                    text: '구글로 시작하기 (준비 중)',
+                    isDisabled: true,
                   ),
                   const SizedBox(height: 12),
                   
-                  // Naver Login
+                  // Naver Login (비활성화)
                   _buildSocialButton(
-                    onPressed: () => _handleSocialLogin(context, '네이버'),
-                    backgroundColor: const Color(0xFF03C75A),
-                    textColor: Colors.white,
+                    onPressed: null, // 비활성화
+                    backgroundColor: const Color(0xFFF5F5F5),
+                    textColor: const Color(0xFF999999),
                     icon: 'N',
-                    text: '네이버로 시작하기',
+                    text: '네이버로 시작하기 (준비 중)',
                     isNaver: true,
+                    isDisabled: true,
                   ),
                 ],
               ),
@@ -226,6 +228,7 @@ class _LoginScreenState extends State<LoginScreen> {
     required String text,
     bool isNaver = false,
     bool isLoading = false,
+    bool isDisabled = false,
   }) {
     return SizedBox(
       width: double.infinity,
@@ -237,7 +240,8 @@ class _LoginScreenState extends State<LoginScreen> {
           shape: RoundedRectangleBorder(
             borderRadius: BorderRadius.circular(12),
           ),
-          elevation: 0,
+          elevation: isDisabled ? 0 : 0,
+          disabledBackgroundColor: backgroundColor,
         ),
         child: Row(
           mainAxisAlignment: MainAxisAlignment.center,
