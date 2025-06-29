@@ -1,4 +1,5 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_auth/firebase_auth.dart' as firebase_auth;
 import 'package:flutter/foundation.dart';
 import '../models/user.dart';
 
@@ -244,6 +245,37 @@ class UserService {
         print('❌ Error getting user by nickname: $e');
       }
       return null;
+    }
+  }
+
+  // 현재 사용자가 특정 카카오 ID의 소유자인지 확인
+  static Future<bool> isCurrentUserOwnerOfKakaoId(String? kakaoId) async {
+    try {
+      if (kakaoId == null) return false;
+      
+      final currentFirebaseUser = firebase_auth.FirebaseAuth.instance.currentUser;
+      if (currentFirebaseUser == null) return false;
+      
+      // 현재 사용자 정보 가져오기
+      final currentUser = await getUser(currentFirebaseUser.uid);
+      if (currentUser == null) return false;
+      
+      // 카카오 ID 비교
+      final isOwner = currentUser.kakaoId == kakaoId;
+      
+      if (kDebugMode) {
+        print('🔍 카카오 ID 소유권 확인:');
+        print('  - 현재 사용자 카카오 ID: ${currentUser.kakaoId}');
+        print('  - 확인할 카카오 ID: $kakaoId');
+        print('  - 소유권 여부: $isOwner');
+      }
+      
+      return isOwner;
+    } catch (e) {
+      if (kDebugMode) {
+        print('❌ Error checking kakao ID ownership: $e');
+      }
+      return false;
     }
   }
 

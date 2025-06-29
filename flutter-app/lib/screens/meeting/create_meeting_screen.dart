@@ -136,6 +136,7 @@ class _CreateMeetingScreenState extends State<CreateMeetingScreen> {
 
       if (kDebugMode) {
         print('✅ 사용자 정보 확인: ${currentUser.name}');
+        print('🔍 사용자 카카오 ID: ${currentUser.kakaoId}');
       }
 
       // 모임 날짜/시간 결합
@@ -160,6 +161,7 @@ class _CreateMeetingScreenState extends State<CreateMeetingScreen> {
         currentParticipants: 1,
         hostId: currentUser.id,
         hostName: currentUser.name,
+        hostKakaoId: currentUser.kakaoId, // 카카오 ID 저장
         tags: _extractTags(_descriptionController.text),
         participantIds: [currentUser.id],
         latitude: _selectedRestaurant!.latitude,
@@ -177,6 +179,7 @@ class _CreateMeetingScreenState extends State<CreateMeetingScreen> {
         print('  - 날짜: ${newMeeting.dateTime}');
         print('  - 성별선호: ${newMeeting.genderPreference}');
         print('  - 호스트: ${newMeeting.hostName}');
+        print('  - 호스트 카카오 ID: ${newMeeting.hostKakaoId}');
         print('  - 도시: ${newMeeting.city}');
         print('  - 주소: ${newMeeting.fullAddress}');
       }

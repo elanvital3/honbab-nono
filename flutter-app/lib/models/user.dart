@@ -8,6 +8,7 @@ class User {
   final String? profileImageUrl;
   final String? bio;
   final String? kakaoId;
+  final String? fcmToken;  // FCM 푸시 알림 토큰
   final double rating;
   final int meetingsHosted;
   final int meetingsJoined;
@@ -23,6 +24,7 @@ class User {
     this.profileImageUrl,
     this.bio,
     this.kakaoId,
+    this.fcmToken,
     this.rating = 0.0,
     this.meetingsHosted = 0,
     this.meetingsJoined = 0,
@@ -42,6 +44,7 @@ class User {
       profileImageUrl: data['profileImageUrl'],
       bio: data['bio'],
       kakaoId: data['kakaoId'],
+      fcmToken: data['fcmToken'],
       rating: (data['rating'] ?? 0.0).toDouble(),
       meetingsHosted: data['meetingsHosted'] ?? 0,
       meetingsJoined: data['meetingsJoined'] ?? 0,
@@ -59,6 +62,7 @@ class User {
       'profileImageUrl': profileImageUrl,
       'bio': bio,
       'kakaoId': kakaoId,
+      'fcmToken': fcmToken,
       'rating': rating,
       'meetingsHosted': meetingsHosted,
       'meetingsJoined': meetingsJoined,
@@ -76,6 +80,7 @@ class User {
     String? profileImageUrl,
     String? bio,
     String? kakaoId,
+    String? fcmToken,
     double? rating,
     int? meetingsHosted,
     int? meetingsJoined,
@@ -91,6 +96,7 @@ class User {
       profileImageUrl: profileImageUrl ?? this.profileImageUrl,
       bio: bio ?? this.bio,
       kakaoId: kakaoId ?? this.kakaoId,
+      fcmToken: fcmToken ?? this.fcmToken,
       rating: rating ?? this.rating,
       meetingsHosted: meetingsHosted ?? this.meetingsHosted,
       meetingsJoined: meetingsJoined ?? this.meetingsJoined,

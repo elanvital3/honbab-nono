@@ -65,8 +65,14 @@ class _MeetingDetailScreenState extends State<MeetingDetailScreen> {
       if (user != null) {
         _currentUser = user;
         
-        // 호스트 여부 판단
-        _isHost = widget.meeting.hostId == _currentUserId;
+        // 호스트 여부 판단 (카카오 ID 기반 + Firebase UID 백업)
+        bool isHostByKakaoId = false;
+        if (widget.meeting.hostKakaoId != null && user.kakaoId != null) {
+          isHostByKakaoId = widget.meeting.hostKakaoId == user.kakaoId;
+        }
+        bool isHostByFirebaseUid = widget.meeting.hostId == _currentUserId;
+        
+        _isHost = isHostByKakaoId || isHostByFirebaseUid;
         
         // 참여 여부 판단
         _isJoined = widget.meeting.participantIds.contains(_currentUserId);
@@ -74,7 +80,11 @@ class _MeetingDetailScreenState extends State<MeetingDetailScreen> {
         if (kDebugMode) {
           print('✅ 사용자 상태 확인:');
           print('  - 사용자: ${user.name}');
-          print('  - 호스트 여부: $_isHost');
+          print('  - 사용자 카카오 ID: ${user.kakaoId}');
+          print('  - 모임 호스트 카카오 ID: ${widget.meeting.hostKakaoId}');
+          print('  - 카카오 ID로 호스트 확인: $isHostByKakaoId');
+          print('  - Firebase UID로 호스트 확인: $isHostByFirebaseUid');
+          print('  - 최종 호스트 여부: $_isHost');
           print('  - 참여 여부: $_isJoined');
         }
         
@@ -260,7 +270,14 @@ class _MeetingDetailScreenState extends State<MeetingDetailScreen> {
 
         // 참여 상태 실시간 업데이트
         final isCurrentlyJoined = currentMeeting.participantIds.contains(_currentUserId);
-        final isCurrentlyHost = currentMeeting.hostId == _currentUserId;
+        
+        // 호스트 여부 실시간 업데이트 (카카오 ID 기반 + Firebase UID 백업)
+        bool isCurrentlyHostByKakaoId = false;
+        if (currentMeeting.hostKakaoId != null && _currentUser?.kakaoId != null) {
+          isCurrentlyHostByKakaoId = currentMeeting.hostKakaoId == _currentUser!.kakaoId;
+        }
+        bool isCurrentlyHostByFirebaseUid = currentMeeting.hostId == _currentUserId;
+        final isCurrentlyHost = isCurrentlyHostByKakaoId || isCurrentlyHostByFirebaseUid;
 
         return Scaffold(
           appBar: AppBar(

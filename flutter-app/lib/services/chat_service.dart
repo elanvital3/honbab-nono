@@ -37,24 +37,24 @@ class ChatService {
         print('✅ 메시지 전송 성공: ${docRef.id}');
       }
 
-      // 채팅 메시지 알림 발송
+      // 채팅 메시지 FCM 알림 발송 (발송자 제외)
       try {
         final meeting = await MeetingService.getMeeting(meetingId);
         if (meeting != null && type == MessageType.text) {
-          final meetingTitle = meeting.restaurantName ?? meeting.location;
-          await NotificationService().showChatNotification(
-            meetingTitle,
-            senderName,
-            content,
+          await NotificationService().notifyChatMessage(
+            meeting: meeting,
+            senderUserId: senderId,
+            senderName: senderName,
+            message: content,
           );
           
           if (kDebugMode) {
-            print('✅ 채팅 알림 발송 완료');
+            print('✅ 채팅 FCM 알림 발송 완료 (발송자 제외)');
           }
         }
       } catch (notificationError) {
         if (kDebugMode) {
-          print('⚠️ 채팅 알림 발송 실패: $notificationError');
+          print('⚠️ 채팅 FCM 알림 발송 실패: $notificationError');
         }
       }
 

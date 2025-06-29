@@ -3,6 +3,7 @@ import 'package:flutter/foundation.dart';
 import 'package:provider/provider.dart';
 import 'package:firebase_auth/firebase_auth.dart' as firebase_auth;
 import '../../services/user_service.dart';
+import '../../services/notification_service.dart';
 import '../../models/user.dart' as app_user;
 import '../splash/splash_screen.dart';
 import 'login_screen.dart';
@@ -48,6 +49,22 @@ class AuthWrapper extends StatelessWidget {
       print('❌ AuthWrapper: 3번 시도 모두 실패, null 반환');
     }
     return null;
+  }
+
+  // FCM 토큰을 백그라운드에서 저장
+  void _saveFCMTokenInBackground(String userId) {
+    Future.microtask(() async {
+      try {
+        await NotificationService().saveFCMTokenToFirestore(userId);
+        if (kDebugMode) {
+          print('✅ AuthWrapper: FCM 토큰 저장 백그라운드 작업 완료');
+        }
+      } catch (e) {
+        if (kDebugMode) {
+          print('❌ AuthWrapper: FCM 토큰 저장 실패: $e');
+        }
+      }
+    });
   }
 
   @override
@@ -120,6 +137,10 @@ class AuthWrapper extends StatelessWidget {
             print('✅ AuthWrapper: 완전한 사용자 데이터 확인 → 홈 화면으로 이동');
             print('  - 사용자: ${firestoreUser.name}');
           }
+          
+          // FCM 토큰을 Firestore에 저장 (백그라운드에서 실행)
+          _saveFCMTokenInBackground(firestoreUser.id);
+          
           return const HomeScreen();
         } else {
           if (kDebugMode) {

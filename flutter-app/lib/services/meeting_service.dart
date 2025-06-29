@@ -137,6 +137,92 @@ class MeetingService {
     }
   }
 
+  // 기존 모임 데이터에 hostKakaoId 마이그레이션
+  static Future<void> migrateMeetingsWithHostKakaoId() async {
+    try {
+      if (kDebugMode) {
+        print('🔄 모임 데이터 마이그레이션 시작...');
+      }
+
+      // hostKakaoId가 없는 모임들 찾기
+      final query = await _firestore
+          .collection(_collection)
+          .where('hostKakaoId', isNull: true)
+          .get();
+
+      if (query.docs.isEmpty) {
+        if (kDebugMode) {
+          print('✅ 마이그레이션할 모임이 없음');
+        }
+        return;
+      }
+
+      if (kDebugMode) {
+        print('🔍 마이그레이션 대상 모임: ${query.docs.length}개');
+      }
+
+      int successCount = 0;
+      int failCount = 0;
+
+      for (final doc in query.docs) {
+        try {
+          final meetingData = doc.data();
+          final hostId = meetingData['hostId'] as String?;
+          
+          if (hostId == null) continue;
+
+          // 호스트의 카카오 ID 찾기
+          final hostDoc = await _firestore.collection('users').doc(hostId).get();
+          if (!hostDoc.exists) {
+            if (kDebugMode) {
+              print('⚠️ 호스트 정보 없음: $hostId');
+            }
+            failCount++;
+            continue;
+          }
+
+          final hostData = hostDoc.data() as Map<String, dynamic>;
+          final hostKakaoId = hostData['kakaoId'] as String?;
+          
+          if (hostKakaoId == null) {
+            if (kDebugMode) {
+              print('⚠️ 호스트 카카오 ID 없음: $hostId');
+            }
+            failCount++;
+            continue;
+          }
+
+          // 모임 문서에 hostKakaoId 추가
+          await doc.reference.update({
+            'hostKakaoId': hostKakaoId,
+            'updatedAt': Timestamp.fromDate(DateTime.now()),
+          });
+
+          successCount++;
+          
+          if (kDebugMode) {
+            print('✅ 마이그레이션 완료: ${doc.id} -> $hostKakaoId');
+          }
+
+        } catch (e) {
+          if (kDebugMode) {
+            print('❌ 마이그레이션 실패: ${doc.id} - $e');
+          }
+          failCount++;
+        }
+      }
+
+      if (kDebugMode) {
+        print('🎉 마이그레이션 완료: 성공 $successCount개, 실패 $failCount개');
+      }
+
+    } catch (e) {
+      if (kDebugMode) {
+        print('❌ 마이그레이션 실패: $e');
+      }
+    }
+  }
+
   // 모임 참여
   static Future<void> joinMeeting(String meetingId, String userId) async {
     try {
@@ -179,14 +265,18 @@ class MeetingService {
           // 리마인더 알림 예약
           await NotificationService().scheduleMeetingReminder(meeting);
           
-          // 호스트에게 참여 알림
-          await NotificationService().showParticipantNotification(
-            '새로운 참여자',
-            '${meeting.restaurantName ?? meeting.location} 모임에 새로운 참여자가 추가되었습니다.',
+          // 참여자 이름 가져오기 (간단한 예시로 userId 사용)
+          final joinerName = 'User-${userId.substring(0, 8)}';
+          
+          // 모든 참여자에게 FCM 알림 발송 (참여한 본인 제외)
+          await NotificationService().notifyMeetingParticipation(
+            meeting: meeting,
+            joinerUserId: userId,
+            joinerName: joinerName,
           );
           
           if (kDebugMode) {
-            print('✅ 모임 참여 알림 처리 완료');
+            print('✅ 모임 참여 FCM 알림 처리 완료');
           }
         }
       } catch (notificationError) {

@@ -12,6 +12,7 @@ import 'services/auth_service.dart';
 import 'services/user_service.dart';
 import 'services/location_service.dart';
 import 'services/notification_service.dart';
+import 'services/meeting_service.dart';
 import 'screens/auth/auth_wrapper.dart';
 import 'screens/auth/login_screen.dart';
 import 'screens/auth/signup_complete_screen.dart';
@@ -47,6 +48,15 @@ void main() async {
   } catch (e) {
     print('❌ 알림 서비스 초기화 실패: $e');
   }
+  
+  // 모임 데이터 마이그레이션 (백그라운드에서 실행)
+  Future.delayed(const Duration(seconds: 3), () async {
+    try {
+      await MeetingService.migrateMeetingsWithHostKakaoId();
+    } catch (e) {
+      print('❌ 모임 데이터 마이그레이션 실패: $e');
+    }
+  });
   
   try {
     // 카카오맵 초기화 - JavaScript 키 적용

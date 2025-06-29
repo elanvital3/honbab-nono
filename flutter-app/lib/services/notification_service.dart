@@ -7,6 +7,7 @@ import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:timezone/timezone.dart' as tz;
+import 'package:cloud_firestore/cloud_firestore.dart';
 import '../models/meeting.dart';
 import '../models/user.dart';
 
@@ -18,6 +19,7 @@ class NotificationService {
   static final FlutterLocalNotificationsPlugin _localNotifications =
       FlutterLocalNotificationsPlugin();
   static final FirebaseMessaging _firebaseMessaging = FirebaseMessaging.instance;
+  static final FirebaseFirestore _firestore = FirebaseFirestore.instance;
   
   bool _isInitialized = false;
   String? _fcmToken;
@@ -517,5 +519,249 @@ class NotificationService {
   Future<void> cancelMeetingNotifications(Meeting meeting) async {
     await _localNotifications.cancel(meeting.hashCode); // 새 모임 알림
     await _localNotifications.cancel(meeting.hashCode + 1000); // 리마인더 알림
+  }
+
+  /// 모든 참여자에게 알림 발송 (FCM)
+  Future<void> notifyAllParticipants({
+    required List<String> participantIds,
+    required String excludeUserId,
+    required String title,
+    required String body,
+    String? type,
+    Map<String, String>? data,
+  }) async {
+    try {
+      if (kDebugMode) {
+        print('🔔 모든 참여자에게 알림 발송 시작');
+        print('📝 참여자 ID들: $participantIds');
+        print('🚫 제외할 사용자: $excludeUserId');
+      }
+
+      // 제외할 사용자를 제외한 참여자 목록
+      final targetParticipants = participantIds.where((id) => id != excludeUserId).toList();
+      
+      if (targetParticipants.isEmpty) {
+        if (kDebugMode) {
+          print('📭 알림을 받을 참여자가 없습니다');
+        }
+        return;
+      }
+
+      // 참여자들의 FCM 토큰 가져오기
+      final fcmTokens = await _getFCMTokensForUsers(targetParticipants);
+      
+      if (fcmTokens.isEmpty) {
+        if (kDebugMode) {
+          print('📭 유효한 FCM 토큰이 없습니다');
+        }
+        return;
+      }
+
+      // FCM 메시지 구성
+      final messageData = <String, String>{
+        'type': type ?? 'general',
+        'title': title,
+        'body': body,
+        'click_action': 'FLUTTER_NOTIFICATION_CLICK',
+        ...?data,
+      };
+
+      // 각 토큰으로 개별 발송 (배치 발송은 Firebase Functions에서 처리)
+      for (final token in fcmTokens) {
+        await _sendSingleFCMMessage(
+          token: token,
+          title: title,
+          body: body,
+          data: messageData,
+        );
+      }
+
+      if (kDebugMode) {
+        print('✅ ${fcmTokens.length}명의 참여자에게 알림 발송 완료');
+      }
+    } catch (e) {
+      if (kDebugMode) {
+        print('❌ 참여자 알림 발송 실패: $e');
+      }
+    }
+  }
+
+  /// 사용자들의 FCM 토큰 가져오기
+  Future<List<String>> _getFCMTokensForUsers(List<String> userIds) async {
+    try {
+      final tokens = <String>[];
+      
+      if (kDebugMode) {
+        print('🔍 FCM 토큰 조회 시작 - 대상 사용자: $userIds');
+      }
+      
+      // Firestore에서 사용자들의 FCM 토큰 조회
+      for (final userId in userIds) {
+        if (kDebugMode) {
+          print('📋 사용자 조회 중: $userId');
+        }
+        
+        final userDoc = await _firestore.collection('users').doc(userId).get();
+        
+        if (userDoc.exists) {
+          final userData = userDoc.data() as Map<String, dynamic>;
+          final fcmToken = userData['fcmToken'] as String?;
+          
+          if (kDebugMode) {
+            print('👤 사용자 $userId: FCM 토큰 ${fcmToken != null ? "있음" : "없음"}');
+          }
+          
+          if (fcmToken != null && fcmToken.isNotEmpty) {
+            if (kDebugMode) {
+              print('🔑 사용자 $userId 토큰: ${fcmToken.substring(0, 20)}...');
+              print('🔑 현재 사용자 토큰: ${_fcmToken?.substring(0, 20)}...');
+              print('🔍 토큰 비교: ${fcmToken == _fcmToken ? "동일함 ❌" : "다름 ✅"}');
+            }
+            
+            // 현재 사용자와 같은 토큰이면 제외
+            if (fcmToken != _fcmToken) {
+              tokens.add(fcmToken);
+            } else {
+              if (kDebugMode) {
+                print('⚠️ 현재 사용자와 동일한 토큰이므로 제외');
+              }
+            }
+          }
+        } else {
+          if (kDebugMode) {
+            print('❌ 사용자 $userId 문서가 존재하지 않음');
+          }
+        }
+      }
+      
+      if (kDebugMode) {
+        print('🔑 최종 조회된 FCM 토큰 수: ${tokens.length}/${userIds.length}');
+      }
+      
+      return tokens;
+    } catch (e) {
+      if (kDebugMode) {
+        print('❌ FCM 토큰 조회 실패: $e');
+      }
+      return [];
+    }
+  }
+
+  /// 개별 FCM 메시지 발송
+  Future<void> _sendSingleFCMMessage({
+    required String token,
+    required String title,
+    required String body,
+    required Map<String, String> data,
+  }) async {
+    try {
+      if (kDebugMode) {
+        print('📨 FCM 메시지 발송: $title -> ${token.substring(0, 20)}...');
+      }
+      
+      // 테스트 목적으로 로컬 알림 발송
+      // 실제로는 Firebase Functions나 서버에서 FCM API를 통해 발송해야 함
+      
+      const androidDetails = AndroidNotificationDetails(
+        'fcm_test',
+        'FCM 테스트',
+        channelDescription: 'FCM 멀티유저 알림 테스트',
+        importance: Importance.high,
+        priority: Priority.high,
+        icon: '@mipmap/ic_launcher',
+      );
+      
+      const iosDetails = DarwinNotificationDetails(
+        presentAlert: true,
+        presentBadge: true,
+        presentSound: true,
+      );
+      
+      final details = NotificationDetails(
+        android: androidDetails,
+        iOS: iosDetails,
+      );
+      
+      await _localNotifications.show(
+        DateTime.now().millisecondsSinceEpoch.remainder(100000),
+        title,
+        body,
+        details,
+        payload: data.toString(),
+      );
+      
+      if (kDebugMode) {
+        print('✅ FCM 시뮬레이션 알림 발송 완료');
+      }
+      
+    } catch (e) {
+      if (kDebugMode) {
+        print('❌ FCM 메시지 발송 실패: $e');
+      }
+    }
+  }
+
+  /// 현재 사용자의 FCM 토큰을 Firestore에 저장
+  Future<void> saveFCMTokenToFirestore(String userId) async {
+    try {
+      if (_fcmToken == null) {
+        if (kDebugMode) {
+          print('⚠️ FCM 토큰이 없어서 저장할 수 없습니다');
+        }
+        return;
+      }
+
+      await _firestore.collection('users').doc(userId).update({
+        'fcmToken': _fcmToken,
+        'updatedAt': Timestamp.fromDate(DateTime.now()),
+      });
+
+      if (kDebugMode) {
+        print('✅ FCM 토큰 Firestore 저장 완료: ${_fcmToken!.substring(0, 20)}...');
+      }
+    } catch (e) {
+      if (kDebugMode) {
+        print('❌ FCM 토큰 Firestore 저장 실패: $e');
+      }
+    }
+  }
+
+  /// 모임 참여 시 모든 참여자에게 알림
+  Future<void> notifyMeetingParticipation({
+    required Meeting meeting,
+    required String joinerUserId,
+    required String joinerName,
+  }) async {
+    await notifyAllParticipants(
+      participantIds: meeting.participantIds,
+      excludeUserId: joinerUserId,
+      title: '새로운 참여자',
+      body: '$joinerName님이 "${meeting.restaurantName ?? meeting.location}" 모임에 참여했습니다.',
+      type: 'participant_joined',
+      data: {
+        'meetingId': meeting.id,
+        'userId': joinerUserId,
+      },
+    );
+  }
+
+  /// 채팅 메시지 발송 시 모든 참여자에게 알림
+  Future<void> notifyChatMessage({
+    required Meeting meeting,
+    required String senderUserId,
+    required String senderName,
+    required String message,
+  }) async {
+    await notifyAllParticipants(
+      participantIds: meeting.participantIds,
+      excludeUserId: senderUserId,
+      title: meeting.restaurantName ?? meeting.location,
+      body: '$senderName: $message',
+      type: 'chat_message',
+      data: {
+        'meetingId': meeting.id,
+        'senderId': senderUserId,
+      },
+    );
   }
 }

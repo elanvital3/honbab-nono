@@ -6,6 +6,7 @@ import '../../services/chat_service.dart';
 import '../../models/meeting.dart';
 import '../../models/user.dart';
 import '../../models/message.dart';
+import 'fcm_test_screen.dart';
 
 class FirebaseTestScreen extends StatefulWidget {
   const FirebaseTestScreen({super.key});
@@ -243,6 +244,20 @@ class _FirebaseTestScreenState extends State<FirebaseTestScreen> {
                 foregroundColor: Colors.white,
               ),
               child: const Text('문제 사용자 삭제'),
+            ),
+            const SizedBox(height: 10),
+            ElevatedButton(
+              onPressed: () {
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(builder: (context) => const FCMTestScreen()),
+                );
+              },
+              style: ElevatedButton.styleFrom(
+                backgroundColor: const Color(0xFFD2B48C),
+                foregroundColor: Colors.white,
+              ),
+              child: const Text('FCM 알림 테스트'),
             ),
             const SizedBox(height: 10),
             ElevatedButton(

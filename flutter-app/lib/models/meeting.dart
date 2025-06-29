@@ -9,6 +9,7 @@ class Meeting {
   final int currentParticipants;
   final String hostId;
   final String hostName;
+  final String? hostKakaoId; // 카카오 ID 기반 소유권 확인용
   final List<String> tags;
   final List<String> participantIds;
   final double? price;
@@ -31,6 +32,7 @@ class Meeting {
     this.currentParticipants = 1,
     required this.hostId,
     required this.hostName,
+    this.hostKakaoId, // 카카오 ID 추가
     this.tags = const [],
     this.participantIds = const [],
     this.price,
@@ -79,6 +81,7 @@ class Meeting {
       currentParticipants: data['currentParticipants'] ?? 1,
       hostId: data['hostId'] ?? '',
       hostName: data['hostName'] ?? '',
+      hostKakaoId: data['hostKakaoId'] as String?,
       tags: List<String>.from(data['tags'] ?? []),
       participantIds: List<String>.from(data['participantIds'] ?? []),
       price: data['price']?.toDouble(),
@@ -103,6 +106,7 @@ class Meeting {
       'currentParticipants': currentParticipants,
       'hostId': hostId,
       'hostName': hostName,
+      'hostKakaoId': hostKakaoId,
       'tags': tags,
       'participantIds': participantIds,
       'price': price,
@@ -127,6 +131,7 @@ class Meeting {
     int? currentParticipants,
     String? hostId,
     String? hostName,
+    String? hostKakaoId,
     List<String>? tags,
     List<String>? participantIds,
     double? price,
@@ -149,6 +154,7 @@ class Meeting {
       currentParticipants: currentParticipants ?? this.currentParticipants,
       hostId: hostId ?? this.hostId,
       hostName: hostName ?? this.hostName,
+      hostKakaoId: hostKakaoId ?? this.hostKakaoId,
       tags: tags ?? this.tags,
       participantIds: participantIds ?? this.participantIds,
       price: price ?? this.price,
