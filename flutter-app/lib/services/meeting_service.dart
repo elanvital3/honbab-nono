@@ -1,6 +1,7 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/foundation.dart';
 import '../models/meeting.dart';
+import 'notification_service.dart';
 
 class MeetingService {
   static final FirebaseFirestore _firestore = FirebaseFirestore.instance;
@@ -13,6 +14,20 @@ class MeetingService {
       
       if (kDebugMode) {
         print('✅ Meeting created: ${docRef.id}');
+      }
+      
+      // 새 모임 생성 알림 발송
+      try {
+        final createdMeeting = meeting.copyWith(id: docRef.id);
+        await NotificationService().showNewMeetingNotification(createdMeeting);
+        if (kDebugMode) {
+          print('✅ 새 모임 알림 발송 완료');
+        }
+      } catch (notificationError) {
+        if (kDebugMode) {
+          print('⚠️ 새 모임 알림 발송 실패: $notificationError');
+        }
+        // 알림 실패는 모임 생성을 방해하지 않음
       }
       
       return docRef.id;
@@ -155,6 +170,29 @@ class MeetingService {
       
       if (kDebugMode) {
         print('✅ Joined meeting: $meetingId');
+      }
+      
+      // 모임 참여 후 처리
+      try {
+        final meeting = await getMeeting(meetingId);
+        if (meeting != null) {
+          // 리마인더 알림 예약
+          await NotificationService().scheduleMeetingReminder(meeting);
+          
+          // 호스트에게 참여 알림
+          await NotificationService().showParticipantNotification(
+            '새로운 참여자',
+            '${meeting.restaurantName ?? meeting.location} 모임에 새로운 참여자가 추가되었습니다.',
+          );
+          
+          if (kDebugMode) {
+            print('✅ 모임 참여 알림 처리 완료');
+          }
+        }
+      } catch (notificationError) {
+        if (kDebugMode) {
+          print('⚠️ 모임 참여 알림 처리 실패: $notificationError');
+        }
       }
     } catch (e) {
       if (kDebugMode) {

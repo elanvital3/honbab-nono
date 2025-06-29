@@ -1,6 +1,8 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/foundation.dart';
 import '../models/message.dart';
+import 'notification_service.dart';
+import 'meeting_service.dart';
 
 class ChatService {
   static final FirebaseFirestore _firestore = FirebaseFirestore.instance;
@@ -33,6 +35,27 @@ class ChatService {
 
       if (kDebugMode) {
         print('✅ 메시지 전송 성공: ${docRef.id}');
+      }
+
+      // 채팅 메시지 알림 발송 (발송자 제외)
+      try {
+        final meeting = await MeetingService.getMeeting(meetingId);
+        if (meeting != null && type == MessageType.text) {
+          final meetingTitle = meeting.restaurantName ?? meeting.location;
+          await NotificationService().showChatNotification(
+            meetingTitle,
+            senderName,
+            content,
+          );
+          
+          if (kDebugMode) {
+            print('✅ 채팅 알림 발송 완료');
+          }
+        }
+      } catch (notificationError) {
+        if (kDebugMode) {
+          print('⚠️ 채팅 알림 발송 실패: $notificationError');
+        }
       }
 
       return docRef.id;

@@ -18,9 +18,6 @@ class _NotificationSettingsScreenState extends State<NotificationSettingsScreen>
   bool _meetingReminderNotification = true;
   bool _participantNotification = true;
   
-  // 이메일 알림 설정
-  bool _emailNotification = false;
-  bool _weeklyEmailSummary = false;
   
   // 방해금지 모드
   bool _doNotDisturbEnabled = false;
@@ -46,8 +43,6 @@ class _NotificationSettingsScreenState extends State<NotificationSettingsScreen>
       _chatNotification = prefs.getBool('chatNotification') ?? true;
       _meetingReminderNotification = prefs.getBool('meetingReminderNotification') ?? true;
       _participantNotification = prefs.getBool('participantNotification') ?? true;
-      _emailNotification = prefs.getBool('emailNotification') ?? false;
-      _weeklyEmailSummary = prefs.getBool('weeklyEmailSummary') ?? false;
       _doNotDisturbEnabled = prefs.getBool('doNotDisturbEnabled') ?? false;
       _reminderMinutes = prefs.getInt('reminderMinutes') ?? 60;
       
@@ -71,8 +66,6 @@ class _NotificationSettingsScreenState extends State<NotificationSettingsScreen>
     await prefs.setBool('chatNotification', _chatNotification);
     await prefs.setBool('meetingReminderNotification', _meetingReminderNotification);
     await prefs.setBool('participantNotification', _participantNotification);
-    await prefs.setBool('emailNotification', _emailNotification);
-    await prefs.setBool('weeklyEmailSummary', _weeklyEmailSummary);
     await prefs.setBool('doNotDisturbEnabled', _doNotDisturbEnabled);
     await prefs.setInt('reminderMinutes', _reminderMinutes);
     
@@ -215,11 +208,6 @@ class _NotificationSettingsScreenState extends State<NotificationSettingsScreen>
             
             // 방해금지 모드 섹션
             _buildDoNotDisturbSection(),
-            
-            const SizedBox(height: AppDesignTokens.spacing3),
-            
-            // 이메일 알림 섹션
-            _buildEmailNotificationSection(),
             
             const SizedBox(height: AppDesignTokens.spacing4),
           ],
@@ -446,54 +434,6 @@ class _NotificationSettingsScreenState extends State<NotificationSettingsScreen>
     );
   }
 
-  Widget _buildEmailNotificationSection() {
-    return CommonCard(
-      margin: AppPadding.horizontal16,
-      padding: AppPadding.all20,
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: [
-              Icon(
-                Icons.email,
-                color: AppDesignTokens.primary,
-                size: 20,
-              ),
-              const SizedBox(width: AppDesignTokens.spacing2),
-              Text(
-                '이메일 알림',
-                style: AppTextStyles.titleMedium.copyWith(
-                  fontWeight: AppDesignTokens.fontWeightBold,
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: AppDesignTokens.spacing3),
-          
-          _buildSwitchTile(
-            '중요 알림 이메일',
-            '모임 취소, 중요 공지사항을 이메일로 받습니다',
-            _emailNotification,
-            (value) {
-              setState(() => _emailNotification = value);
-              _saveSettings();
-            },
-          ),
-          
-          _buildSwitchTile(
-            '주간 요약 이메일',
-            '매주 참여한 모임과 활동 요약을 이메일로 받습니다',
-            _weeklyEmailSummary,
-            (value) {
-              setState(() => _weeklyEmailSummary = value);
-              _saveSettings();
-            },
-          ),
-        ],
-      ),
-    );
-  }
 
   Widget _buildSwitchTile(
     String title,

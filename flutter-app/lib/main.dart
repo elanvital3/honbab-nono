@@ -6,10 +6,12 @@ import 'package:kakao_flutter_sdk_user/kakao_flutter_sdk_user.dart';
 import 'package:provider/provider.dart';
 import 'package:firebase_auth/firebase_auth.dart' as firebase_auth;
 import 'package:flutter_localizations/flutter_localizations.dart';
+import 'package:timezone/data/latest.dart' as tz;
 import 'config/firebase_config.dart';
 import 'services/auth_service.dart';
 import 'services/user_service.dart';
 import 'services/location_service.dart';
+import 'services/notification_service.dart';
 import 'screens/auth/auth_wrapper.dart';
 import 'screens/auth/login_screen.dart';
 import 'screens/auth/signup_complete_screen.dart';
@@ -33,6 +35,17 @@ void main() async {
     print('✅ Firebase 초기화 성공');
   } catch (e) {
     print('❌ Firebase 초기화 실패: $e');
+  }
+  
+  // 타임존 초기화
+  tz.initializeTimeZones();
+  
+  // 알림 서비스 초기화
+  try {
+    await NotificationService().initialize();
+    print('✅ 알림 서비스 초기화 성공');
+  } catch (e) {
+    print('❌ 알림 서비스 초기화 실패: $e');
   }
   
   try {

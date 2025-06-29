@@ -63,6 +63,12 @@ dependencies:
   
   # 로컬 저장소
   shared_preferences: ^2.2.2
+  
+  # 푸시 알림
+  flutter_local_notifications: ^16.3.0
+  firebase_messaging: ^14.7.9
+  permission_handler: ^11.1.0
+  timezone: ^0.9.2
 
 dev_dependencies:
   flutter_test:
