@@ -2556,6 +2556,13 @@ class _ChatListTabState extends State<_ChatListTab> {
       if (currentFirebaseUser != null) {
         _currentUserId = currentFirebaseUser.uid;
         
+        // 즉시 로딩 상태 해제 (빈 상태라도 UI 표시)
+        if (mounted) {
+          setState(() {
+            _isLoading = false;
+          });
+        }
+        
         // 모임 목록 실시간 구독
         _meetingsSubscription = MeetingService.getMeetingsStream().listen(
           (allMeetings) async {
@@ -2572,25 +2579,36 @@ class _ChatListTabState extends State<_ChatListTab> {
                 _participatingMeetings = participatingMeetings;
               });
               
-              // 새로운 모임 목록에 대해 채팅 데이터 로드
-              await _loadChatData();
-              
-              // 부모 위젯에게 안읽은 메시지 수 변경을 알림
-              widget.onUnreadCountChanged?.call();
+              // 새로운 모임 목록에 대해 채팅 데이터 로드 (백그라운드에서)
+              _loadChatData().then((_) {
+                // 부모 위젯에게 안읽은 메시지 수 변경을 알림
+                widget.onUnreadCountChanged?.call();
+              });
             }
           },
           onError: (error) {
             if (kDebugMode) {
               print('❌ 모임 스트림 에러: $error');
             }
+            if (mounted) {
+              setState(() {
+                _isLoading = false;
+              });
+            }
           },
         );
+      } else {
+        // 로그인되지 않은 경우 즉시 로딩 해제
+        if (mounted) {
+          setState(() {
+            _isLoading = false;
+          });
+        }
       }
     } catch (e) {
       if (kDebugMode) {
         print('❌ 채팅 목록 초기화 실패: $e');
       }
-    } finally {
       if (mounted) {
         setState(() {
           _isLoading = false;
@@ -2656,32 +2674,35 @@ class _ChatListTabState extends State<_ChatListTab> {
 
   @override
   Widget build(BuildContext context) {
-    if (_isLoading) {
-      return const Center(child: CircularProgressIndicator());
-    }
-
-    if (_participatingMeetings.isEmpty) {
-      return _buildEmptyState();
-    }
-
-    return Column(
-      children: [
-        // 채팅방 리스트 (RefreshIndicator 추가)
-        Expanded(
-          child: RefreshIndicator(
-            onRefresh: () async {
-              await _loadChatData();
-            },
-            child: ListView.builder(
-              itemCount: _participatingMeetings.length,
-              itemBuilder: (context, index) {
-                final meeting = _participatingMeetings[index];
-                return _buildMeetingChatItem(meeting);
-              },
-            ),
-          ),
-        ),
-      ],
+    return AnimatedSwitcher(
+      duration: const Duration(milliseconds: 300),
+      child: _isLoading
+          ? const Center(
+              key: ValueKey('loading'),
+              child: CircularProgressIndicator(),
+            )
+          : _participatingMeetings.isEmpty
+              ? _buildEmptyState()
+              : Column(
+                  key: const ValueKey('chat_list'),
+                  children: [
+                    // 채팅방 리스트 (RefreshIndicator 추가)
+                    Expanded(
+                      child: RefreshIndicator(
+                        onRefresh: () async {
+                          await _loadChatData();
+                        },
+                        child: ListView.builder(
+                          itemCount: _participatingMeetings.length,
+                          itemBuilder: (context, index) {
+                            final meeting = _participatingMeetings[index];
+                            return _buildMeetingChatItem(meeting);
+                          },
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
     );
   }
 
@@ -3447,6 +3468,7 @@ class _ProfileTabState extends State<_ProfileTab> {
 
   Widget _buildEmptyMeetingsSection() {
     return Container(
+      width: double.infinity,  // 가로 꽉 차도록 설정
       margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
       padding: const EdgeInsets.all(40),
       decoration: BoxDecoration(
@@ -3470,17 +3492,14 @@ class _ProfileTabState extends State<_ProfileTab> {
           const SizedBox(height: 16),
           Text(
             '참여한 모임이 없어요',
-            style: TextStyle(
-              fontSize: 16,
-              fontWeight: FontWeight.bold,
+            style: AppTextStyles.titleMedium.copyWith(
               color: Theme.of(context).colorScheme.outline,
             ),
           ),
           const SizedBox(height: 8),
           Text(
             '첫 모임에 참여해보세요!',
-            style: TextStyle(
-              fontSize: 14,
+            style: AppTextStyles.bodyMedium.copyWith(
               color: Theme.of(context).colorScheme.outline,
             ),
           ),
@@ -3824,19 +3843,22 @@ class _ProfileTabState extends State<_ProfileTab> {
     showDialog(
       context: context,
       builder: (context) => AlertDialog(
-        title: const Text('로그아웃'),
-        content: const Text('정말 로그아웃하시겠습니까?'),
+        title: Text('로그아웃', style: AppTextStyles.titleLarge),
+        content: Text('정말 로그아웃하시겠습니까?', style: AppTextStyles.bodyLarge),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(context),
-            child: const Text('취소'),
+            child: Text('취소', style: AppTextStyles.labelLarge),
           ),
           TextButton(
             onPressed: () async {
               Navigator.pop(context);
               await _handleLogout();
             },
-            child: Text('로그아웃', style: TextStyle(color: Colors.red[400])),
+            child: Text(
+              '로그아웃',
+              style: AppTextStyles.labelLarge.copyWith(color: Colors.red[400]),
+            ),
           ),
         ],
       ),
@@ -3906,19 +3928,25 @@ class _ProfileTabState extends State<_ProfileTab> {
     showDialog(
       context: context,
       builder: (context) => AlertDialog(
-        title: const Text('회원탈퇴'),
-        content: const Text('정말 탈퇴하시겠습니까?\n모든 데이터가 삭제되며 복구할 수 없습니다.'),
+        title: Text('회원탈퇴', style: AppTextStyles.titleLarge),
+        content: Text(
+          '정말 탈퇴하시겠습니까?\n모든 데이터가 삭제되며 복구할 수 없습니다.',
+          style: AppTextStyles.bodyLarge,
+        ),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(context),
-            child: const Text('취소'),
+            child: Text('취소', style: AppTextStyles.labelLarge),
           ),
           TextButton(
             onPressed: () async {
               Navigator.pop(context);
               await _handleDeleteAccount();
             },
-            child: Text('탈퇴', style: TextStyle(color: Colors.red[700])),
+            child: Text(
+              '탈퇴',
+              style: AppTextStyles.labelLarge.copyWith(color: Colors.red[700]),
+            ),
           ),
         ],
       ),
