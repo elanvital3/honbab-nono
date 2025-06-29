@@ -2,6 +2,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/foundation.dart';
 import '../models/meeting.dart';
 import 'notification_service.dart';
+import 'user_service.dart';
 
 class MeetingService {
   static final FirebaseFirestore _firestore = FirebaseFirestore.instance;
@@ -228,6 +229,17 @@ class MeetingService {
     try {
       final meetingRef = _firestore.collection(_collection).doc(meetingId);
       
+      // 사용자의 카카오 ID 가져오기
+      String? userKakaoId;
+      try {
+        final user = await UserService.getUser(userId);
+        userKakaoId = user?.kakaoId;
+      } catch (e) {
+        if (kDebugMode) {
+          print('⚠️ 사용자 카카오 ID 조회 실패: $e');
+        }
+      }
+      
       await _firestore.runTransaction((transaction) async {
         final snapshot = await transaction.get(meetingRef);
         
@@ -237,7 +249,13 @@ class MeetingService {
         
         final meeting = Meeting.fromFirestore(snapshot);
         
-        if (meeting.participantIds.contains(userId)) {
+        // Firebase UID 또는 카카오 ID로 이미 참여했는지 확인
+        bool alreadyJoined = meeting.participantIds.contains(userId);
+        if (userKakaoId != null) {
+          alreadyJoined = alreadyJoined || meeting.participantIds.contains(userKakaoId);
+        }
+        
+        if (alreadyJoined) {
           throw Exception('Already joined this meeting');
         }
         
@@ -245,13 +263,27 @@ class MeetingService {
           throw Exception('Meeting is full');
         }
         
-        final updatedParticipants = [...meeting.participantIds, userId];
+        // Firebase UID와 카카오 ID 모두 추가 (중복 방지)
+        final updatedParticipants = [...meeting.participantIds];
+        if (!updatedParticipants.contains(userId)) {
+          updatedParticipants.add(userId);
+        }
+        if (userKakaoId != null && !updatedParticipants.contains(userKakaoId)) {
+          updatedParticipants.add(userKakaoId);
+        }
         
         transaction.update(meetingRef, {
           'participantIds': updatedParticipants,
           'currentParticipants': updatedParticipants.length,
           'updatedAt': Timestamp.fromDate(DateTime.now()),
         });
+        
+        if (kDebugMode) {
+          print('✅ 모임 참여: $meetingId');
+          print('  - Firebase UID: $userId');
+          print('  - 카카오 ID: $userKakaoId');
+          print('  - 전체 참여자 수: ${updatedParticipants.length}');
+        }
       });
       
       if (kDebugMode) {

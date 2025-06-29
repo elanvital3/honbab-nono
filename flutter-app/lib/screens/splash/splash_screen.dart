@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+import '../../services/location_service.dart';
 import '../auth/auth_wrapper.dart';
 
 class SplashScreen extends StatefulWidget {
@@ -97,8 +99,11 @@ class _SplashScreenState extends State<SplashScreen>
     await Future.delayed(const Duration(milliseconds: 200));
     _loadingController.repeat();
     
-    // 최소 스플래시 시간 보장 (2.5초로 복원)
-    await Future.delayed(const Duration(milliseconds: 1800));
+    // 위치 초기화와 최소 스플래시 시간을 동시에 실행
+    await Future.wait([
+      _initializeLocation(),
+      Future.delayed(const Duration(milliseconds: 1800)), // 최소 2.5초 보장
+    ]);
     
     if (mounted) {
       Navigator.of(context).pushReplacement(
@@ -113,6 +118,35 @@ class _SplashScreenState extends State<SplashScreen>
           transitionDuration: const Duration(milliseconds: 300),
         ),
       );
+    }
+  }
+
+  Future<void> _initializeLocation() async {
+    try {
+      // 3초 타임아웃 설정
+      final locationFuture = LocationService.getCurrentLocation();
+      final location = await locationFuture.timeout(
+        const Duration(seconds: 3),
+        onTimeout: () => null,
+      );
+      
+      if (location != null && mounted) {
+        // GPS 위치에서 가장 가까운 도시 찾기
+        final nearestCity = LocationService.findNearestCity(
+          location.latitude!,
+          location.longitude!
+        );
+        
+        if (nearestCity != null) {
+          // SharedPreferences에 저장
+          final prefs = await SharedPreferences.getInstance();
+          await prefs.setString('lastKnownCity', nearestCity);
+          print('📍 스플래시에서 위치 초기화 성공: $nearestCity');
+        }
+      }
+    } catch (e) {
+      // 에러 발생해도 앱은 계속 진행
+      print('📍 스플래시 위치 초기화 실패: $e');
     }
   }
 

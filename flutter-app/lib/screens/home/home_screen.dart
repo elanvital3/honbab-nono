@@ -2,6 +2,8 @@ import 'dart:async';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:kakao_maps_flutter/kakao_maps_flutter.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
 import '../../models/meeting.dart';
 import '../../models/user.dart';
 import '../../components/meeting_card.dart';
@@ -52,7 +54,25 @@ class _HomeScreenState extends State<HomeScreen> {
     if (_isLocationInitialized) return;
     
     try {
-      final currentLocation = await LocationService.getCurrentLocation();
+      // SharedPreferences에서 먼저 확인
+      final prefs = await SharedPreferences.getInstance();
+      final savedCity = prefs.getString('lastKnownCity');
+      
+      if (savedCity != null) {
+        setState(() {
+          _selectedLocationFilter = savedCity;
+          _isLocationInitialized = true;
+        });
+        print('📍 홈화면 지역 필터: 저장된 위치 $savedCity 사용');
+        return;
+      }
+      
+      // 저장된 위치가 없으면 GPS 시도 (빠른 타임아웃)
+      final currentLocation = await LocationService.getCurrentLocation().timeout(
+        const Duration(seconds: 2),
+        onTimeout: () => null,
+      );
+      
       if (currentLocation != null && mounted) {
         // GPS 위치에서 가장 가까운 도시 찾기
         final nearestCity = LocationService.findNearestCity(
@@ -65,7 +85,9 @@ class _HomeScreenState extends State<HomeScreen> {
             _selectedLocationFilter = nearestCity;
             _isLocationInitialized = true;
           });
-          print('📍 홈화면 지역 필터: $nearestCity로 자동 설정됨');
+          // 위치를 SharedPreferences에 저장
+          await prefs.setString('lastKnownCity', nearestCity);
+          print('📍 홈화면 지역 필터: GPS $nearestCity로 설정하고 저장');
         }
       }
     } catch (e) {
@@ -651,13 +673,17 @@ class _MeetingListTab extends StatefulWidget {
   State<_MeetingListTab> createState() => _MeetingListTabState();
 }
 
-class _MeetingListTabState extends State<_MeetingListTab> {
+class _MeetingListTabState extends State<_MeetingListTab> with AutomaticKeepAliveClientMixin {
   final List<String> _statusFilters = ['전체', '모집중', '완료'];
   final List<String> _timeFilters = ['오늘', '내일', '일주일', '전체'];
   final List<String> _locationFilters = ['전체', '서울시 중구', '서울시 강남구', '서울시 마포구', '서울시 성동구', '서울시 용산구'];
 
   @override
+  bool get wantKeepAlive => true;
+
+  @override
   Widget build(BuildContext context) {
+    super.build(context); // AutomaticKeepAliveClientMixin 필수
     return Column(
       children: [
         // 필터 칩들 (두 줄로 배치)
@@ -876,7 +902,7 @@ class _MapTab extends StatefulWidget {
   State<_MapTab> createState() => _MapTabState();
 }
 
-class _MapTabState extends State<_MapTab> {
+class _MapTabState extends State<_MapTab> with AutomaticKeepAliveClientMixin {
   final TextEditingController _searchController = TextEditingController();
   final List<String> _statusFilters = ['전체', '모집중'];
   final List<String> _timeFilters = ['오늘', '내일', '일주일', '전체'];
@@ -1295,7 +1321,11 @@ class _MapTabState extends State<_MapTab> {
   }
 
   @override
+  bool get wantKeepAlive => true;
+
+  @override
   Widget build(BuildContext context) {
+    super.build(context); // AutomaticKeepAliveClientMixin 필수
     return Listener(
       onPointerDown: (PointerDownEvent event) {
         // 터치 시작 시 하단 카드 닫기 (WebView 터치도 감지)
@@ -2515,39 +2545,146 @@ class _ChatListTab extends StatefulWidget {
   State<_ChatListTab> createState() => _ChatListTabState();
 }
 
-class _ChatListTabState extends State<_ChatListTab> {
+class _ChatListTabState extends State<_ChatListTab> with AutomaticKeepAliveClientMixin {
+  static final FirebaseFirestore _firestore = FirebaseFirestore.instance;
   String? _currentUserId;
   List<Meeting> _participatingMeetings = [];
   Map<String, Message?> _lastMessages = {};
   Map<String, int> _unreadCounts = {};
   bool _isLoading = true;
-  Timer? _refreshTimer;
+  int _totalUnreadCount = 0; // 캐시된 총 안읽은 메시지 수
   StreamSubscription<List<Meeting>>? _meetingsSubscription;
+  Map<String, StreamSubscription<Message?>> _messageStreamSubscriptions = {};
+  Map<String, StreamSubscription<int>> _unreadCountStreamSubscriptions = {};
+  Timer? _updateDebounceTimer; // 디바운스 타이머
   
-  // 총 안읽은 메시지 수 계산
-  int get totalUnreadCount {
-    return _unreadCounts.values.fold(0, (sum, count) => sum + count);
+  // 총 안읽은 메시지 수 업데이트
+  void _updateTotalUnreadCount() {
+    final newTotal = _unreadCounts.values.fold(0, (sum, count) => sum + count);
+    if (_totalUnreadCount != newTotal) {
+      _totalUnreadCount = newTotal;
+      if (kDebugMode) {
+        print('📊 총 안읽은 메시지 수: $_totalUnreadCount');
+      }
+    }
+  }
+  
+  // 외부에서 접근할 수 있는 getter
+  int get totalUnreadCount => _totalUnreadCount;
+  
+  // 디바운스된 부모 알림 함수
+  void _notifyParentWithDebounce() {
+    _updateDebounceTimer?.cancel();
+    _updateDebounceTimer = Timer(const Duration(milliseconds: 300), () {
+      if (mounted) {
+        widget.onUnreadCountChanged?.call();
+      }
+    });
   }
 
   @override
   void initState() {
     super.initState();
     _initializeUserAndLoadChats();
-    _startPeriodicRefresh();
   }
   
   @override
   void dispose() {
-    _refreshTimer?.cancel();
     _meetingsSubscription?.cancel();
+    _disposeAllChatStreams();
+    _updateDebounceTimer?.cancel();
     super.dispose();
   }
   
-  void _startPeriodicRefresh() {
-    // 10초마다 채팅 데이터 새로고침
-    _refreshTimer = Timer.periodic(const Duration(seconds: 10), (timer) {
-      if (mounted && !_isLoading) {
-        _loadChatData();
+  void _disposeAllChatStreams() {
+    for (final subscription in _messageStreamSubscriptions.values) {
+      subscription.cancel();
+    }
+    for (final subscription in _unreadCountStreamSubscriptions.values) {
+      subscription.cancel();
+    }
+    _messageStreamSubscriptions.clear();
+    _unreadCountStreamSubscriptions.clear();
+  }
+  
+  void _setupChatStreams() {
+    // 기존 스트림 정리
+    _disposeAllChatStreams();
+    
+    // 각 모임에 대해 실시간 스트림 설정
+    for (final meeting in _participatingMeetings) {
+      _setupMeetingStreams(meeting.id);
+    }
+    
+    if (kDebugMode) {
+      print('💬 채팅 스트림 설정 완료: ${_participatingMeetings.length}개 모임');
+    }
+  }
+  
+  void _setupMeetingStreams(String meetingId) {
+    if (_currentUserId == null) return;
+    
+    // 이미 설정된 스트림이 있으면 건너뛰기
+    if (_messageStreamSubscriptions.containsKey(meetingId) && 
+        _unreadCountStreamSubscriptions.containsKey(meetingId)) {
+      return;
+    }
+    
+    // 최근 메시지 스트림 (에러 처리 및 안전장치 포함)
+    _messageStreamSubscriptions[meetingId] = ChatService.getLatestMessageStream(meetingId)
+        .listen((message) {
+      if (!mounted) return;
+      
+      try {
+        final previousMessage = _lastMessages[meetingId];
+        // 데이터가 실제로 변경된 경우에만 setState
+        if (previousMessage?.id != message?.id || 
+            previousMessage?.content != message?.content) {
+          setState(() {
+            _lastMessages[meetingId] = message;
+          });
+          if (kDebugMode) {
+            print('💬 최근 메시지 업데이트: $meetingId');
+          }
+        }
+      } catch (e) {
+        if (kDebugMode) {
+          print('❌ 메시지 스트림 에러: $e');
+        }
+      }
+    }, onError: (error) {
+      if (kDebugMode) {
+        print('❌ 메시지 스트림 에러: $error');
+      }
+    });
+    
+    // 안읽은 메시지 수 스트림 (에러 처리 및 안전장치 포함)
+    _unreadCountStreamSubscriptions[meetingId] = ChatService.getUnreadMessageCountStream(meetingId, _currentUserId!)
+        .listen((count) {
+      if (!mounted) return;
+      
+      try {
+        final previousCount = _unreadCounts[meetingId] ?? 0;
+        // 카운트가 실제로 변경된 경우에만 setState
+        if (previousCount != count) {
+          setState(() {
+            _unreadCounts[meetingId] = count;
+            _updateTotalUnreadCount(); // 총 개수 업데이트
+          });
+          // 디바운스된 방식으로 부모에게 알림
+          _notifyParentWithDebounce();
+          if (kDebugMode) {
+            print('🔢 안읽은 메시지 수 변경: $meetingId -> $count');
+          }
+        }
+      } catch (e) {
+        if (kDebugMode) {
+          print('❌ 카운트 스트림 에러: $e');
+        }
+      }
+    }, onError: (error) {
+      if (kDebugMode) {
+        print('❌ 카운트 스트림 에러: $error');
       }
     });
   }
@@ -2568,24 +2705,59 @@ class _ChatListTabState extends State<_ChatListTab> {
         // 모임 목록 실시간 구독
         _meetingsSubscription = MeetingService.getMeetingsStream().listen(
           (allMeetings) async {
+            // 현재 사용자의 카카오 ID 가져오기
+            String? currentKakaoId;
+            try {
+              final userDoc = await _firestore.collection('users').doc(_currentUserId).get();
+              if (userDoc.exists) {
+                final userData = userDoc.data() as Map<String, dynamic>;
+                currentKakaoId = userData['kakaoId'] as String?;
+              }
+            } catch (e) {
+              if (kDebugMode) {
+                print('❌ 카카오 ID 조회 실패: $e');
+              }
+            }
+            
             final participatingMeetings = allMeetings.where((meeting) {
-              return meeting.participantIds.contains(_currentUserId) ||
+              // Firebase UID로 확인
+              bool isParticipatingByUID = meeting.participantIds.contains(_currentUserId) ||
                      meeting.hostId == _currentUserId;
+              
+              // 카카오 ID로도 확인 (이전 데이터 호환성)
+              bool isParticipatingByKakaoId = false;
+              if (currentKakaoId != null) {
+                isParticipatingByKakaoId = meeting.participantIds.contains(currentKakaoId) ||
+                       meeting.hostId == currentKakaoId;
+              }
+              
+              return isParticipatingByUID || isParticipatingByKakaoId;
             }).toList();
 
             // 날짜순 정렬 (최신순)
             participatingMeetings.sort((a, b) => b.dateTime.compareTo(a.dateTime));
 
             if (mounted) {
-              setState(() {
-                _participatingMeetings = participatingMeetings;
-              });
+              // 모임 목록이 실제로 변경된 경우에만 업데이트
+              final hasChanged = _participatingMeetings.length != participatingMeetings.length ||
+                  !_participatingMeetings.every((meeting) => 
+                      participatingMeetings.any((newMeeting) => newMeeting.id == meeting.id));
               
-              // 새로운 모임 목록에 대해 채팅 데이터 로드 (백그라운드에서)
-              _loadChatData().then((_) {
-                // 부모 위젯에게 안읽은 메시지 수 변경을 알림
-                widget.onUnreadCountChanged?.call();
-              });
+              if (hasChanged) {
+                setState(() {
+                  _participatingMeetings = participatingMeetings;
+                  _updateTotalUnreadCount(); // 총 개수 업데이트
+                });
+                
+                // 새로운 모임 목록에 대해 실시간 스트림 설정
+                _setupChatStreams();
+                // 디바운스된 방식으로 부모에게 알림
+                _notifyParentWithDebounce();
+                
+                if (kDebugMode) {
+                  print('📱 모임 목록 변경됨: ${participatingMeetings.length}개');
+                }
+              }
             }
           },
           onError: (error) {
@@ -2620,79 +2792,30 @@ class _ChatListTabState extends State<_ChatListTab> {
   }
 
 
-  Future<void> _loadChatData() async {
-    if (_currentUserId == null || _participatingMeetings.isEmpty) return;
 
-    try {
-      // 모든 모임의 채팅 데이터를 병렬로 로드
-      final futures = _participatingMeetings.map((meeting) async {
-        try {
-          // 최근 메시지와 안읽은 메시지 수를 병렬로 가져오기
-          final results = await Future.wait([
-            ChatService.getLatestMessage(meeting.id),
-            ChatService.getUnreadMessageCount(meeting.id, _currentUserId!),
-          ]);
-          
-          final lastMessage = results[0] as Message?;
-          final unreadCount = results[1] as int;
-          
-          return {
-            'meetingId': meeting.id,
-            'lastMessage': lastMessage,
-            'unreadCount': unreadCount,
-          };
-        } catch (e) {
-          if (kDebugMode) {
-            print('❌ 모임 ${meeting.id} 채팅 데이터 로드 실패: $e');
-          }
-          return {
-            'meetingId': meeting.id,
-            'lastMessage': null,
-            'unreadCount': 0,
-          };
-        }
-      }).toList();
-
-      final results = await Future.wait(futures);
-      
-      if (mounted) {
-        setState(() {
-          for (final result in results) {
-            final meetingId = result['meetingId'] as String;
-            _lastMessages[meetingId] = result['lastMessage'] as Message?;
-            _unreadCounts[meetingId] = result['unreadCount'] as int;
-          }
-        });
-        
-        // 부모 위젯에게 안읽은 메시지 수 변경을 알림
-        widget.onUnreadCountChanged?.call();
-      }
-    } catch (e) {
-      if (kDebugMode) {
-        print('❌ 채팅 데이터 병렬 로드 실패: $e');
-      }
-    }
-  }
+  @override
+  bool get wantKeepAlive => true;
 
   @override
   Widget build(BuildContext context) {
-    return AnimatedSwitcher(
-      duration: const Duration(milliseconds: 300),
-      child: _isLoading
-          ? const Center(
-              key: ValueKey('loading'),
-              child: CircularProgressIndicator(),
-            )
-          : _participatingMeetings.isEmpty
-              ? _buildEmptyState()
-              : Column(
-                  key: const ValueKey('chat_list'),
+    super.build(context); // AutomaticKeepAliveClientMixin 필수
+    
+    if (_isLoading) {
+      return const Center(child: CircularProgressIndicator());
+    }
+    
+    if (_participatingMeetings.isEmpty) {
+      return _buildEmptyState();
+    }
+    
+    return Column(
                   children: [
                     // 채팅방 리스트 (RefreshIndicator 추가)
                     Expanded(
                       child: RefreshIndicator(
                         onRefresh: () async {
-                          await _loadChatData();
+                          // 실시간 스트림으로 인해 분사될 필요 없음
+                          // 스트림이 자동으로 최신 데이터를 제공
                         },
                         child: ListView.builder(
                           itemCount: _participatingMeetings.length,
@@ -2704,8 +2827,7 @@ class _ChatListTabState extends State<_ChatListTab> {
                       ),
                     ),
                   ],
-                ),
-    );
+                );
   }
 
   Widget _buildEmptyState() {
@@ -2931,8 +3053,8 @@ class _ChatListTabState extends State<_ChatListTab> {
       ),
     );
     
-    // 채팅방에서 돌아온 후 채팅 데이터 새로고침
-    await _loadChatData();
+    // 실시간 스트림으로 인해 자동 업데이트됨
+    // 더 이상 수동 새로고침 불필요
   }
 }
 
@@ -2966,7 +3088,7 @@ class _ProfileTab extends StatefulWidget {
   State<_ProfileTab> createState() => _ProfileTabState();
 }
 
-class _ProfileTabState extends State<_ProfileTab> {
+class _ProfileTabState extends State<_ProfileTab> with AutomaticKeepAliveClientMixin {
   String? _currentUserId;
   User? _currentUser;
   List<Meeting> _myMeetings = [];
@@ -3030,7 +3152,11 @@ class _ProfileTabState extends State<_ProfileTab> {
   }
 
   @override
+  bool get wantKeepAlive => true;
+
+  @override
   Widget build(BuildContext context) {
+    super.build(context); // AutomaticKeepAliveClientMixin 필수
     if (_isLoading) {
       return const Center(child: CircularProgressIndicator());
     }

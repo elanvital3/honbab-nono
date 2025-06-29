@@ -63,11 +63,11 @@ class _FCMTestScreenState extends State<FCMTestScreen> {
 
       await _notificationService.saveFCMTokenToFirestore(user.uid);
       setState(() {
-        _status = 'FCM 토큰 저장 완료';
+        _status = '카카오 ID 기반 FCM 토큰 저장 완료';
       });
       
       if (kDebugMode) {
-        print('✅ FCM 토큰 수동 저장 완료');
+        print('✅ 카카오 ID 기반 FCM 토큰 수동 저장 완료');
       }
     } catch (e) {
       setState(() {

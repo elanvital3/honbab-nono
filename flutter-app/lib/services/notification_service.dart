@@ -8,6 +8,7 @@ import 'package:permission_handler/permission_handler.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:timezone/timezone.dart' as tz;
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_auth/firebase_auth.dart' as firebase_auth;
 import '../models/meeting.dart';
 import '../models/user.dart';
 
@@ -170,12 +171,22 @@ class NotificationService {
     }
     
     // 토큰 갱신 리스너
-    _firebaseMessaging.onTokenRefresh.listen((token) {
-      _fcmToken = token;
+    _firebaseMessaging.onTokenRefresh.listen((token) async {
       if (kDebugMode) {
-        print('FCM 토큰 갱신: $token');
+        print('FCM 토큰 갱신됨: ${token.substring(0, 20)}...');
       }
-      // TODO: 서버에 새 토큰 전송
+      
+      // 현재 로그인된 사용자가 있다면 토큰 업데이트
+      try {
+        final currentUser = firebase_auth.FirebaseAuth.instance.currentUser;
+        if (currentUser != null) {
+          await updateFCMToken(currentUser.uid, token);
+        }
+      } catch (e) {
+        if (kDebugMode) {
+          print('❌ 토큰 갱신 중 오류: $e');
+        }
+      }
     });
     
     // 포그라운드 메시지 처리
@@ -586,16 +597,16 @@ class NotificationService {
     }
   }
 
-  /// 사용자들의 FCM 토큰 가져오기
+  /// 사용자들의 FCM 토큰 가져오기 (카카오 ID 기반)
   Future<List<String>> _getFCMTokensForUsers(List<String> userIds) async {
     try {
-      final tokens = <String>[];
+      final kakaoIds = <String>[];
       
       if (kDebugMode) {
         print('🔍 FCM 토큰 조회 시작 - 대상 사용자: $userIds');
       }
       
-      // Firestore에서 사용자들의 FCM 토큰 조회
+      // 먼저 사용자 ID들을 카카오 ID로 변환
       for (final userId in userIds) {
         if (kDebugMode) {
           print('📋 사용자 조회 중: $userId');
@@ -605,27 +616,14 @@ class NotificationService {
         
         if (userDoc.exists) {
           final userData = userDoc.data() as Map<String, dynamic>;
-          final fcmToken = userData['fcmToken'] as String?;
+          final kakaoId = userData['kakaoId'] as String?;
           
           if (kDebugMode) {
-            print('👤 사용자 $userId: FCM 토큰 ${fcmToken != null ? "있음" : "없음"}');
+            print('👤 사용자 $userId: 카카오 ID ${kakaoId != null ? "있음" : "없음"}');
           }
           
-          if (fcmToken != null && fcmToken.isNotEmpty) {
-            if (kDebugMode) {
-              print('🔑 사용자 $userId 토큰: ${fcmToken.substring(0, 20)}...');
-              print('🔑 현재 사용자 토큰: ${_fcmToken?.substring(0, 20)}...');
-              print('🔍 토큰 비교: ${fcmToken == _fcmToken ? "동일함 ❌" : "다름 ✅"}');
-            }
-            
-            // 현재 사용자와 같은 토큰이면 제외
-            if (fcmToken != _fcmToken) {
-              tokens.add(fcmToken);
-            } else {
-              if (kDebugMode) {
-                print('⚠️ 현재 사용자와 동일한 토큰이므로 제외');
-              }
-            }
+          if (kakaoId != null && kakaoId.isNotEmpty) {
+            kakaoIds.add(kakaoId);
           }
         } else {
           if (kDebugMode) {
@@ -634,11 +632,25 @@ class NotificationService {
         }
       }
       
-      if (kDebugMode) {
-        print('🔑 최종 조회된 FCM 토큰 수: ${tokens.length}/${userIds.length}');
+      if (kakaoIds.isEmpty) {
+        if (kDebugMode) {
+          print('❌ 카카오 ID를 찾을 수 없습니다');
+        }
+        return [];
       }
       
-      return tokens;
+      // 카카오 ID들로 FCM 토큰 조회
+      final allTokens = await getFCMTokensByKakaoIds(kakaoIds);
+      
+      // 현재 사용자의 토큰 제외
+      final filteredTokens = allTokens.where((token) => token != _fcmToken).toList();
+      
+      if (kDebugMode) {
+        print('🔑 최종 조회된 FCM 토큰 수: ${filteredTokens.length}/${userIds.length}');
+        print('📋 카카오 ID 목록: $kakaoIds');
+      }
+      
+      return filteredTokens;
     } catch (e) {
       if (kDebugMode) {
         print('❌ FCM 토큰 조회 실패: $e');
@@ -701,7 +713,7 @@ class NotificationService {
     }
   }
 
-  /// 현재 사용자의 FCM 토큰을 Firestore에 저장
+  /// 카카오 ID 기반으로 FCM 토큰을 Firestore에 저장
   Future<void> saveFCMTokenToFirestore(String userId) async {
     try {
       if (_fcmToken == null) {
@@ -711,17 +723,134 @@ class NotificationService {
         return;
       }
 
-      await _firestore.collection('users').doc(userId).update({
-        'fcmToken': _fcmToken,
+      // 사용자 정보에서 카카오 ID 조회
+      final userDoc = await _firestore.collection('users').doc(userId).get();
+      if (!userDoc.exists) {
+        if (kDebugMode) {
+          print('❌ 사용자 문서를 찾을 수 없습니다: $userId');
+        }
+        return;
+      }
+
+      final userData = userDoc.data() as Map<String, dynamic>;
+      final kakaoId = userData['kakaoId'] as String?;
+      
+      if (kakaoId == null) {
+        if (kDebugMode) {
+          print('❌ 카카오 ID가 없어서 FCM 토큰을 저장할 수 없습니다');
+        }
+        return;
+      }
+
+      // 카카오 ID 기반으로 토큰 저장 (fcm_tokens 컬렉션)
+      await _firestore.collection('fcm_tokens').doc(kakaoId).set({
+        'kakaoId': kakaoId,
+        'tokens': FieldValue.arrayUnion([_fcmToken]),  // 배열에 토큰 추가
+        'lastUserId': userId,  // 마지막 Firebase UID 기록
         'updatedAt': Timestamp.fromDate(DateTime.now()),
-      });
+      }, SetOptions(merge: true));
 
       if (kDebugMode) {
-        print('✅ FCM 토큰 Firestore 저장 완료: ${_fcmToken!.substring(0, 20)}...');
+        print('✅ 카카오 ID 기반 FCM 토큰 저장 완료');
+        print('  - 카카오 ID: $kakaoId');
+        print('  - 토큰: ${_fcmToken!.substring(0, 20)}...');
       }
     } catch (e) {
       if (kDebugMode) {
         print('❌ FCM 토큰 Firestore 저장 실패: $e');
+      }
+    }
+  }
+
+  /// 카카오 ID로 FCM 토큰 조회
+  Future<List<String>> getFCMTokensByKakaoId(String kakaoId) async {
+    try {
+      final tokenDoc = await _firestore.collection('fcm_tokens').doc(kakaoId).get();
+      
+      if (!tokenDoc.exists) {
+        if (kDebugMode) {
+          print('⚠️ 카카오 ID에 대한 FCM 토큰 없음: $kakaoId');
+        }
+        return [];
+      }
+
+      final data = tokenDoc.data() as Map<String, dynamic>;
+      final tokens = List<String>.from(data['tokens'] ?? []);
+      
+      if (kDebugMode) {
+        print('✅ 카카오 ID의 FCM 토큰 조회 완료: $kakaoId (${tokens.length}개 토큰)');
+      }
+      
+      return tokens;
+    } catch (e) {
+      if (kDebugMode) {
+        print('❌ FCM 토큰 조회 실패: $e');
+      }
+      return [];
+    }
+  }
+
+  /// 여러 카카오 ID의 FCM 토큰들을 한번에 조회
+  Future<List<String>> getFCMTokensByKakaoIds(List<String> kakaoIds) async {
+    final allTokens = <String>[];
+    
+    for (final kakaoId in kakaoIds) {
+      final tokens = await getFCMTokensByKakaoId(kakaoId);
+      allTokens.addAll(tokens);
+    }
+    
+    // 중복 제거
+    return allTokens.toSet().toList();
+  }
+
+  /// 현재 토큰을 기존 토큰 목록에서 제거 (앱 재설치 시 중복 방지)
+  Future<void> removeOldFCMToken(String kakaoId, String oldToken) async {
+    try {
+      await _firestore.collection('fcm_tokens').doc(kakaoId).update({
+        'tokens': FieldValue.arrayRemove([oldToken]),
+        'updatedAt': Timestamp.fromDate(DateTime.now()),
+      });
+
+      if (kDebugMode) {
+        print('✅ 기존 FCM 토큰 제거 완료: ${oldToken.substring(0, 20)}...');
+      }
+    } catch (e) {
+      if (kDebugMode) {
+        print('❌ 기존 FCM 토큰 제거 실패: $e');
+      }
+    }
+  }
+
+  /// 토큰 갱신 시 호출 (기존 토큰 제거 후 새 토큰 추가)
+  Future<void> updateFCMToken(String userId, String newToken) async {
+    try {
+      final userDoc = await _firestore.collection('users').doc(userId).get();
+      if (!userDoc.exists) return;
+
+      final userData = userDoc.data() as Map<String, dynamic>;
+      final kakaoId = userData['kakaoId'] as String?;
+      if (kakaoId == null) return;
+
+      // 기존 토큰 제거
+      if (_fcmToken != null && _fcmToken != newToken) {
+        await removeOldFCMToken(kakaoId, _fcmToken!);
+      }
+
+      // 새 토큰 추가
+      _fcmToken = newToken;
+      await _firestore.collection('fcm_tokens').doc(kakaoId).set({
+        'kakaoId': kakaoId,
+        'tokens': FieldValue.arrayUnion([newToken]),
+        'lastUserId': userId,
+        'updatedAt': Timestamp.fromDate(DateTime.now()),
+      }, SetOptions(merge: true));
+
+      if (kDebugMode) {
+        print('✅ FCM 토큰 갱신 완료: ${newToken.substring(0, 20)}...');
+      }
+    } catch (e) {
+      if (kDebugMode) {
+        print('❌ FCM 토큰 갱신 실패: $e');
       }
     }
   }

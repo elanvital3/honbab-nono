@@ -136,6 +136,46 @@ class ChatService {
     }
   }
 
+  // 안읽은 메시지 수 실시간 스트림 (최적화된 버전)
+  static Stream<int> getUnreadMessageCountStream(String meetingId, String userId) {
+    return _firestore
+        .collection(_messagesCollection)
+        .where('meetingId', isEqualTo: meetingId)
+        .where('senderId', isNotEqualTo: userId) // 자신의 메시지 제외
+        .where('isRead', isEqualTo: false) // 읽지 않은 메시지만
+        .snapshots()
+        .map((snapshot) {
+      // 시스템 메시지 제외하고 카운트
+      final count = snapshot.docs.where((doc) {
+        final data = doc.data();
+        final messageType = data['type'] as String? ?? 'text';
+        return messageType != 'system';
+      }).length;
+      
+      return count;
+    }).distinct(); // 중복 제거
+  }
+
+  // 최근 메시지 실시간 스트림 (최적화된 버전)
+  static Stream<Message?> getLatestMessageStream(String meetingId) {
+    return _firestore
+        .collection(_messagesCollection)
+        .where('meetingId', isEqualTo: meetingId)
+        .orderBy('createdAt', descending: true)
+        .limit(1)
+        .snapshots()
+        .map((snapshot) {
+      if (snapshot.docs.isNotEmpty) {
+        return Message.fromFirestore(snapshot.docs.first);
+      } else {
+        return null;
+      }
+    }).distinct((prev, next) {
+      // 메시지 ID와 내용이 같으면 중복으로 간주
+      return prev?.id == next?.id && prev?.content == next?.content;
+    });
+  }
+
   // 메시지 읽음 처리 (단순화된 버전)
   static Future<void> markMessagesAsRead(String meetingId, String userId) async {
     try {

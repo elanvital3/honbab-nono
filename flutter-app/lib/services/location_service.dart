@@ -228,8 +228,16 @@ class LocationService {
         }
       }
 
-      // 현재 위치 가져오기
-      _currentLocation = await _location.getLocation();
+      // 현재 위치 가져오기 (타임아웃 설정)
+      _currentLocation = await _location.getLocation().timeout(
+        const Duration(seconds: 10),
+        onTimeout: () {
+          if (kDebugMode) {
+            print('⏰ 위치 가져오기 타임아웃');
+          }
+          throw Exception('위치 타임아웃');
+        },
+      );
       
       if (kDebugMode) {
         print('📍 현재 위치: ${_currentLocation?.latitude}, ${_currentLocation?.longitude}');
@@ -244,6 +252,7 @@ class LocationService {
       return null;
     }
   }
+
 
   // 선택된 도시 좌표 가져오기
   static Map<String, double>? getCityCoordinates(String cityName) {
