@@ -14,12 +14,15 @@ class _LoginScreenState extends State<LoginScreen> {
   bool _isLoading = false;
 
   Future<void> _handleKakaoLogin() async {
+    print('🎯 _handleKakaoLogin 함수 시작');
     setState(() {
       _isLoading = true;
     });
 
     try {
+      print('🎯 KakaoAuthService.signInWithKakao() 호출 직전');
       final user = await KakaoAuthService.signInWithKakao();
+      print('🎯 KakaoAuthService.signInWithKakao() 호출 완료, 결과: $user');
       
       if (user != null && mounted) {
         print('🔍 로그인 결과 확인:');
@@ -83,11 +86,13 @@ class _LoginScreenState extends State<LoginScreen> {
 
   void _handleSocialLogin(BuildContext context, String provider) {
     // TODO: 다른 소셜 로그인 구현
-    print('$provider 로그인 시도');
+    print('🎯 _handleSocialLogin 호출됨: $provider');
     
     if (provider == '카카오') {
+      print('🎯 카카오 로그인 분기 진입');
       _handleKakaoLogin();
     } else {
+      print('🎯 다른 소셜 로그인: $provider');
       // 임시로 홈 화면으로 이동
       Navigator.pushReplacementNamed(context, '/home');
     }

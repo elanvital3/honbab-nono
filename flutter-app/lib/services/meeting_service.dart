@@ -216,7 +216,7 @@ class MeetingService {
     });
   }
 
-  // 호스트의 모임 목록 가져오기
+  // 호스트의 모임 목록 가져오기 (스트림)
   static Stream<List<Meeting>> getHostedMeetingsStream(String hostId) {
     return _firestore
         .collection(_collection)
@@ -228,5 +228,47 @@ class MeetingService {
           .map((doc) => Meeting.fromFirestore(doc))
           .toList();
     });
+  }
+
+  // 호스트의 모임 목록 가져오기 (Future)
+  static Future<List<Meeting>> getMeetingsByHost(String hostId) async {
+    try {
+      if (kDebugMode) {
+        print('🔍 MeetingService.getMeetingsByHost 호출: $hostId');
+      }
+      
+      // 인덱스 문제를 피하기 위해 orderBy 제거하고 클라이언트에서 정렬
+      final snapshot = await _firestore
+          .collection(_collection)
+          .where('hostId', isEqualTo: hostId)
+          .get();
+
+      if (kDebugMode) {
+        print('📊 Firebase 쿼리 결과: ${snapshot.docs.length}개 문서');
+      }
+
+      final meetings = snapshot.docs
+          .map((doc) => Meeting.fromFirestore(doc))
+          .toList();
+      
+      // 클라이언트에서 날짜순 정렬 (최신순)
+      meetings.sort((a, b) => b.dateTime.compareTo(a.dateTime));
+      
+      // 최대 10개까지만
+      if (meetings.length > 10) {
+        return meetings.take(10).toList();
+      }
+      
+      if (kDebugMode) {
+        print('✅ 최종 반환할 모임 수: ${meetings.length}');
+      }
+      
+      return meetings;
+    } catch (e) {
+      if (kDebugMode) {
+        print('❌ Error getting meetings by host: $e');
+      }
+      return [];
+    }
   }
 }

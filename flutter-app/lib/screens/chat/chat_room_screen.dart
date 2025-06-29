@@ -7,6 +7,7 @@ import '../../services/chat_service.dart';
 import '../../services/auth_service.dart';
 import '../../services/user_service.dart';
 import '../../services/meeting_service.dart';
+import '../profile/user_profile_screen.dart';
 
 class ChatRoomScreen extends StatefulWidget {
   final Meeting meeting;
@@ -27,6 +28,8 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
   String? _currentUserId;
   app_user.User? _currentUser;
   bool _isLoading = true;
+  List<app_user.User> _participants = [];
+  bool _isLoadingParticipants = false;
 
   @override
   void initState() {
@@ -171,12 +174,7 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
         actions: [
           IconButton(
             icon: const Icon(Icons.info_outline),
-            onPressed: () {
-              // TODO: 모임 정보 보기
-              ScaffoldMessenger.of(context).showSnackBar(
-                const SnackBar(content: Text('모임 정보 기능 준비 중입니다')),
-              );
-            },
+            onPressed: () => _showMeetingInfoModal(),
           ),
         ],
       ),
@@ -454,6 +452,508 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
                   ),
                 ],
               ),
+      ),
+    );
+  }
+
+  Future<void> _loadParticipants() async {
+    if (kDebugMode) {
+      print('🔍 참여자 로딩 시작');
+      print('  - 참여자 ID 목록: ${widget.meeting.participantIds}');
+      print('  - 참여자 수: ${widget.meeting.participantIds.length}');
+    }
+    
+    if (widget.meeting.participantIds.isEmpty) {
+      if (mounted) {
+        setState(() {
+          _participants = [];
+          _isLoadingParticipants = false;
+        });
+      }
+      return;
+    }
+    
+    if (mounted) {
+      setState(() {
+        _isLoadingParticipants = true;
+      });
+    }
+    
+    try {
+      final List<app_user.User> participantUsers = [];
+      
+      for (final participantId in widget.meeting.participantIds) {
+        if (kDebugMode) {
+          print('🔍 사용자 정보 요청: $participantId');
+        }
+        
+        try {
+          final user = await UserService.getUser(participantId);
+          if (user != null) {
+            participantUsers.add(user);
+            if (kDebugMode) {
+              print('✅ 사용자 정보 로드 성공: ${user.name}');
+            }
+          } else {
+            if (kDebugMode) {
+              print('⚠️ 사용자 정보 없음: $participantId');
+            }
+          }
+        } catch (userError) {
+          if (kDebugMode) {
+            print('❌ 개별 사용자 로드 실패: $participantId, 에러: $userError');
+          }
+          // 개별 사용자 로드 실패해도 계속 진행
+        }
+      }
+      
+      if (kDebugMode) {
+        print('📊 최종 로드된 참여자 수: ${participantUsers.length}');
+      }
+      
+      // 호스트를 맨 앞으로 정렬
+      participantUsers.sort((a, b) {
+        if (a.id == widget.meeting.hostId) return -1;
+        if (b.id == widget.meeting.hostId) return 1;
+        return 0;
+      });
+      
+      if (mounted) {
+        setState(() {
+          _participants = participantUsers;
+        });
+      }
+    } catch (e) {
+      if (kDebugMode) {
+        print('❌ 참여자 목록 로드 실패: $e');
+      }
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isLoadingParticipants = false;
+        });
+      }
+    }
+  }
+
+  Future<void> _loadParticipantsForModal(StateSetter setModalState) async {
+    if (kDebugMode) {
+      print('🔍 모달용 참여자 로딩 시작');
+      print('  - 참여자 ID 목록: ${widget.meeting.participantIds}');
+      print('  - 참여자 수: ${widget.meeting.participantIds.length}');
+    }
+    
+    if (widget.meeting.participantIds.isEmpty) {
+      setModalState(() {
+        _participants = [];
+        _isLoadingParticipants = false;
+      });
+      return;
+    }
+    
+    setModalState(() {
+      _isLoadingParticipants = true;
+    });
+    
+    try {
+      final List<app_user.User> participantUsers = [];
+      
+      for (final participantId in widget.meeting.participantIds) {
+        if (kDebugMode) {
+          print('🔍 사용자 정보 요청: $participantId');
+        }
+        
+        try {
+          final user = await UserService.getUser(participantId);
+          if (user != null) {
+            participantUsers.add(user);
+            if (kDebugMode) {
+              print('✅ 사용자 정보 로드 성공: ${user.name}');
+            }
+          } else {
+            if (kDebugMode) {
+              print('⚠️ 사용자 정보 없음: $participantId');
+            }
+          }
+        } catch (userError) {
+          if (kDebugMode) {
+            print('❌ 개별 사용자 로드 실패: $participantId, 에러: $userError');
+          }
+        }
+      }
+      
+      if (kDebugMode) {
+        print('📊 최종 로드된 참여자 수: ${participantUsers.length}');
+      }
+      
+      // 호스트를 맨 앞으로 정렬
+      participantUsers.sort((a, b) {
+        if (a.id == widget.meeting.hostId) return -1;
+        if (b.id == widget.meeting.hostId) return 1;
+        return 0;
+      });
+      
+      setModalState(() {
+        _participants = participantUsers;
+        _isLoadingParticipants = false;
+      });
+    } catch (e) {
+      if (kDebugMode) {
+        print('❌ 참여자 목록 로드 실패: $e');
+      }
+      setModalState(() {
+        _isLoadingParticipants = false;
+      });
+    }
+  }
+
+  void _showMeetingInfoModal() {
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (context) => StatefulBuilder(
+        builder: (BuildContext context, StateSetter setModalState) {
+          // 모달 내부에서 한번만 로딩
+          if (_participants.isEmpty && !_isLoadingParticipants) {
+            _loadParticipantsForModal(setModalState);
+          }
+          return Container(
+            height: MediaQuery.of(context).size.height * 0.7,
+            decoration: const BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.only(
+                topLeft: Radius.circular(20),
+                topRight: Radius.circular(20),
+              ),
+            ),
+            child: Column(
+              children: [
+            // 핸들바
+            Container(
+              width: 40,
+              height: 4,
+              margin: const EdgeInsets.only(top: 12),
+              decoration: BoxDecoration(
+                color: Colors.grey[300],
+                borderRadius: BorderRadius.circular(2),
+              ),
+            ),
+            
+            // 헤더
+            Padding(
+              padding: const EdgeInsets.all(20),
+              child: Row(
+                children: [
+                  Expanded(
+                    child: Text(
+                      '모임 정보',
+                      style: TextStyle(
+                        fontSize: 20,
+                        fontWeight: FontWeight.bold,
+                        color: Theme.of(context).colorScheme.onSurface,
+                      ),
+                    ),
+                  ),
+                  IconButton(
+                    icon: const Icon(Icons.close),
+                    onPressed: () => Navigator.pop(context),
+                  ),
+                ],
+              ),
+            ),
+            
+            // 모임 정보 내용
+            Expanded(
+              child: SingleChildScrollView(
+                padding: const EdgeInsets.symmetric(horizontal: 20),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    _buildMeetingInfoCard(),
+                    const SizedBox(height: 16),
+                    _buildParticipantsCard(),
+                    const SizedBox(height: 20),
+                  ],
+                ),
+                ),
+              ),
+            ],
+          ),
+        );
+        },
+      ),
+    );
+  }
+
+  Widget _buildMeetingInfoCard() {
+    return Container(
+      padding: const EdgeInsets.all(20),
+      decoration: BoxDecoration(
+        color: Theme.of(context).colorScheme.surface,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(
+          color: Theme.of(context).colorScheme.outline.withOpacity(0.3),
+        ),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          // 식당 이름
+          Row(
+            children: [
+              Expanded(
+                child: Text(
+                  widget.meeting.restaurantName ?? widget.meeting.location,
+                  style: const TextStyle(
+                    fontSize: 18,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+              ),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+                decoration: BoxDecoration(
+                  color: widget.meeting.status == 'completed'
+                      ? Colors.grey
+                      : widget.meeting.isAvailable
+                          ? Theme.of(context).colorScheme.primary
+                          : Colors.orange,
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: Text(
+                  widget.meeting.status == 'completed'
+                      ? '완료'
+                      : widget.meeting.isAvailable
+                          ? '모집중'
+                          : '마감',
+                  style: const TextStyle(
+                    color: Colors.white,
+                    fontSize: 12,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+              ),
+            ],
+          ),
+          
+          if (widget.meeting.fullAddress != null) ...[
+            const SizedBox(height: 8),
+            Row(
+              children: [
+                Icon(Icons.location_on, size: 16, color: Colors.grey[600]),
+                const SizedBox(width: 4),
+                Expanded(
+                  child: Text(
+                    widget.meeting.fullAddress!,
+                    style: TextStyle(
+                      color: Colors.grey[600],
+                      fontSize: 14,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ],
+          
+          const SizedBox(height: 12),
+          
+          // 날짜 시간
+          Row(
+            children: [
+              Icon(Icons.access_time, size: 16, color: Colors.grey[600]),
+              const SizedBox(width: 4),
+              Text(
+                widget.meeting.formattedDateTime,
+                style: const TextStyle(
+                  fontSize: 14,
+                  fontWeight: FontWeight.w500,
+                ),
+              ),
+            ],
+          ),
+          
+          const SizedBox(height: 8),
+          
+          // 인원
+          Row(
+            children: [
+              Icon(Icons.group, size: 16, color: Colors.grey[600]),
+              const SizedBox(width: 4),
+              Text(
+                '${widget.meeting.participantIds.length}/${widget.meeting.maxParticipants}명',
+                style: const TextStyle(
+                  fontSize: 14,
+                  fontWeight: FontWeight.w500,
+                ),
+              ),
+            ],
+          ),
+          
+          if (widget.meeting.description.isNotEmpty) ...[
+            const SizedBox(height: 16),
+            const Divider(),
+            const SizedBox(height: 8),
+            Text(
+              '모임 설명',
+              style: TextStyle(
+                fontWeight: FontWeight.bold,
+                color: Colors.grey[800],
+              ),
+            ),
+            const SizedBox(height: 8),
+            Text(
+              widget.meeting.description,
+              style: const TextStyle(fontSize: 14),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+
+  Widget _buildParticipantsCard() {
+    return Container(
+      padding: const EdgeInsets.all(20),
+      decoration: BoxDecoration(
+        color: Theme.of(context).colorScheme.surface,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(
+          color: Theme.of(context).colorScheme.outline.withOpacity(0.3),
+        ),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            '참여자 (${widget.meeting.participantIds.length}명)',
+            style: const TextStyle(
+              fontWeight: FontWeight.bold,
+              fontSize: 16,
+            ),
+          ),
+          const SizedBox(height: 16),
+          
+          if (_isLoadingParticipants)
+            const Center(
+              child: Padding(
+                padding: EdgeInsets.all(20),
+                child: CircularProgressIndicator(),
+              ),
+            )
+          else if (_participants.isEmpty)
+            Text(
+              '참여자 정보를 불러올 수 없습니다.',
+              style: TextStyle(
+                color: Colors.grey[600],
+                fontSize: 14,
+              ),
+            )
+          else
+            Column(
+              children: _participants.map((participant) {
+                final isHost = participant.id == widget.meeting.hostId;
+                return Container(
+                  margin: const EdgeInsets.only(bottom: 12),
+                  child: InkWell(
+                    onTap: () {
+                      Navigator.push(
+                        context,
+                        MaterialPageRoute(
+                          builder: (context) => UserProfileScreen(
+                            user: participant,
+                            isCurrentUser: participant.id == _currentUserId,
+                          ),
+                        ),
+                      );
+                    },
+                    borderRadius: BorderRadius.circular(8),
+                    child: Padding(
+                      padding: const EdgeInsets.all(8),
+                      child: Row(
+                        children: [
+                          CircleAvatar(
+                            radius: 20,
+                            backgroundColor: isHost 
+                                ? Theme.of(context).colorScheme.primary.withOpacity(0.1)
+                                : Colors.grey[200],
+                            backgroundImage: participant.profileImageUrl != null && 
+                                            participant.profileImageUrl!.isNotEmpty
+                                ? NetworkImage(participant.profileImageUrl!)
+                                : null,
+                            child: participant.profileImageUrl == null || 
+                                   participant.profileImageUrl!.isEmpty
+                                ? Text(
+                                    participant.name[0],
+                                    style: TextStyle(
+                                      color: isHost 
+                                          ? Theme.of(context).colorScheme.primary
+                                          : Colors.grey[600],
+                                      fontWeight: FontWeight.bold,
+                                    ),
+                                  )
+                                : null,
+                          ),
+                          const SizedBox(width: 12),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Row(
+                                  children: [
+                                    Text(
+                                      participant.name,
+                                      style: TextStyle(
+                                        fontWeight: isHost ? FontWeight.bold : FontWeight.normal,
+                                        fontSize: 14,
+                                      ),
+                                    ),
+                                    if (isHost) ...[
+                                      const SizedBox(width: 6),
+                                      Container(
+                                        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                                        decoration: BoxDecoration(
+                                          color: Theme.of(context).colorScheme.primary,
+                                          borderRadius: BorderRadius.circular(8),
+                                        ),
+                                        child: const Text(
+                                          '호스트',
+                                          style: TextStyle(
+                                            color: Colors.white,
+                                            fontSize: 10,
+                                            fontWeight: FontWeight.bold,
+                                          ),
+                                        ),
+                                      ),
+                                    ],
+                                  ],
+                                ),
+                                if (participant.bio != null && participant.bio!.isNotEmpty)
+                                  Text(
+                                    participant.bio!,
+                                    style: TextStyle(
+                                      color: Colors.grey[600],
+                                      fontSize: 12,
+                                    ),
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                  ),
+                              ],
+                            ),
+                          ),
+                          Icon(
+                            Icons.chevron_right,
+                            color: Colors.grey[400],
+                            size: 20,
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                );
+              }).toList(),
+            ),
+        ],
       ),
     );
   }

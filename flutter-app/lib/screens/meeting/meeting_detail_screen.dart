@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/foundation.dart';
+import 'package:share_plus/share_plus.dart';
 import '../../models/meeting.dart';
 import '../../models/user.dart' as app_user;
 import '../../services/auth_service.dart';
@@ -7,6 +8,7 @@ import '../../services/user_service.dart';
 import '../../services/meeting_service.dart';
 import '../../services/chat_service.dart';
 import '../chat/chat_room_screen.dart';
+import '../profile/user_profile_screen.dart';
 import 'edit_meeting_screen.dart';
 import 'participant_management_screen.dart';
 import '../../constants/app_design_tokens.dart';
@@ -146,6 +148,83 @@ class _MeetingDetailScreenState extends State<MeetingDetailScreen> {
       });
     }
   }
+  
+  String _formatDate(DateTime dateTime) {
+    final weekDays = ['일', '월', '화', '수', '목', '금', '토'];
+    return '${dateTime.month}월 ${dateTime.day}일 (${weekDays[dateTime.weekday % 7]})';
+  }
+  
+  String _formatTime(DateTime dateTime) {
+    final hour = dateTime.hour;
+    final minute = dateTime.minute;
+    final period = hour >= 12 ? '오후' : '오전';
+    final displayHour = hour > 12 ? hour - 12 : (hour == 0 ? 12 : hour);
+    return '$period $displayHour:${minute.toString().padLeft(2, '0')}';
+  }
+  
+  Future<void> _shareContent(Meeting meeting) async {
+    try {
+      // 공유할 텍스트 생성
+      final shareText = StringBuffer();
+      shareText.writeln('🍽️ [혼밥노노] 맛집 모임 초대');
+      shareText.writeln();
+      shareText.writeln('📍 ${meeting.restaurantName ?? meeting.location}');
+      if (meeting.fullAddress != null) {
+        shareText.writeln('   ${meeting.fullAddress}');
+      }
+      shareText.writeln();
+      shareText.writeln('📅 ${_formatDate(meeting.dateTime)}');
+      shareText.writeln('⏰ ${_formatTime(meeting.dateTime)}');
+      shareText.writeln();
+      shareText.writeln('👥 ${meeting.participantIds.length}/${meeting.maxParticipants}명 참여중');
+      
+      if (meeting.description.isNotEmpty) {
+        shareText.writeln();
+        shareText.writeln('💬 "${meeting.description}"');
+      }
+      
+      shareText.writeln();
+      shareText.writeln('함께 맛있는 식사하실 분들을 모집합니다!');
+      
+      // 카카오맵 링크 추가
+      if (meeting.restaurantName != null && meeting.restaurantName!.isNotEmpty) {
+        shareText.writeln();
+        shareText.writeln('🗺️ 카카오맵에서 보기:');
+        final encodedName = Uri.encodeComponent(meeting.restaurantName!);
+        shareText.writeln('https://map.kakao.com/link/search/$encodedName');
+      }
+      
+      shareText.writeln();
+      shareText.writeln('📱 혼밥노노 앱에서 확인하세요');
+      
+      // 공유 실행
+      await Share.share(
+        shareText.toString(),
+        subject: '혼밥노노 - ${meeting.restaurantName ?? meeting.location} 모임',
+      );
+      
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: const Text('모임 정보를 공유했습니다'),
+            backgroundColor: AppDesignTokens.primary,
+          ),
+        );
+      }
+    } catch (e) {
+      if (kDebugMode) {
+        print('❌ 공유 실패: $e');
+      }
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: const Text('공유 중 오류가 발생했습니다'),
+            backgroundColor: Theme.of(context).colorScheme.error,
+          ),
+        );
+      }
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -192,15 +271,7 @@ class _MeetingDetailScreenState extends State<MeetingDetailScreen> {
             actions: [
               IconButton(
                 icon: const Icon(Icons.share),
-                onPressed: () {
-                  // TODO: 공유 기능
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    SnackBar(
-                      content: const Text('공유 기능 준비 중입니다'),
-                      backgroundColor: Theme.of(context).colorScheme.primary,
-                    ),
-                  );
-                },
+                onPressed: () => _shareContent(currentMeeting),
               ),
             ],
           ),
@@ -500,11 +571,13 @@ class _MeetingDetailScreenState extends State<MeetingDetailScreen> {
                                   ),
                                   child: TextButton(
                                     onPressed: () {
-                                      // TODO: 호스트 프로필 보기
-                                      ScaffoldMessenger.of(context).showSnackBar(
-                                        SnackBar(
-                                          content: const Text('프로필 보기 기능 준비 중입니다'),
-                                          backgroundColor: Theme.of(context).colorScheme.primary,
+                                      Navigator.push(
+                                        context,
+                                        MaterialPageRoute(
+                                          builder: (context) => UserProfileScreen(
+                                            user: participant,
+                                            isCurrentUser: participant.id == _currentUserId,
+                                          ),
                                         ),
                                       );
                                     },

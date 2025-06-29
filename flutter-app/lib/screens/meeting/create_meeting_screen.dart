@@ -7,6 +7,8 @@ import '../../components/restaurant_search_modal.dart';
 import '../../services/auth_service.dart';
 import '../../services/meeting_service.dart';
 import '../../services/user_service.dart';
+import '../../constants/app_design_tokens.dart';
+import '../../styles/text_styles.dart';
 
 class CreateMeetingScreen extends StatefulWidget {
   const CreateMeetingScreen({super.key});
@@ -295,10 +297,10 @@ class _CreateMeetingScreenState extends State<CreateMeetingScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        backgroundColor: Theme.of(context).colorScheme.background,
-        foregroundColor: Theme.of(context).colorScheme.onBackground,
+        backgroundColor: AppDesignTokens.background,
+        foregroundColor: AppDesignTokens.onSurface,
         elevation: 0,
-        title: const Text('모임 만들기'),
+        title: Text('모임 만들기', style: AppTextStyles.titleLarge),
         actions: [
           if (_isLoading)
             Container(

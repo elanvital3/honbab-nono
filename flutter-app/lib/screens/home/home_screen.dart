@@ -24,6 +24,8 @@ import '../../constants/app_design_tokens.dart';
 import '../../styles/text_styles.dart';
 import '../../components/common/common_card.dart';
 import '../../components/common/common_button.dart';
+import '../profile/profile_edit_screen.dart';
+import '../settings/notification_settings_screen.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -3785,13 +3787,20 @@ class _ProfileTabState extends State<_ProfileTab> {
     }
   }
 
-  void _showProfileEdit() {
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: const Text('프로필 편집 기능 준비 중'),
-        backgroundColor: Theme.of(context).colorScheme.primary,
+  void _showProfileEdit() async {
+    if (_currentUser == null) return;
+    
+    final result = await Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (context) => ProfileEditScreen(user: _currentUser!),
       ),
     );
+    
+    // 프로필이 업데이트된 경우 새로고침
+    if (result == true) {
+      _loadUserData();
+    }
   }
 
   void _showAllMeetings() {
@@ -3804,10 +3813,10 @@ class _ProfileTabState extends State<_ProfileTab> {
   }
 
   void _showNotificationSettings() {
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: const Text('알림 설정 화면으로 이동'),
-        backgroundColor: Theme.of(context).colorScheme.primary,
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (context) => const NotificationSettingsScreen(),
       ),
     );
   }

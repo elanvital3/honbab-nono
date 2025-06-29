@@ -31,6 +31,15 @@
                 <action android:name="android.intent.action.MAIN"/>
                 <category android:name="android.intent.category.LAUNCHER"/>
             </intent-filter>
+            
+            <!-- 카카오 로그인 URL Scheme 처리 (MainActivity에서도) -->
+            <intent-filter android:autoVerify="true">
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="kakaoaa44527cad103e9986ceedb39cc915f9" 
+                      android:host="oauth" />
+            </intent-filter>
         </activity>
         
         <!-- 카카오 로그인 액티비티 -->

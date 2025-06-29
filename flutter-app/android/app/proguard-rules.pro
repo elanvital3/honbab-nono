@@ -60,3 +60,20 @@
 # Keep interfaces and annotations
 -keep interface com.kakao.** { *; }
 -keepattributes *Annotation*,Signature,InnerClasses,EnclosingMethod
+
+# CRITICAL: Force keep absolutely everything related to Kakao
+-dontshrink
+-dontoptimize
+-dontwarn com.kakao.**
+-dontnote com.kakao.**
+
+# Force keep by name (strongest possible)
+-keepclasseswithmembernames class com.kakao.sdk.auth.AuthCodeHandlerActivity { *; }
+-keepclasseswithmembernames class com.kakao.sdk.flutter.** { *; }
+
+# Keep absolutely everything in the kakao package
+-keep,includedescriptorclasses class com.kakao.** { *; }
+-keepclassmembers,includedescriptorclasses class com.kakao.** { *; }
+
+# Disable all optimizations for Kakao classes
+-keep,allowobfuscation,allowshrinking,allowaccessmodification class com.kakao.**

@@ -4,6 +4,7 @@ import 'package:provider/provider.dart';
 import 'package:firebase_auth/firebase_auth.dart' as firebase_auth;
 import '../../services/user_service.dart';
 import '../../models/user.dart' as app_user;
+import '../splash/splash_screen.dart';
 import 'login_screen.dart';
 import '../home/home_screen.dart';
 
@@ -97,7 +98,6 @@ class AuthWrapper extends StatelessWidget {
             print('❌ AuthWrapper: Firestore 조회 오류 → 로그인 화면으로');
             print('  - 오류: ${snapshot.error}');
           }
-          // 에러 발생 시 로그인 화면으로
           return const LoginScreen();
         }
         
@@ -120,7 +120,6 @@ class AuthWrapper extends StatelessWidget {
             print('✅ AuthWrapper: 완전한 사용자 데이터 확인 → 홈 화면으로 이동');
             print('  - 사용자: ${firestoreUser.name}');
           }
-          // 완전한 사용자 데이터가 있으면 홈 화면
           return const HomeScreen();
         } else {
           if (kDebugMode) {
@@ -130,7 +129,6 @@ class AuthWrapper extends StatelessWidget {
               print('  - NEW_USER 여부: ${firestoreUser.name == 'NEW_USER'}');
             }
           }
-          // Firestore에 데이터가 없거나 불완전하면 로그인 화면
           return const LoginScreen();
         }
       },

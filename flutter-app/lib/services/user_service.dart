@@ -68,7 +68,7 @@ class UserService {
     });
   }
 
-  // 사용자 업데이트
+  // 사용자 업데이트 (Map)
   static Future<void> updateUser(String id, Map<String, dynamic> updates) async {
     try {
       updates['updatedAt'] = Timestamp.fromDate(DateTime.now());
@@ -82,6 +82,35 @@ class UserService {
         print('❌ Error updating user: $e');
       }
       rethrow;
+    }
+  }
+
+  // 사용자 업데이트 (User 객체)
+  static Future<void> updateUserFromObject(User user) async {
+    try {
+      await _firestore.collection(_collection).doc(user.id).update(user.toFirestore());
+      
+      if (kDebugMode) {
+        print('✅ User updated: ${user.id}');
+      }
+    } catch (e) {
+      if (kDebugMode) {
+        print('❌ Error updating user: $e');
+      }
+      rethrow;
+    }
+  }
+
+  // 닉네임 중복 체크
+  static Future<bool> isNicknameExists(String nickname) async {
+    try {
+      final user = await getUserByNickname(nickname);
+      return user != null;
+    } catch (e) {
+      if (kDebugMode) {
+        print('❌ Error checking nickname existence: $e');
+      }
+      return false;
     }
   }
 
