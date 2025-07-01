@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/foundation.dart';
 import '../../services/user_service.dart';
+import '../../services/notification_service.dart';
 import '../home/home_screen.dart';
 
 class NicknameInputScreen extends StatefulWidget {
@@ -101,6 +103,9 @@ class _NicknameInputScreenState extends State<NicknameInputScreen> {
       );
 
       if (user != null && mounted) {
+        // FCM 토큰 저장 (백그라운드에서 실행)
+        _saveFCMTokenInBackground(user.id);
+        
         // 회원가입 완료 - 홈 화면으로 이동
         Navigator.pushAndRemoveUntil(
           context,
@@ -116,6 +121,23 @@ class _NicknameInputScreenState extends State<NicknameInputScreen> {
         });
       }
     }
+  }
+  
+  // FCM 토큰을 백그라운드에서 저장
+  void _saveFCMTokenInBackground(String userId) {
+    Future.microtask(() async {
+      try {
+        await NotificationService().initialize();
+        await NotificationService().saveFCMTokenToFirestore(userId);
+        if (kDebugMode) {
+          print('✅ 회원가입 완료: FCM 토큰 저장 백그라운드 작업 완료');
+        }
+      } catch (e) {
+        if (kDebugMode) {
+          print('❌ 회원가입 FCM 토큰 저장 실패: $e');
+        }
+      }
+    });
   }
 
   Widget _buildDefaultAvatar() {

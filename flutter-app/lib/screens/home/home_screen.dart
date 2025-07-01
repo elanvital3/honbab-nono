@@ -18,6 +18,8 @@ import '../../services/location_service.dart';
 import '../../services/kakao_auth_service.dart';
 import '../../services/chat_service.dart';
 import '../../services/kakao_search_service.dart';
+import '../../services/kakao_image_search_service.dart';
+import '../test/unified_notification_test_screen.dart';
 import '../../models/message.dart';
 import '../../models/restaurant.dart';
 import '../chat/chat_screen.dart';
@@ -36,18 +38,38 @@ class HomeScreen extends StatefulWidget {
   State<HomeScreen> createState() => _HomeScreenState();
 }
 
-class _HomeScreenState extends State<HomeScreen> {
+class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   int _selectedIndex = 0;
   final _searchController = TextEditingController();
   String _searchQuery = '';
   final GlobalKey<_ChatListTabState> _chatListKey = GlobalKey<_ChatListTabState>();
   final GlobalKey<_MapTabState> _mapKey = GlobalKey<_MapTabState>();
-  int _totalUnreadCount = 0;
+  // 전역 안읽은 메시지 카운트 관리 (패키지 접근 허용)
+  static final ValueNotifier<int> globalUnreadCountNotifier = ValueNotifier<int>(0);
+  // _totalUnreadCount 제거 - 이제 ValueNotifier로 관리
+  // Timer _unreadCountDebounceTimer 제거 - ValueNotifier로 대체됨
   
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     _initializeCurrentLocation();
+  }
+  
+  
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    super.didChangeAppLifecycleState(state);
+    
+    // 앱이 다시 포어그라운드로 돌아올 때 채팅 스트림 새로고침
+    if (state == AppLifecycleState.resumed) {
+      if (kDebugMode) {
+        print('🔄 앱 포어그라운드 복귀 - 채팅 스트림 새로고침');
+      }
+      Future.delayed(const Duration(milliseconds: 500), () {
+        _chatListKey.currentState?.refreshUnreadCounts();
+      });
+    }
   }
   
   Future<void> _initializeCurrentLocation() async {
@@ -130,6 +152,17 @@ class _HomeScreenState extends State<HomeScreen> {
         print('🗺️ 저장된 검색 결과: ${_savedSearchResults!.length}개');
       }
     }
+    
+    // 채팅 탭으로 이동할 때 안읽은 메시지 카운트 새로고침
+    if (index == 2) { // 채팅 탭
+      if (kDebugMode) {
+        print('💬 채팅 탭 활성화 - 안읽은 메시지 카운트 새로고침');
+      }
+      // 약간의 지연을 두고 새로고침 (탭 전환 완료 후)
+      Future.delayed(const Duration(milliseconds: 100), () {
+        _chatListKey.currentState?.refreshUnreadCounts();
+      });
+    }
   }
   
   void _updateStatusFilter(String filter) {
@@ -150,36 +183,90 @@ class _HomeScreenState extends State<HomeScreen> {
     });
   }
 
-  Widget _buildChatIconWithBadge() {
-    return Stack(
-      clipBehavior: Clip.none,
-      children: [
-        const Icon(Icons.chat),
-        if (_totalUnreadCount > 0)
-          Positioned(
-            right: -6,
-            top: -6,
-            child: Container(
-              padding: const EdgeInsets.all(2),
-              decoration: BoxDecoration(
-                color: Colors.red,
-                borderRadius: BorderRadius.circular(AppDesignTokens.spacing2),
-              ),
-              constraints: const BoxConstraints(
-                minWidth: 16,
-                minHeight: 16,
-              ),
-              child: Text(
-                _totalUnreadCount > 99 ? '99+' : '$_totalUnreadCount',
-                style: AppTextStyles.labelSmall.copyWith(
-                  color: Colors.white,
-                  fontWeight: AppDesignTokens.fontWeightBold,
-                ),
-                textAlign: TextAlign.center,
-              ),
+  // _debounceUnreadCountUpdate 제거 - ValueNotifier로 대체됨
+
+  void _showDebugMenu(BuildContext context) {
+    showModalBottomSheet(
+      context: context,
+      builder: (context) => Container(
+        padding: const EdgeInsets.all(20),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            ListTile(
+              leading: const Icon(Icons.image_search),
+              title: const Text('이미지 검색 테스트'),
+              onTap: () async {
+                Navigator.pop(context);
+                await KakaoImageSearchService.testImageSearch();
+              },
             ),
-          ),
-      ],
+            ListTile(
+              leading: const Icon(Icons.notifications),
+              title: const Text('알림 테스트'),
+              onTap: () {
+                Navigator.pop(context);
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                    builder: (context) => const UnifiedNotificationTestScreen(),
+                  ),
+                );
+              },
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildChatIconWithBadge() {
+    // 전역 ValueNotifier 사용으로 안정성 확보
+    return ValueListenableBuilder<int>(
+      valueListenable: globalUnreadCountNotifier,
+      builder: (context, totalUnreadCount, child) {
+        if (kDebugMode) {
+          print('🔔 채팅 배지 업데이트: $totalUnreadCount');
+        }
+        return Stack(
+          clipBehavior: Clip.none,
+          children: [
+            const Icon(Icons.chat),
+            AnimatedSwitcher(
+              duration: const Duration(milliseconds: 200),
+              transitionBuilder: (Widget child, Animation<double> animation) {
+                return ScaleTransition(scale: animation, child: child);
+              },
+              child: totalUnreadCount > 0
+                  ? Positioned(
+                      key: ValueKey(totalUnreadCount), // 숫자 변경 시 애니메이션
+                      right: -6,
+                      top: -6,
+                      child: Container(
+                        padding: const EdgeInsets.all(2),
+                        decoration: BoxDecoration(
+                          color: Colors.red,
+                          borderRadius: BorderRadius.circular(AppDesignTokens.spacing2),
+                        ),
+                        constraints: const BoxConstraints(
+                          minWidth: 16,
+                          minHeight: 16,
+                        ),
+                        child: Text(
+                          totalUnreadCount > 99 ? '99+' : '$totalUnreadCount',
+                          style: AppTextStyles.labelSmall.copyWith(
+                            color: Colors.white,
+                            fontWeight: AppDesignTokens.fontWeightBold,
+                          ),
+                          textAlign: TextAlign.center,
+                        ),
+                      ),
+                    )
+                  : const SizedBox.shrink(key: ValueKey('empty')),
+            ),
+          ],
+        );
+      },
     );
   }
 
@@ -347,8 +434,7 @@ class _HomeScreenState extends State<HomeScreen> {
                             Expanded(
                               child: Text(
                                 '전체지역',
-                                style: TextStyle(
-                                  fontSize: 16,
+                                style: AppTextStyles.bodyLarge.copyWith(
                                   color: _selectedLocationFilter == '전체지역' 
                                       ? Theme.of(context).colorScheme.primary
                                       : Theme.of(context).colorScheme.onSurface,
@@ -415,11 +501,7 @@ class _HomeScreenState extends State<HomeScreen> {
                             Expanded(
                               child: Text(
                                 '현재위치',
-                                style: TextStyle(
-                                  fontSize: 16,
-                                  color: Theme.of(context).colorScheme.onSurface,
-                                  fontWeight: FontWeight.normal,
-                                ),
+                                style: AppTextStyles.bodyLarge,
                               ),
                             ),
                           ],
@@ -459,7 +541,9 @@ class _HomeScreenState extends State<HomeScreen> {
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     _searchController.dispose();
+    // _unreadCountDebounceTimer?.cancel(); 제거
     super.dispose();
   }
 
@@ -562,13 +646,23 @@ class _HomeScreenState extends State<HomeScreen> {
               // TODO: 알림 페이지로 이동
             },
           ),
+          // 디버그 모드에서만 FCM 테스트 버튼 표시
+          if (kDebugMode)
+            IconButton(
+              icon: const Icon(Icons.bug_report, color: Colors.red),
+              tooltip: '디버그 테스트 메뉴',
+              onPressed: () {
+                _showDebugMenu(context);
+              },
+            ),
         ],
       ),
       body: IndexedStack(
         index: _selectedIndex,
         children: [
-          _MeetingListTab(
+          _HomeTabWithSubTabs(
             meetings: filteredMeetings,
+            allMeetings: allMeetings, // 지역 필터링 안된 전체 모임 (내모임용)
             selectedStatusFilter: _selectedStatusFilter,
             selectedTimeFilter: _selectedTimeFilter,
             selectedLocationFilter: _selectedLocationFilter,
@@ -586,14 +680,8 @@ class _HomeScreenState extends State<HomeScreen> {
           ),
           _ChatListTab(
             key: _chatListKey,
-            onUnreadCountChanged: () {
-              final newCount = _chatListKey.currentState?.totalUnreadCount ?? 0;
-              if (_totalUnreadCount != newCount) {
-                setState(() {
-                  _totalUnreadCount = newCount;
-                });
-              }
-            },
+            // ValueNotifier 방식으로 변경되어 onUnreadCountChanged 콜백 제거
+            // 이제 setState 없이 자동으로 업데이트됨
           ),
           const _ProfileTab(),
         ],
@@ -741,26 +829,24 @@ class _MeetingListTabState extends State<_MeetingListTab> with AutomaticKeepAliv
               await Future.delayed(const Duration(seconds: 1));
             },
             child: widget.meetings.isEmpty
-                ? const Center(
+                ? Center(
                     child: Column(
                       mainAxisAlignment: MainAxisAlignment.center,
                       children: [
-                        Icon(
+                        const Icon(
                           Icons.restaurant_menu,
                           size: 80,
                           color: Colors.grey,
                         ),
-                        SizedBox(height: 16),
+                        const SizedBox(height: 16),
                         Text(
                           '조건에 맞는 모임이 없어요',
-                          style: TextStyle(
-                            fontSize: AppDesignTokens.fontSizeH3,
-                            fontWeight: AppDesignTokens.fontWeightSemiBold,
+                          style: AppTextStyles.headlineMedium.copyWith(
                             color: Colors.grey,
                           ),
                         ),
-                        SizedBox(height: 8),
-                        Text(
+                        const SizedBox(height: 8),
+                        const Text(
                           '다른 필터를 선택하거나 첫 모임을 만들어보세요!',
                           style: TextStyle(
                             fontSize: 14,
@@ -1386,7 +1472,11 @@ class _MapTabState extends State<_MapTab> with AutomaticKeepAliveClientMixin {
                 child: TextField(
                   controller: _searchController,
                   decoration: InputDecoration(
-                    hintText: '지역이나 식당을 검색하세요',
+                    hintText: '지역과 식당이름 검색 (예: 천안 맘스터치)',
+                    hintStyle: TextStyle(
+                      color: Theme.of(context).colorScheme.outline,
+                      fontSize: 16,
+                    ),
                     prefixIcon: _isSearching 
                         ? Container(
                             width: 20,
@@ -2137,12 +2227,9 @@ class _MapTabState extends State<_MapTab> with AutomaticKeepAliveClientMixin {
             padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
             child: Row(
               children: [
-                const Text(
+                Text(
                   '검색 결과',
-                  style: TextStyle(
-                    fontSize: 16,
-                    fontWeight: FontWeight.bold,
-                  ),
+                  style: AppTextStyles.titleLarge,
                 ),
                 const SizedBox(width: 8),
                 Text(
@@ -2226,9 +2313,7 @@ class _MapTabState extends State<_MapTab> with AutomaticKeepAliveClientMixin {
               // 식당명
               Text(
                 restaurant.name,
-                style: const TextStyle(
-                  fontSize: 16,
-                  fontWeight: FontWeight.bold,
+                style: AppTextStyles.titleLarge.copyWith(
                   color: Colors.black87,
                 ),
                 maxLines: 1,
@@ -2537,9 +2622,9 @@ class MapMeeting {
 }
 
 class _ChatListTab extends StatefulWidget {
-  final VoidCallback? onUnreadCountChanged;
+  // onUnreadCountChanged 콜백 제거 - ValueNotifier로 대체
   
-  const _ChatListTab({super.key, this.onUnreadCountChanged});
+  const _ChatListTab({super.key});
 
   @override
   State<_ChatListTab> createState() => _ChatListTabState();
@@ -2550,34 +2635,56 @@ class _ChatListTabState extends State<_ChatListTab> with AutomaticKeepAliveClien
   String? _currentUserId;
   List<Meeting> _participatingMeetings = [];
   Map<String, Message?> _lastMessages = {};
-  Map<String, int> _unreadCounts = {};
+  // ValueNotifier로 변경 - setState 없이 UI 업데이트
+  final Map<String, ValueNotifier<int>> _unreadCountNotifiers = {};
+  final ValueNotifier<int> _totalUnreadCountNotifier = ValueNotifier<int>(0);
   bool _isLoading = true;
-  int _totalUnreadCount = 0; // 캐시된 총 안읽은 메시지 수
   StreamSubscription<List<Meeting>>? _meetingsSubscription;
   Map<String, StreamSubscription<Message?>> _messageStreamSubscriptions = {};
   Map<String, StreamSubscription<int>> _unreadCountStreamSubscriptions = {};
   Timer? _updateDebounceTimer; // 디바운스 타이머
   
-  // 총 안읽은 메시지 수 업데이트
+  // 총 안읽은 메시지 수 업데이트 (setState 없음!)
   void _updateTotalUnreadCount() {
-    final newTotal = _unreadCounts.values.fold(0, (sum, count) => sum + count);
-    if (_totalUnreadCount != newTotal) {
-      _totalUnreadCount = newTotal;
+    final newTotal = _unreadCountNotifiers.values.fold(0, (sum, notifier) => sum + notifier.value);
+    if (_totalUnreadCountNotifier.value != newTotal) {
+      _totalUnreadCountNotifier.value = newTotal;  // ValueNotifier 업데이트만!
+      
+      // 전역 notifier도 업데이트 (HomeScreen 배지용)
+      if (_HomeScreenState.globalUnreadCountNotifier.value != newTotal) {
+        _HomeScreenState.globalUnreadCountNotifier.value = newTotal;
+      }
+      
       if (kDebugMode) {
-        print('📊 총 안읽은 메시지 수: $_totalUnreadCount');
+        print('📊 총 안읽은 메시지 수: $newTotal (전역 배지 포함)');
       }
     }
   }
   
   // 외부에서 접근할 수 있는 getter
-  int get totalUnreadCount => _totalUnreadCount;
+  int get totalUnreadCount => _totalUnreadCountNotifier.value;
+  
+  // 외부에서 ValueNotifier에 접근하기 위한 getter
+  ValueNotifier<int> get totalUnreadCountNotifier => _totalUnreadCountNotifier;
+  
+  // 스트림 새로고침 메서드 (외부에서 호출 가능)
+  void refreshUnreadCounts() {
+    if (_currentUserId == null) return;
+    
+    if (kDebugMode) {
+      print('🔄 안읽은 메시지 카운트 스트림 새로고침 시작');
+    }
+    
+    // 기존 스트림 정리하고 재설정
+    _setupChatStreams();
+  }
   
   // 디바운스된 부모 알림 함수
   void _notifyParentWithDebounce() {
     _updateDebounceTimer?.cancel();
     _updateDebounceTimer = Timer(const Duration(milliseconds: 300), () {
       if (mounted) {
-        widget.onUnreadCountChanged?.call();
+        // widget.onUnreadCountChanged?.call(); 제거 - ValueNotifier로 대체됨
       }
     });
   }
@@ -2593,6 +2700,13 @@ class _ChatListTabState extends State<_ChatListTab> with AutomaticKeepAliveClien
     _meetingsSubscription?.cancel();
     _disposeAllChatStreams();
     _updateDebounceTimer?.cancel();
+    
+    // ValueNotifier 정리
+    for (final notifier in _unreadCountNotifiers.values) {
+      notifier.dispose();
+    }
+    _totalUnreadCountNotifier.dispose();
+    
     super.dispose();
   }
   
@@ -2605,6 +2719,12 @@ class _ChatListTabState extends State<_ChatListTab> with AutomaticKeepAliveClien
     }
     _messageStreamSubscriptions.clear();
     _unreadCountStreamSubscriptions.clear();
+    
+    // 기존 notifier들 정리
+    for (final notifier in _unreadCountNotifiers.values) {
+      notifier.dispose();
+    }
+    _unreadCountNotifiers.clear();
   }
   
   void _setupChatStreams() {
@@ -2658,23 +2778,29 @@ class _ChatListTabState extends State<_ChatListTab> with AutomaticKeepAliveClien
       }
     });
     
-    // 안읽은 메시지 수 스트림 (에러 처리 및 안전장치 포함)
+    // ValueNotifier 생성 (없으면)
+    if (!_unreadCountNotifiers.containsKey(meetingId)) {
+      _unreadCountNotifiers[meetingId] = ValueNotifier<int>(0);
+    }
+    
+    // 안읽은 메시지 수 스트림 (setState 없이 ValueNotifier 업데이트)
     _unreadCountStreamSubscriptions[meetingId] = ChatService.getUnreadMessageCountStream(meetingId, _currentUserId!)
         .listen((count) {
       if (!mounted) return;
       
       try {
-        final previousCount = _unreadCounts[meetingId] ?? 0;
-        // 카운트가 실제로 변경된 경우에만 setState
+        final currentNotifier = _unreadCountNotifiers[meetingId]!;
+        final previousCount = currentNotifier.value;
+        
+        // 카운트가 실제로 변경된 경우에만 업데이트 (setState 없음!)
         if (previousCount != count) {
-          setState(() {
-            _unreadCounts[meetingId] = count;
-            _updateTotalUnreadCount(); // 총 개수 업데이트
-          });
+          currentNotifier.value = count;  // 이 부분만 리빌드됨!
+          _updateTotalUnreadCount(); // 총 개수 업데이트
+          
           // 디바운스된 방식으로 부모에게 알림
           _notifyParentWithDebounce();
           if (kDebugMode) {
-            print('🔢 안읽은 메시지 수 변경: $meetingId -> $count');
+            print('🔢 안읽은 메시지 수 변경: $meetingId -> $count (전체 리빌드 없음!)');
           }
         }
       } catch (e) {
@@ -2704,34 +2830,11 @@ class _ChatListTabState extends State<_ChatListTab> with AutomaticKeepAliveClien
         
         // 모임 목록 실시간 구독
         _meetingsSubscription = MeetingService.getMeetingsStream().listen(
-          (allMeetings) async {
-            // 현재 사용자의 카카오 ID 가져오기
-            String? currentKakaoId;
-            try {
-              final userDoc = await _firestore.collection('users').doc(_currentUserId).get();
-              if (userDoc.exists) {
-                final userData = userDoc.data() as Map<String, dynamic>;
-                currentKakaoId = userData['kakaoId'] as String?;
-              }
-            } catch (e) {
-              if (kDebugMode) {
-                print('❌ 카카오 ID 조회 실패: $e');
-              }
-            }
-            
+          (allMeetings) {
+            // UID만 사용하여 참여 모임 확인
             final participatingMeetings = allMeetings.where((meeting) {
-              // Firebase UID로 확인
-              bool isParticipatingByUID = meeting.participantIds.contains(_currentUserId) ||
+              return meeting.participantIds.contains(_currentUserId) ||
                      meeting.hostId == _currentUserId;
-              
-              // 카카오 ID로도 확인 (이전 데이터 호환성)
-              bool isParticipatingByKakaoId = false;
-              if (currentKakaoId != null) {
-                isParticipatingByKakaoId = meeting.participantIds.contains(currentKakaoId) ||
-                       meeting.hostId == currentKakaoId;
-              }
-              
-              return isParticipatingByUID || isParticipatingByKakaoId;
             }).toList();
 
             // 날짜순 정렬 (최신순)
@@ -2876,8 +2979,10 @@ class _ChatListTabState extends State<_ChatListTab> with AutomaticKeepAliveClien
 
   Widget _buildMeetingChatItem(Meeting meeting) {
     final lastMessage = _lastMessages[meeting.id];
-    final unreadCount = _unreadCounts[meeting.id] ?? 0;
     final isActive = meeting.dateTime.isAfter(DateTime.now());
+    
+    // ValueNotifier 확보
+    final unreadCountNotifier = _unreadCountNotifiers[meeting.id] ?? ValueNotifier<int>(0);
 
     return Container(
       margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
@@ -2921,11 +3026,7 @@ class _ChatListTabState extends State<_ChatListTab> with AutomaticKeepAliveClien
                           Expanded(
                             child: Text(
                               meeting.restaurantName ?? meeting.location,
-                              style: TextStyle(
-                                fontSize: 16,
-                                fontWeight: FontWeight.w600,
-                                color: Theme.of(context).colorScheme.onSurface,
-                              ),
+                              style: AppTextStyles.titleLarge,
                               maxLines: 1,
                               overflow: TextOverflow.ellipsis,
                             ),
@@ -2958,24 +3059,34 @@ class _ChatListTabState extends State<_ChatListTab> with AutomaticKeepAliveClien
                             ),
                           ),
                           
-                          if (unreadCount > 0) ...[
-                            const SizedBox(width: 8),
-                            Container(
-                              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                              decoration: BoxDecoration(
-                                color: Theme.of(context).colorScheme.primary,
-                                borderRadius: BorderRadius.circular(10),
-                              ),
-                              child: Text(
-                                unreadCount > 99 ? '99+' : '$unreadCount',
-                                style: const TextStyle(
-                                  color: Colors.white,
-                                  fontSize: 10,
-                                  fontWeight: FontWeight.bold,
-                                ),
-                              ),
-                            ),
-                          ],
+                          // ValueListenableBuilder로 배지만 업데이트 (전체 리빌드 없음!)
+                          ValueListenableBuilder<int>(
+                            valueListenable: unreadCountNotifier,
+                            builder: (context, unreadCount, child) {
+                              if (unreadCount <= 0) return const SizedBox.shrink();
+                              
+                              return Row(
+                                children: [
+                                  const SizedBox(width: 8),
+                                  Container(
+                                    padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                                    decoration: BoxDecoration(
+                                      color: Theme.of(context).colorScheme.primary,
+                                      borderRadius: BorderRadius.circular(10),
+                                    ),
+                                    child: Text(
+                                      unreadCount > 99 ? '99+' : '$unreadCount',
+                                      style: const TextStyle(
+                                        color: Colors.white,
+                                        fontSize: 10,
+                                        fontWeight: FontWeight.bold,
+                                      ),
+                                    ),
+                                  ),
+                                ],
+                              );
+                            },
+                          ),
                         ],
                       ),
                       
@@ -3361,11 +3472,7 @@ class _ProfileTabState extends State<_ProfileTab> with AutomaticKeepAliveClientM
         children: [
           Text(
             '활동 통계',
-            style: TextStyle(
-              fontSize: 16,
-              fontWeight: FontWeight.bold,
-              color: Theme.of(context).colorScheme.onSurface,
-            ),
+            style: AppTextStyles.titleLarge,
           ),
           const SizedBox(height: 16),
           
@@ -3459,11 +3566,7 @@ class _ProfileTabState extends State<_ProfileTab> with AutomaticKeepAliveClientM
         children: [
           Text(
             '받은 평가',
-            style: TextStyle(
-              fontSize: 16,
-              fontWeight: FontWeight.bold,
-              color: Theme.of(context).colorScheme.onSurface,
-            ),
+            style: AppTextStyles.titleLarge,
           ),
           const SizedBox(height: 16),
           
@@ -3540,11 +3643,7 @@ class _ProfileTabState extends State<_ProfileTab> with AutomaticKeepAliveClientM
             children: [
               Text(
                 '내 모임',
-                style: TextStyle(
-                  fontSize: 16,
-                  fontWeight: FontWeight.bold,
-                  color: Theme.of(context).colorScheme.onSurface,
-                ),
+                style: AppTextStyles.titleLarge,
               ),
               const Spacer(),
               TextButton(
@@ -3763,11 +3862,7 @@ class _ProfileTabState extends State<_ProfileTab> with AutomaticKeepAliveClientM
         children: [
           Text(
             '설정',
-            style: TextStyle(
-              fontSize: 16,
-              fontWeight: FontWeight.bold,
-              color: Theme.of(context).colorScheme.onSurface,
-            ),
+            style: AppTextStyles.titleLarge,
           ),
           const SizedBox(height: 16),
           
@@ -3794,12 +3889,6 @@ class _ProfileTabState extends State<_ProfileTab> with AutomaticKeepAliveClientM
             '앱 정보',
             '버전 정보 및 이용약관',
             () => _showAppInfo(),
-          ),
-          _buildSettingItem(
-            Icons.developer_mode,
-            '개발자 도구',
-            'Firebase 테스트 및 디버깅',
-            () => Navigator.pushNamed(context, '/test'),
           ),
           const SizedBox(height: 8),
           _buildSettingItem(
@@ -4212,4 +4301,357 @@ enum MeetingStatus {
   upcoming,
   completed,
   cancelled,
+}
+
+// 새로운 서브 탭이 있는 홈 탭 위젯
+class _HomeTabWithSubTabs extends StatefulWidget {
+  final List<Meeting> meetings;
+  final List<Meeting> allMeetings; // 지역 필터링 안된 전체 모임
+  final String selectedStatusFilter;
+  final String selectedTimeFilter;
+  final String selectedLocationFilter;
+  final Function(String) onStatusFilterChanged;
+  final Function(String) onTimeFilterChanged;
+  final Function(String) onLocationFilterChanged;
+  
+  const _HomeTabWithSubTabs({
+    required this.meetings,
+    required this.allMeetings,
+    required this.selectedStatusFilter,
+    required this.selectedTimeFilter,
+    required this.selectedLocationFilter,
+    required this.onStatusFilterChanged,
+    required this.onTimeFilterChanged,
+    required this.onLocationFilterChanged,
+  });
+
+  @override
+  State<_HomeTabWithSubTabs> createState() => _HomeTabWithSubTabsState();
+}
+
+class _HomeTabWithSubTabsState extends State<_HomeTabWithSubTabs> with SingleTickerProviderStateMixin {
+  late TabController _tabController;
+
+  @override
+  void initState() {
+    super.initState();
+    _tabController = TabController(length: 2, vsync: this);
+  }
+
+  @override
+  void dispose() {
+    _tabController.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      children: [
+        // 서브 탭바
+        Container(
+          decoration: BoxDecoration(
+            color: Theme.of(context).colorScheme.background,
+          ),
+          child: TabBar(
+            controller: _tabController,
+            labelColor: AppDesignTokens.primary,
+            unselectedLabelColor: AppDesignTokens.onSurfaceVariant,
+            indicatorColor: AppDesignTokens.primary,
+            indicatorWeight: 2,
+            dividerColor: Colors.transparent, // 구분선 제거
+            labelStyle: AppTextStyles.titleMedium.copyWith(
+              fontWeight: FontWeight.w600,
+            ),
+            unselectedLabelStyle: AppTextStyles.titleMedium,
+            tabs: const [
+              Tab(text: '모임리스트'),
+              Tab(text: '내모임'),
+            ],
+          ),
+        ),
+        
+        // 탭바와 콘텐츠 사이 여백
+        const SizedBox(height: 12),
+        
+        // 탭 컨텐츠
+        Expanded(
+          child: TabBarView(
+            controller: _tabController,
+            children: [
+              // 모임리스트 탭 (기존 기능)
+              _MeetingListTab(
+                meetings: widget.meetings,
+                selectedStatusFilter: widget.selectedStatusFilter,
+                selectedTimeFilter: widget.selectedTimeFilter,
+                selectedLocationFilter: widget.selectedLocationFilter,
+                onStatusFilterChanged: widget.onStatusFilterChanged,
+                onTimeFilterChanged: widget.onTimeFilterChanged,
+                onLocationFilterChanged: widget.onLocationFilterChanged,
+              ),
+              
+              // 내모임 탭 (새로운 기능) - 지역 필터 영향 안받음
+              // 내 모임은 위치와 관계없이 모든 참여/호스팅 중인 모임을 표시
+              _MyMeetingsTab(
+                meetings: widget.allMeetings, // 전체 모임에서 내 모임만 필터링
+              ),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+// 내모임 탭 위젯
+class _MyMeetingsTab extends StatelessWidget {
+  final List<Meeting> meetings;
+  
+  const _MyMeetingsTab({
+    required this.meetings,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final currentUserId = AuthService.currentUserId;
+    if (currentUserId == null) {
+      return const Center(
+        child: Text('로그인이 필요합니다'),
+      );
+    }
+
+    // 내 모임 필터링
+    final myHostedMeetings = meetings.where((meeting) => 
+      meeting.hostId == currentUserId
+    ).toList();
+    
+    final myParticipatingMeetings = meetings.where((meeting) => 
+      meeting.participantIds.contains(currentUserId) && meeting.hostId != currentUserId
+    ).toList();
+
+    // 모든 내 모임을 하나의 리스트로 합치기
+    final allMyMeetings = <Map<String, dynamic>>[];
+    
+    // 호스팅 모임 추가
+    for (final meeting in myHostedMeetings) {
+      allMyMeetings.add({
+        'meeting': meeting,
+        'isHost': true,
+      });
+    }
+    
+    // 참여 모임 추가
+    for (final meeting in myParticipatingMeetings) {
+      allMyMeetings.add({
+        'meeting': meeting,
+        'isHost': false,
+      });
+    }
+    
+    // 날짜순 정렬 (가까운 날짜부터)
+    allMyMeetings.sort((a, b) => 
+      (a['meeting'] as Meeting).dateTime.compareTo((b['meeting'] as Meeting).dateTime)
+    );
+
+    return SingleChildScrollView(
+      padding: const EdgeInsets.all(16),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          // 제목
+          Text(
+            '내 모임 (${allMyMeetings.length}개)',
+            style: AppTextStyles.titleLarge.copyWith(
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+          
+          const SizedBox(height: 16),
+          
+          // 모임이 없을 때
+          if (allMyMeetings.isEmpty)
+            CommonCard(
+              child: Padding(
+                padding: const EdgeInsets.all(24),
+                child: Center(
+                  child: Column(
+                    children: [
+                      Icon(
+                        Icons.group_add_outlined,
+                        size: 48,
+                        color: AppDesignTokens.outline,
+                      ),
+                      const SizedBox(height: 12),
+                      Text(
+                        '참여 중인 모임이 없어요',
+                        style: AppTextStyles.bodyLarge.copyWith(
+                          color: AppDesignTokens.onSurfaceVariant,
+                        ),
+                      ),
+                      const SizedBox(height: 8),
+                      Text(
+                        '새로운 모임을 만들거나 참여해보세요!',
+                        style: AppTextStyles.bodyMedium.copyWith(
+                          color: AppDesignTokens.outline,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            )
+          // 모임 리스트
+          else
+            ...allMyMeetings.map((item) => Padding(
+              padding: const EdgeInsets.only(bottom: 8),
+              child: _MyMeetingCard(
+                meeting: item['meeting'] as Meeting,
+                isHost: item['isHost'] as bool,
+              ),
+            )),
+        ],
+      ),
+    );
+  }
+
+}
+
+// 내 모임 카드 위젯
+class _MyMeetingCard extends StatelessWidget {
+  final Meeting meeting;
+  final bool isHost;
+  
+  const _MyMeetingCard({
+    required this.meeting,
+    required this.isHost,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      decoration: BoxDecoration(
+        color: Theme.of(context).colorScheme.surface,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(
+          color: isHost 
+            ? AppDesignTokens.primary.withOpacity(0.3)
+            : Colors.green.withOpacity(0.3),
+          width: 1,
+        ),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(0.05),
+            blurRadius: 4,
+            offset: const Offset(0, 2),
+          ),
+        ],
+      ),
+      child: InkWell(
+        onTap: () {
+          Navigator.pushNamed(
+            context,
+            '/meeting-detail',
+            arguments: meeting,
+          );
+        },
+        borderRadius: BorderRadius.circular(12),
+        child: Padding(
+          padding: const EdgeInsets.all(16),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              // 헤더 (배지 + 제목)
+              Row(
+                children: [
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                    decoration: BoxDecoration(
+                      color: isHost 
+                        ? AppDesignTokens.primary
+                        : Colors.green,
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    child: Text(
+                      isHost ? '호스트' : '참여중',
+                      style: AppTextStyles.labelSmall.copyWith(
+                        color: Colors.white,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Text(
+                      meeting.description,
+                      style: AppTextStyles.titleMedium.copyWith(
+                        fontWeight: FontWeight.w600,
+                      ),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ),
+                ],
+              ),
+              
+              const SizedBox(height: 12),
+              
+              // 모임 정보
+              Row(
+                children: [
+                  Icon(
+                    Icons.location_on_outlined,
+                    size: 16,
+                    color: AppDesignTokens.onSurfaceVariant,
+                  ),
+                  const SizedBox(width: 4),
+                  Expanded(
+                    child: Text(
+                      meeting.restaurantName ?? meeting.location,
+                      style: AppTextStyles.bodyMedium.copyWith(
+                        color: AppDesignTokens.onSurfaceVariant,
+                      ),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ),
+                ],
+              ),
+              
+              const SizedBox(height: 4),
+              
+              Row(
+                children: [
+                  Icon(
+                    Icons.schedule_outlined,
+                    size: 16,
+                    color: AppDesignTokens.onSurfaceVariant,
+                  ),
+                  const SizedBox(width: 4),
+                  Text(
+                    meeting.formattedDateTime,
+                    style: AppTextStyles.bodyMedium.copyWith(
+                      color: AppDesignTokens.onSurfaceVariant,
+                    ),
+                  ),
+                  const Spacer(),
+                  Icon(
+                    Icons.group_outlined,
+                    size: 16,
+                    color: AppDesignTokens.onSurfaceVariant,
+                  ),
+                  const SizedBox(width: 4),
+                  Text(
+                    '${meeting.currentParticipants}/${meeting.maxParticipants}명',
+                    style: AppTextStyles.bodyMedium.copyWith(
+                      color: AppDesignTokens.onSurfaceVariant,
+                    ),
+                  ),
+                ],
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
 }

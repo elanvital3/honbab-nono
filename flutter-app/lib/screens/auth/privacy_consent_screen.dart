@@ -1,6 +1,12 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/foundation.dart';
 import '../../services/user_service.dart';
-import 'signup_complete_screen.dart';
+import '../../services/privacy_consent_service.dart';
+import '../../styles/text_styles.dart';
+import '../../constants/app_design_tokens.dart';
+import '../../constants/privacy_policy_content.dart';
+import 'nickname_input_screen.dart';
+import 'privacy_policy_screen.dart';
 import '../home/home_screen.dart';
 
 class PrivacyConsentScreen extends StatefulWidget {
@@ -9,7 +15,7 @@ class PrivacyConsentScreen extends StatefulWidget {
   final String? profileImageUrl;
   final String? email;
   final String? kakaoId;
-  final bool isUpdate; // 기존 사용자의 동의 업데이트인지 여부
+  final bool isUpdate;
 
   const PrivacyConsentScreen({
     super.key,
@@ -26,374 +32,225 @@ class PrivacyConsentScreen extends StatefulWidget {
 }
 
 class _PrivacyConsentScreenState extends State<PrivacyConsentScreen> {
-  final TextEditingController _nicknameController = TextEditingController();
   bool _isLoading = false;
-  bool _isNicknameValid = false;
-  String? _nicknameError;
-
-  @override
-  void initState() {
-    super.initState();
-    if (widget.isUpdate) {
-      _loadExistingConsents();
-    }
-  }
-
-  Future<void> _loadExistingConsents() async {
-    final existingConsents = await PrivacyConsentService.getUserConsent(widget.userId);
-    if (existingConsents != null && mounted) {
-      setState(() {
-        _consentData = existingConsents;
-      });
-    }
-  }
-
+  bool _essentialConsent = true; // 필수 동의 - 기본 체크
+  bool _optionalConsent = true; // 선택 동의 - 기본 체크
+  
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: Colors.white,
-      appBar: widget.isUpdate ? AppBar(
-        backgroundColor: Colors.white,
-        elevation: 0,
-        leading: IconButton(
-          icon: const Icon(
-            Icons.arrow_back_ios,
-            color: Color(0xFF333333),
-          ),
-          onPressed: () => Navigator.pop(context),
-        ),
-        title: const Text(
-          '개인정보 동의 설정',
-          style: TextStyle(
-            color: Color(0xFF333333),
-            fontSize: 18,
-            fontWeight: FontWeight.w600,
-          ),
-        ),
-        centerTitle: true,
-      ) : null,
+      backgroundColor: AppDesignTokens.background,
       body: SafeArea(
         child: Column(
           children: [
-            if (!widget.isUpdate) ...[
-              // 신규 가입용 헤더
-              _buildNewUserHeader(),
-              const SizedBox(height: 20),
-            ],
-            
-            // 동의 내용
+            // 메인 컨텐츠 (스크롤 가능)
             Expanded(
               child: SingleChildScrollView(
-                padding: const EdgeInsets.symmetric(horizontal: 24.0),
+                padding: const EdgeInsets.symmetric(horizontal: 24),
                 child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    if (widget.isUpdate) ...[
-                      const SizedBox(height: 20),
-                      _buildUpdateHeader(),
-                      const SizedBox(height: 30),
-                    ],
+                    const SizedBox(height: 60),
                     
-                    _buildConsentButton(),
-                    const SizedBox(height: 20),
+                    // 제목
+                    Text(
+                      '혼밥노노 사용하기 위해\n동의해 주세요.',
+                      textAlign: TextAlign.center,
+                      style: AppTextStyles.headlineLarge.copyWith(
+                        height: 1.3,
+                      ),
+                    ),
                     
-                    if (_consentData.isNotEmpty) ...[
-                      _buildConsentStatus(),
-                      const SizedBox(height: 30),
-                    ],
+                    const SizedBox(height: 40),
                     
+                    // 동의 옵션들
+                    _buildConsentOptions(),
+                    
+                    const SizedBox(height: 40),
+                    
+                    // 추가 정보 (간단하게)
                     _buildInfoSection(),
-                    const SizedBox(height: 30),
+                    
+                    const SizedBox(height: 60),
                   ],
                 ),
               ),
             ),
             
-            // 하단 버튼
-            _buildActionButtons(),
+            // 하단 버튼 영역
+            _buildBottomButtons(),
           ],
         ),
       ),
     );
   }
 
-  Widget _buildNewUserHeader() {
-    return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.all(24),
-      decoration: const BoxDecoration(
-        color: Color(0xFFF8F9FA),
-        border: Border(
-          bottom: BorderSide(color: Color(0xFFE0E0E0)),
-        ),
-      ),
-      child: Column(
-        children: [
-          // 프로필 사진
-          Container(
-            width: 80,
-            height: 80,
-            decoration: BoxDecoration(
-              shape: BoxShape.circle,
-              border: Border.all(
-                color: const Color(0xFFE0E0E0),
-                width: 2,
-              ),
-            ),
-            child: ClipOval(
-              child: widget.profileImageUrl != null
-                  ? Image.network(
-                      widget.profileImageUrl!,
-                      fit: BoxFit.cover,
-                      errorBuilder: (context, error, stackTrace) {
-                        return _buildDefaultAvatar();
-                      },
-                    )
-                  : _buildDefaultAvatar(),
-            ),
-          ),
-          const SizedBox(height: 16),
-          
-          const Text(
-            '환영합니다! 🎉',
-            style: TextStyle(
-              fontSize: 24,
-              fontWeight: FontWeight.bold,
-              color: Color(0xFF333333),
-            ),
-          ),
-          const SizedBox(height: 8),
-          const Text(
-            '혼밥노노 서비스 이용을 위해\n개인정보 처리방침에 동의해주세요',
-            textAlign: TextAlign.center,
-            style: TextStyle(
-              fontSize: 16,
-              color: Color(0xFF666666),
-              height: 1.5,
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildUpdateHeader() {
+  Widget _buildConsentOptions() {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        const Text(
-          '개인정보 동의 설정',
-          style: TextStyle(
-            fontSize: 24,
-            fontWeight: FontWeight.bold,
-            color: Color(0xFF333333),
+        Text(
+          '선택 약관',
+          style: AppTextStyles.titleMedium.copyWith(
+            color: AppDesignTokens.onSurfaceVariant,
           ),
         ),
-        const SizedBox(height: 8),
-        const Text(
-          '언제든지 동의 내용을 변경하실 수 있습니다.',
-          style: TextStyle(
-            fontSize: 16,
-            color: Color(0xFF666666),
-          ),
+        const SizedBox(height: 16),
+        
+        // 필수 동의 옵션
+        _buildConsentOption(
+          title: '개인정보 수집 · 이용 동의 (필수)',
+          isSelected: _essentialConsent,
+          onTap: () {
+            setState(() {
+              _essentialConsent = !_essentialConsent;
+            });
+          },
+          onDetailTap: () => _showConsentDetail('essential'),
+        ),
+        
+        const SizedBox(height: 12),
+        
+        // 선택 동의 옵션  
+        _buildConsentOption(
+          title: '서비스 품질 향상을 위한 개인정보 수집 · 이용 동의 (선택)',
+          isSelected: _optionalConsent,
+          onTap: () {
+            setState(() {
+              _optionalConsent = !_optionalConsent;
+            });
+          },
+          onDetailTap: () => _showConsentDetail('marketing'),
         ),
       ],
     );
   }
 
-  Widget _buildConsentButton() {
-    return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.all(20),
-      decoration: BoxDecoration(
-        color: const Color(0xFFF8F9FA),
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: const Color(0xFFE0E0E0)),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: [
-              const Icon(
-                Icons.security,
-                color: Color(0xFFD2B48C),
-                size: 24,
-              ),
-              const SizedBox(width: 12),
-              const Expanded(
-                child: Text(
-                  '개인정보 처리방침 동의',
-                  style: TextStyle(
-                    fontSize: 18,
-                    fontWeight: FontWeight.bold,
-                    color: Color(0xFF333333),
-                  ),
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 16),
-          
-          const Text(
-            '안전하고 개인화된 서비스 제공을 위해 개인정보 수집 및 이용에 대한 동의가 필요합니다.',
-            style: TextStyle(
-              fontSize: 14,
-              color: Color(0xFF666666),
-              height: 1.4,
-            ),
-          ),
-          const SizedBox(height: 20),
-          
-          SizedBox(
-            width: double.infinity,
-            child: ElevatedButton(
-              onPressed: _showConsentDialog,
-              style: ElevatedButton.styleFrom(
-                backgroundColor: const Color(0xFFD2B48C),
-                padding: const EdgeInsets.symmetric(vertical: 16),
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(12),
-                ),
-                elevation: 0,
-              ),
-              child: const Text(
-                '동의 항목 확인하기',
-                style: TextStyle(
-                  fontSize: 16,
-                  fontWeight: FontWeight.w600,
-                  color: Colors.white,
-                ),
-              ),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildConsentStatus() {
-    return Container(
-      padding: const EdgeInsets.all(20),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: const Color(0xFFE0E0E0)),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          const Text(
-            '현재 동의 상태',
-            style: TextStyle(
-              fontSize: 18,
-              fontWeight: FontWeight.bold,
-              color: Color(0xFF333333),
-            ),
-          ),
-          const SizedBox(height: 16),
-          
-          _buildConsentStatusItem(
-            '필수 동의',
-            _consentData['essential'] ?? false,
-            isRequired: true,
-          ),
-          const SizedBox(height: 12),
-          
-          _buildConsentStatusItem(
-            '선택 동의 - 프로필 정보',
-            _consentData['optional_profile'] ?? false,
-          ),
-          const SizedBox(height: 12),
-          
-          _buildConsentStatusItem(
-            '선택 동의 - 마케팅 활용',
-            _consentData['marketing'] ?? false,
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildConsentStatusItem(String title, bool isConsented, {bool isRequired = false}) {
-    return Row(
-      children: [
-        Icon(
-          isConsented ? Icons.check_circle : Icons.cancel,
-          color: isConsented ? Colors.green : Colors.grey,
-          size: 20,
-        ),
-        const SizedBox(width: 12),
-        Expanded(
-          child: Text(
-            title,
-            style: const TextStyle(
-              fontSize: 14,
-              color: Color(0xFF333333),
-            ),
+  Widget _buildConsentOption({
+    required String title,
+    required bool isSelected,
+    required VoidCallback onTap,
+    required VoidCallback onDetailTap,
+  }) {
+    return GestureDetector(
+      onTap: onTap,
+      child: Container(
+        padding: const EdgeInsets.all(16),
+        decoration: BoxDecoration(
+          color: AppDesignTokens.surface,
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(
+            color: isSelected 
+                ? AppDesignTokens.primary 
+                : AppDesignTokens.outline.withOpacity(0.3),
+            width: isSelected ? 2 : 1,
           ),
         ),
-        if (isRequired) ...[
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
-            decoration: BoxDecoration(
-              color: const Color(0xFFFFE5E5),
-              borderRadius: BorderRadius.circular(12),
+        child: Row(
+          children: [
+            // 체크박스
+            Container(
+              width: 22,
+              height: 22,
+              decoration: BoxDecoration(
+                borderRadius: BorderRadius.circular(6),
+                border: Border.all(
+                  color: isSelected 
+                      ? AppDesignTokens.primary 
+                      : AppDesignTokens.outline,
+                  width: 2,
+                ),
+                color: isSelected 
+                    ? AppDesignTokens.primary 
+                    : AppDesignTokens.surface,
+              ),
+              child: isSelected
+                  ? const Icon(
+                      Icons.check,
+                      size: 14,
+                      color: Colors.white,
+                    )
+                  : null,
             ),
-            child: const Text(
-              '필수',
-              style: TextStyle(
-                fontSize: 11,
-                fontWeight: FontWeight.w600,
-                color: Color(0xFFD32F2F),
+            
+            const SizedBox(width: 12),
+            
+            // 제목 텍스트
+            Expanded(
+              child: Text(
+                title,
+                style: AppTextStyles.bodyLarge.copyWith(
+                  color: isSelected 
+                      ? AppDesignTokens.onSurface 
+                      : AppDesignTokens.onSurfaceVariant,
+                  fontWeight: isSelected ? FontWeight.w500 : FontWeight.normal,
+                ),
               ),
             ),
-          ),
-        ],
-      ],
+            
+            // 화살표 아이콘
+            GestureDetector(
+              onTap: onDetailTap,
+              child: Container(
+                padding: const EdgeInsets.all(4),
+                child: Icon(
+                  Icons.chevron_right,
+                  color: AppDesignTokens.outline,
+                  size: 20,
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
     );
   }
 
   Widget _buildInfoSection() {
     return Container(
-      padding: const EdgeInsets.all(20),
+      padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
-        color: const Color(0xFFF0F8F0),
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: const Color(0xFFD2B48C)),
+        color: AppDesignTokens.surfaceContainer,
+        borderRadius: BorderRadius.circular(12),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Row(
             children: [
-              const Icon(
+              Icon(
                 Icons.info_outline,
-                color: Color(0xFF4CAF50),
-                size: 20,
+                size: 16,
+                color: AppDesignTokens.primary,
               ),
               const SizedBox(width: 8),
-              const Text(
-                '안내사항',
-                style: TextStyle(
-                  fontSize: 16,
-                  fontWeight: FontWeight.bold,
-                  color: Color(0xFF333333),
+              Text(
+                '개인정보 처리 안내',
+                style: AppTextStyles.titleMedium.copyWith(
+                  color: AppDesignTokens.primary,
                 ),
               ),
             ],
           ),
           const SizedBox(height: 12),
-          
-          const Text(
-            '• 필수 동의 항목은 서비스 이용을 위해 반드시 필요합니다.\n'
-            '• 선택 동의 항목은 거부하셔도 기본 서비스 이용이 가능합니다.\n'
-            '• 동의 내용은 마이페이지에서 언제든지 변경하실 수 있습니다.\n'
-            '• 개인정보는 안전하게 암호화되어 보관됩니다.',
-            style: TextStyle(
-              fontSize: 13,
-              color: Color(0xFF2E7D32),
-              height: 1.4,
+          Text(
+            '• 수집하는 개인정보: 이름, 이메일, 프로필 사진 등\n'
+            '• 개인정보는 서비스 제공 목적으로만 사용됩니다\n'
+            '• 개인정보 보관기간: 회원 탈퇴 시까지\n'
+            '• 언제든지 동의를 철회하실 수 있습니다',
+            style: AppTextStyles.bodyMedium.copyWith(
+              height: 1.5,
+              color: AppDesignTokens.onSurfaceVariant,
+            ),
+          ),
+          const SizedBox(height: 12),
+          GestureDetector(
+            onTap: _showFullPrivacyPolicy,
+            child: Text(
+              '개인정보 처리방침 전문 보기',
+              style: AppTextStyles.bodyMedium.copyWith(
+                color: AppDesignTokens.primary,
+                decoration: TextDecoration.underline,
+              ),
             ),
           ),
         ],
@@ -401,233 +258,233 @@ class _PrivacyConsentScreenState extends State<PrivacyConsentScreen> {
     );
   }
 
-  Widget _buildActionButtons() {
+  Widget _buildBottomButtons() {
     return Container(
       padding: const EdgeInsets.all(24),
-      decoration: const BoxDecoration(
-        color: Colors.white,
+      decoration: BoxDecoration(
+        color: AppDesignTokens.surface,
         border: Border(
-          top: BorderSide(color: Color(0xFFE0E0E0)),
+          top: BorderSide(
+            color: AppDesignTokens.outline.withOpacity(0.2),
+          ),
         ),
       ),
       child: Column(
+        mainAxisSize: MainAxisSize.min,
         children: [
-          if (widget.isUpdate) ...[
-            // 업데이트 모드 버튼
-            SizedBox(
-              width: double.infinity,
-              child: ElevatedButton(
-                onPressed: (_consentData['essential'] ?? false) ? _handleSaveUpdate : null,
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: const Color(0xFFD2B48C),
-                  disabledBackgroundColor: const Color(0xFFE0E0E0),
-                  padding: const EdgeInsets.symmetric(vertical: 16),
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(12),
-                  ),
-                  elevation: 0,
+          // 동의하고 시작하기 통합 버튼
+          SizedBox(
+            width: double.infinity,
+            height: 56,
+            child: ElevatedButton(
+              onPressed: _essentialConsent && !_isLoading 
+                  ? _handleAgree 
+                  : null,
+              style: ElevatedButton.styleFrom(
+                backgroundColor: AppDesignTokens.primary,
+                foregroundColor: Colors.white,
+                elevation: 0,
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(12),
                 ),
-                child: _isLoading
-                    ? const SizedBox(
-                        width: 20,
-                        height: 20,
-                        child: CircularProgressIndicator(
-                          strokeWidth: 2,
-                          valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
-                        ),
-                      )
-                    : Text(
-                        (_consentData['essential'] ?? false) ? '설정 저장' : '필수 항목에 동의해주세요',
-                        style: TextStyle(
-                          fontSize: 16,
-                          fontWeight: FontWeight.w600,
-                          color: (_consentData['essential'] ?? false) ? Colors.white : const Color(0xFF999999),
-                        ),
-                      ),
+                disabledBackgroundColor: AppDesignTokens.outline.withOpacity(0.3),
               ),
-            ),
-          ] else ...[
-            // 신규 가입 모드 버튼
-            SizedBox(
-              width: double.infinity,
-              child: ElevatedButton(
-                onPressed: (_consentData['essential'] ?? false) ? _handleContinueSignup : null,
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: const Color(0xFFD2B48C),
-                  disabledBackgroundColor: const Color(0xFFE0E0E0),
-                  padding: const EdgeInsets.symmetric(vertical: 16),
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(12),
-                  ),
-                  elevation: 0,
-                ),
-                child: _isLoading
-                    ? const SizedBox(
-                        width: 20,
-                        height: 20,
-                        child: CircularProgressIndicator(
-                          strokeWidth: 2,
-                          valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
-                        ),
-                      )
-                    : Text(
-                        (_consentData['essential'] ?? false) ? '동의하고 계속' : '필수 항목에 동의해주세요',
-                        style: TextStyle(
-                          fontSize: 16,
-                          fontWeight: FontWeight.w600,
-                          color: (_consentData['essential'] ?? false) ? Colors.white : const Color(0xFF999999),
-                        ),
+              child: _isLoading
+                  ? const SizedBox(
+                      width: 20,
+                      height: 20,
+                      child: CircularProgressIndicator(
+                        strokeWidth: 2,
+                        valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
                       ),
-              ),
+                    )
+                  : Text(
+                      '동의하고 시작하기',
+                      style: AppTextStyles.titleMedium.copyWith(
+                        color: Colors.white,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
             ),
-          ],
+          ),
           
-          if (!widget.isUpdate) ...[
-            const SizedBox(height: 12),
-            TextButton(
-              onPressed: () => Navigator.pop(context),
-              child: const Text(
-                '나중에 하기',
-                style: TextStyle(
-                  fontSize: 14,
-                  color: Color(0xFF666666),
+          const SizedBox(height: 12),
+          
+          // 취소 버튼
+          SizedBox(
+            width: double.infinity,
+            height: 48,
+            child: TextButton(
+              onPressed: _isLoading ? null : _handleCancel,
+              style: TextButton.styleFrom(
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(12),
+                ),
+              ),
+              child: Text(
+                '취소',
+                style: AppTextStyles.titleMedium.copyWith(
+                  color: AppDesignTokens.onSurfaceVariant,
                 ),
               ),
             ),
-          ],
+          ),
         ],
       ),
     );
   }
 
-  Widget _buildDefaultAvatar() {
-    return Container(
-      decoration: const BoxDecoration(
-        shape: BoxShape.circle,
-        color: Color(0xFFF5F5F5),
-      ),
-      child: const Icon(
-        Icons.person,
-        size: 40,
-        color: Color(0xFFBBBBBB),
+  Future<void> _handleAgree() async {
+    if (!_essentialConsent) return;
+    
+    setState(() {
+      _isLoading = true;
+    });
+
+    try {
+      // 동의 정보 저장
+      final consentData = <String, bool>{
+        'essential': _essentialConsent,
+        'marketing': _optionalConsent, // 사용자 선택에 따라
+        'location': _optionalConsent, // 선택 동의와 함께 처리
+      };
+
+      await PrivacyConsentService.saveConsent(
+        userId: widget.userId,
+        consentData: consentData,
+      );
+
+      if (kDebugMode) {
+        print('✅ 개인정보 동의 저장 완료');
+      }
+
+      if (mounted) {
+        if (widget.isUpdate) {
+          // 설정 업데이트인 경우 홈으로
+          Navigator.pushReplacementNamed(context, '/home');
+        } else {
+          // 신규 가입인 경우 닉네임 입력으로
+          Navigator.pushReplacement(
+            context,
+            MaterialPageRoute(
+              builder: (context) => NicknameInputScreen(
+                userId: widget.userId,
+                profileImageUrl: widget.profileImageUrl,
+                email: widget.email,
+                kakaoId: widget.kakaoId,
+              ),
+            ),
+          );
+        }
+      }
+    } catch (e) {
+      if (kDebugMode) {
+        print('❌ 개인정보 동의 저장 실패: $e');
+      }
+      
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('동의 처리 중 오류가 발생했습니다: $e'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isLoading = false;
+        });
+      }
+    }
+  }
+
+  void _handleCancel() {
+    Navigator.of(context).pop();
+  }
+
+  void _showConsentDetail(String consentType) {
+    final content = PrivacyPolicyContent.consentItems[consentType] ?? '';
+    final title = consentType == 'essential' ? '필수 동의 항목' : '선택 동의 항목';
+    
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (context) => DraggableScrollableSheet(
+        initialChildSize: 0.7,
+        maxChildSize: 0.9,
+        minChildSize: 0.5,
+        builder: (context, scrollController) => Container(
+          decoration: const BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+          ),
+          child: Column(
+            children: [
+              // 핸들 바
+              Container(
+                margin: const EdgeInsets.only(top: 12),
+                width: 40,
+                height: 4,
+                decoration: BoxDecoration(
+                  color: AppDesignTokens.outline,
+                  borderRadius: BorderRadius.circular(2),
+                ),
+              ),
+              
+              // 헤더
+              Container(
+                padding: const EdgeInsets.all(24),
+                decoration: BoxDecoration(
+                  border: Border(
+                    bottom: BorderSide(
+                      color: AppDesignTokens.outline.withOpacity(0.2),
+                    ),
+                  ),
+                ),
+                child: Row(
+                  children: [
+                    Expanded(
+                      child: Text(
+                        title,
+                        style: AppTextStyles.titleLarge,
+                      ),
+                    ),
+                    IconButton(
+                      onPressed: () => Navigator.pop(context),
+                      icon: const Icon(Icons.close),
+                    ),
+                  ],
+                ),
+              ),
+              
+              // 내용
+              Expanded(
+                child: SingleChildScrollView(
+                  controller: scrollController,
+                  padding: const EdgeInsets.all(24),
+                  child: Text(
+                    content,
+                    style: AppTextStyles.bodyLarge.copyWith(
+                      height: 1.6,
+                    ),
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
       ),
     );
   }
 
-  void _showConsentDialog() {
-    showDialog(
-      context: context,
-      barrierDismissible: false,
-      builder: (context) => PrivacyConsentDialog(
-        onConsentChanged: (consents) {
-          setState(() {
-            _consentData = consents;
-          });
-        },
-        onClose: () => Navigator.pop(context),
+  void _showFullPrivacyPolicy() {
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (context) => const PrivacyPolicyScreen(),
       ),
-    ).then((result) {
-      if (result != null && result is Map<String, bool>) {
-        setState(() {
-          _consentData = result;
-        });
-      }
-    });
-  }
-
-  Future<void> _handleContinueSignup() async {
-    if (!(_consentData['essential'] ?? false)) {
-      return;
-    }
-
-    setState(() {
-      _isLoading = true;
-    });
-
-    try {
-      // 동의 상태 저장
-      final success = await PrivacyConsentService.saveConsent(
-        userId: widget.userId,
-        consentData: _consentData,
-      );
-
-      if (success && mounted) {
-        // 닉네임 입력 화면으로 이동
-        Navigator.pushReplacement(
-          context,
-          MaterialPageRoute(
-            builder: (context) => SignupCompleteScreen(
-              userId: widget.userId,
-              defaultName: widget.defaultName,
-              profileImageUrl: widget.profileImageUrl,
-              email: widget.email,
-              kakaoId: widget.kakaoId,
-            ),
-          ),
-        );
-      } else {
-        throw Exception('동의 상태 저장에 실패했습니다.');
-      }
-    } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('오류가 발생했습니다: $e'),
-            backgroundColor: Colors.red,
-          ),
-        );
-      }
-    } finally {
-      if (mounted) {
-        setState(() {
-          _isLoading = false;
-        });
-      }
-    }
-  }
-
-  Future<void> _handleSaveUpdate() async {
-    if (!(_consentData['essential'] ?? false)) {
-      return;
-    }
-
-    setState(() {
-      _isLoading = true;
-    });
-
-    try {
-      // 동의 상태 업데이트
-      final success = await PrivacyConsentService.saveConsent(
-        userId: widget.userId,
-        consentData: _consentData,
-      );
-
-      if (success && mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('동의 설정이 저장되었습니다.'),
-            backgroundColor: Colors.green,
-          ),
-        );
-        Navigator.pop(context);
-      } else {
-        throw Exception('동의 상태 저장에 실패했습니다.');
-      }
-    } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('오류가 발생했습니다: $e'),
-            backgroundColor: Colors.red,
-          ),
-        );
-      }
-    } finally {
-      if (mounted) {
-        setState(() {
-          _isLoading = false;
-        });
-      }
-    }
+    );
   }
 }

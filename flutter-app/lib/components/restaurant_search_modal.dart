@@ -4,6 +4,7 @@ import '../models/restaurant.dart';
 import '../services/kakao_search_service.dart';
 import '../services/location_service.dart';
 import 'hierarchical_location_picker.dart';
+import 'external_rating_widget.dart';
 
 class RestaurantSearchModal extends StatefulWidget {
   final Function(Restaurant) onRestaurantSelected;
@@ -336,6 +337,14 @@ class _RestaurantSearchModalState extends State<RestaurantSearchModal> {
                         ),
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
+                      ),
+                      const SizedBox(height: 6),
+                      // 평점 정보 표시
+                      ExternalRatingWidget(
+                        restaurant: restaurant,
+                        showLoadingIndicator: true, // 로딩 활성화로 변경
+                        padding: EdgeInsets.zero,
+                        iconSize: 14,
                       ),
                     ],
                   ),

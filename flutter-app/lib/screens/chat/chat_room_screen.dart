@@ -7,6 +7,7 @@ import '../../services/chat_service.dart';
 import '../../services/auth_service.dart';
 import '../../services/user_service.dart';
 import '../../services/meeting_service.dart';
+import '../../styles/text_styles.dart';
 import '../profile/user_profile_screen.dart';
 
 class ChatRoomScreen extends StatefulWidget {
@@ -41,6 +42,20 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
   void dispose() {
     _messageController.dispose();
     _scrollController.dispose();
+    
+    // 채팅방 나갈 때 추가 읽음 처리 (안전장치)
+    if (_currentUserId != null) {
+      ChatService.markMessagesAsRead(widget.meeting.id, _currentUserId!).then((_) {
+        if (kDebugMode) {
+          print('✅ 채팅방 종료 시 읽음 처리 완료');
+        }
+      }).catchError((error) {
+        if (kDebugMode) {
+          print('❌ 채팅방 종료 시 읽음 처리 실패: $error');
+        }
+      });
+    }
+    
     super.dispose();
   }
 
@@ -157,10 +172,7 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
               children: [
                 Text(
                   currentMeeting.restaurantName ?? currentMeeting.location,
-                  style: const TextStyle(
-                    fontSize: 18,
-                    fontWeight: FontWeight.bold,
-                  ),
+                  style: AppTextStyles.headlineMedium,
                 ),
                 Text(
                   '${currentMeeting.currentParticipants}명 참여중',
@@ -673,6 +685,13 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
                     _buildMeetingInfoCard(),
                     const SizedBox(height: 16),
                     _buildParticipantsCard(),
+                    
+                    // 모임 관리 버튼들 (호스트/참여자별로 다름)
+                    if (widget.meeting.status != 'completed' && _currentUserId != null) ...[
+                      const SizedBox(height: 20),
+                      _buildMeetingActionsCard(),
+                    ],
+                    
                     const SizedBox(height: 20),
                   ],
                 ),
@@ -705,10 +724,7 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
               Expanded(
                 child: Text(
                   widget.meeting.restaurantName ?? widget.meeting.location,
-                  style: const TextStyle(
-                    fontSize: 18,
-                    fontWeight: FontWeight.bold,
-                  ),
+                  style: AppTextStyles.headlineMedium,
                 ),
               ),
               Container(
@@ -956,5 +972,408 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
         ],
       ),
     );
+  }
+
+  Widget _buildMeetingActionsCard() {
+    final isHost = _currentUserId == widget.meeting.hostId;
+    final isParticipant = widget.meeting.participantIds.contains(_currentUserId);
+    
+    // 디버깅 정보 출력
+    if (kDebugMode) {
+      print('🔍 모임 관리 버튼 디버깅:');
+      print('  - 현재 사용자 ID: $_currentUserId');
+      print('  - 모임 호스트 ID: ${widget.meeting.hostId}');
+      print('  - 참여자 ID 목록: ${widget.meeting.participantIds}');
+      print('  - 호스트 여부: $isHost');
+      print('  - 참여자 여부: $isParticipant');
+      if (_currentUser != null) {
+        print('  - 현재 사용자 카카오 ID: ${_currentUser!.kakaoId}');
+      }
+    }
+    
+    return Container(
+      padding: const EdgeInsets.all(20),
+      decoration: BoxDecoration(
+        color: Theme.of(context).colorScheme.surface,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(
+          color: Theme.of(context).colorScheme.outline.withOpacity(0.3),
+        ),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            '모임 관리',
+            style: const TextStyle(
+              fontWeight: FontWeight.bold,
+              fontSize: 16,
+            ),
+          ),
+          const SizedBox(height: 16),
+          
+          if (isHost)
+            // 호스트: 모임 취소 버튼
+            SizedBox(
+              width: double.infinity,
+              child: ElevatedButton.icon(
+                onPressed: () => _showCancelMeetingDialog(),
+                icon: const Icon(Icons.cancel_outlined, color: Colors.white),
+                label: const Text(
+                  '모임 취소하기',
+                  style: TextStyle(
+                    color: Colors.white,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: Colors.red,
+                  padding: const EdgeInsets.symmetric(vertical: 12),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                ),
+              ),
+            )
+          else if (isParticipant)
+            // 일반 참여자: 모임 나가기 버튼
+            SizedBox(
+              width: double.infinity,
+              child: OutlinedButton.icon(
+                onPressed: () => _showLeaveMeetingDialog(),
+                icon: Icon(Icons.exit_to_app, color: Colors.orange[700]),
+                label: Text(
+                  '모임 나가기',
+                  style: TextStyle(
+                    color: Colors.orange[700],
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+                style: OutlinedButton.styleFrom(
+                  side: BorderSide(color: Colors.orange[700]!),
+                  padding: const EdgeInsets.symmetric(vertical: 12),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                ),
+              ),
+            )
+          else
+            // 호스트도 참여자도 아닌 경우: 소유권 복구 버튼
+            Column(
+              children: [
+                Container(
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    color: Colors.yellow[50],
+                    borderRadius: BorderRadius.circular(8),
+                    border: Border.all(color: Colors.orange[300]!),
+                  ),
+                  child: Row(
+                    children: [
+                      Icon(Icons.warning_amber, color: Colors.orange[700], size: 20),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: Text(
+                          '계정 복구로 인해 모임 연결이 끊어진 것 같습니다.',
+                          style: TextStyle(
+                            color: Colors.orange[800],
+                            fontSize: 12,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(height: 12),
+                SizedBox(
+                  width: double.infinity,
+                  child: ElevatedButton.icon(
+                    onPressed: () => _showOwnershipRecoveryDialog(),
+                    icon: const Icon(Icons.restore, color: Colors.white),
+                    label: const Text(
+                      '모임 소유권 복구',
+                      style: TextStyle(
+                        color: Colors.white,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: Colors.blue,
+                      padding: const EdgeInsets.symmetric(vertical: 12),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _showCancelMeetingDialog() async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('모임 취소'),
+        content: const Text(
+          '정말로 이 모임을 취소하시겠습니까?\n\n'
+          '모임이 취소되면 모든 참여자에게 알림이 전송되고, '
+          '채팅방도 함께 삭제됩니다.\n\n'
+          '이 작업은 되돌릴 수 없습니다.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('취소'),
+          ),
+          ElevatedButton(
+            onPressed: () => Navigator.pop(context, true),
+            style: ElevatedButton.styleFrom(backgroundColor: Colors.red),
+            child: const Text(
+              '모임 취소',
+              style: TextStyle(color: Colors.white),
+            ),
+          ),
+        ],
+      ),
+    );
+
+    if (confirmed == true) {
+      await _cancelMeeting();
+    }
+  }
+
+  Future<void> _showLeaveMeetingDialog() async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('모임 나가기'),
+        content: const Text(
+          '정말로 이 모임에서 나가시겠습니까?\n\n'
+          '나가신 후에는 다시 참여하려면 새로 신청해야 합니다.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('취소'),
+          ),
+          ElevatedButton(
+            onPressed: () => Navigator.pop(context, true),
+            style: ElevatedButton.styleFrom(backgroundColor: Colors.orange),
+            child: const Text(
+              '나가기',
+              style: TextStyle(color: Colors.white),
+            ),
+          ),
+        ],
+      ),
+    );
+
+    if (confirmed == true) {
+      await _leaveMeeting();
+    }
+  }
+
+  Future<void> _cancelMeeting() async {
+    try {
+      // 로딩 표시
+      showDialog(
+        context: context,
+        barrierDismissible: false,
+        builder: (context) => const Center(
+          child: CircularProgressIndicator(),
+        ),
+      );
+
+      // 모임 삭제
+      await MeetingService.deleteMeeting(widget.meeting.id);
+      
+      // 로딩 닫기
+      Navigator.pop(context);
+      
+      // 모달 닫기
+      Navigator.pop(context);
+      
+      // 채팅방 나가기
+      Navigator.pop(context);
+      
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('모임이 취소되었습니다'),
+          backgroundColor: Colors.green,
+        ),
+      );
+    } catch (e) {
+      // 로딩 닫기
+      Navigator.pop(context);
+      
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('모임 취소 실패: $e'),
+          backgroundColor: Colors.red,
+        ),
+      );
+    }
+  }
+
+  Future<void> _leaveMeeting() async {
+    if (_currentUserId == null) return;
+    
+    try {
+      // 로딩 표시
+      showDialog(
+        context: context,
+        barrierDismissible: false,
+        builder: (context) => const Center(
+          child: CircularProgressIndicator(),
+        ),
+      );
+
+      // 모임 나가기
+      await MeetingService.leaveMeeting(widget.meeting.id, _currentUserId!);
+      
+      // 로딩 닫기
+      Navigator.pop(context);
+      
+      // 모달 닫기
+      Navigator.pop(context);
+      
+      // 채팅방 나가기
+      Navigator.pop(context);
+      
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('모임에서 나갔습니다'),
+          backgroundColor: Colors.green,
+        ),
+      );
+    } catch (e) {
+      // 로딩 닫기
+      Navigator.pop(context);
+      
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('모임 나가기 실패: $e'),
+          backgroundColor: Colors.red,
+        ),
+      );
+    }
+  }
+
+  Future<void> _showOwnershipRecoveryDialog() async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('모임 소유권 복구'),
+        content: const Text(
+          '계정 복구로 인해 모임 연결이 끊어진 것 같습니다.\n\n'
+          '카카오 ID를 기반으로 이 모임의 소유권을 복구하시겠습니까?\n\n'
+          '⚠️ 실제 모임 생성자가 아닌 경우 복구하지 마세요.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('취소'),
+          ),
+          ElevatedButton(
+            onPressed: () => Navigator.pop(context, true),
+            style: ElevatedButton.styleFrom(backgroundColor: Colors.blue),
+            child: const Text(
+              '소유권 복구',
+              style: TextStyle(color: Colors.white),
+            ),
+          ),
+        ],
+      ),
+    );
+
+    if (confirmed == true) {
+      await _recoverOwnership();
+    }
+  }
+
+  Future<void> _recoverOwnership() async {
+    if (_currentUserId == null || _currentUser?.kakaoId == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('사용자 정보를 불러올 수 없습니다'),
+          backgroundColor: Colors.red,
+        ),
+      );
+      return;
+    }
+    
+    try {
+      // 로딩 표시
+      showDialog(
+        context: context,
+        barrierDismissible: false,
+        builder: (context) => const Center(
+          child: CircularProgressIndicator(),
+        ),
+      );
+
+      // 기존 호스트의 카카오 ID 확인을 위해 호스트 사용자 정보 조회
+      final originalHost = await UserService.getUser(widget.meeting.hostId);
+      
+      if (originalHost?.kakaoId != _currentUser!.kakaoId) {
+        // 로딩 닫기
+        Navigator.pop(context);
+        
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('카카오 ID가 일치하지 않습니다. 실제 모임 생성자만 복구할 수 있습니다.'),
+            backgroundColor: Colors.red,
+          ),
+        );
+        return;
+      }
+
+      // 모임의 hostId와 participantIds 업데이트
+      final updatedParticipantIds = widget.meeting.participantIds
+          .where((id) => id != widget.meeting.hostId) // 기존 호스트 ID 제거
+          .toList();
+      
+      if (!updatedParticipantIds.contains(_currentUserId!)) {
+        updatedParticipantIds.add(_currentUserId!); // 새 호스트 ID 추가
+      }
+
+      await MeetingService.updateMeeting(widget.meeting.id, {
+        'hostId': _currentUserId!,
+        'participantIds': updatedParticipantIds,
+      });
+      
+      // 로딩 닫기
+      Navigator.pop(context);
+      
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('모임 소유권이 복구되었습니다!'),
+          backgroundColor: Colors.green,
+        ),
+      );
+      
+      // 화면 새로고침을 위해 setState 호출
+      setState(() {});
+      
+    } catch (e) {
+      // 로딩 닫기
+      Navigator.pop(context);
+      
+      if (kDebugMode) {
+        print('❌ 소유권 복구 실패: $e');
+      }
+      
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('소유권 복구 실패: $e'),
+          backgroundColor: Colors.red,
+        ),
+      );
+    }
   }
 }

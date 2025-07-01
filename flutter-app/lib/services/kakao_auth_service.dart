@@ -2,11 +2,13 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import 'package:kakao_flutter_sdk/kakao_flutter_sdk.dart';
 import 'package:firebase_auth/firebase_auth.dart' as firebase_auth;
+import 'package:cloud_firestore/cloud_firestore.dart';
 import '../models/user.dart' as app_user;
 import 'user_service.dart';
 import 'auth_service.dart';
 
 class KakaoAuthService {
+  
   // 카카오 로그인 (카카오톡 앱 우선, 실패시 브라우저)
   static Future<app_user.User?> signInWithKakao() async {
     try {
@@ -53,7 +55,7 @@ class KakaoAuthService {
     }
   }
 
-  // Firebase 익명 인증으로 카카오 사용자 연동
+  // Firebase 사용자 연동 (익명 인증 + 카카오 정보 연결)
   static Future<app_user.User?> _createOrGetFirebaseUser(User kakaoUser) async {
     try {
       final kakaoId = kakaoUser.id.toString();
@@ -61,43 +63,86 @@ class KakaoAuthService {
       final name = kakaoUser.kakaoAccount?.profile?.nickname ?? '카카오사용자';
       final profileImage = kakaoUser.kakaoAccount?.profile?.profileImageUrl;
 
-      // Firebase 익명 인증
+      if (kDebugMode) {
+        print('🔍 카카오 사용자 연동 시작: $kakaoId');
+      }
+
+      // 1. 카카오 ID로 기존 사용자 찾기
+      app_user.User? existingUser = await UserService.getUserByKakaoId(kakaoId);
+      
+      if (existingUser != null) {
+        if (kDebugMode) {
+          print('✅ 기존 사용자 발견: ${existingUser.id}');
+        }
+        
+        // 기존 사용자 - 프로필 정보 업데이트하고 Firebase 로그인
+        await _signInWithExistingUser(existingUser, profileImage);
+        
+        final updatedUser = existingUser.copyWith(
+          profileImageUrl: profileImage,
+          updatedAt: DateTime.now(),
+        );
+        
+        await UserService.updateUserFromObject(updatedUser);
+        return updatedUser;
+      }
+      
+      // 2. 신규 사용자 - Firebase 익명 인증
+      if (kDebugMode) {
+        print('🆕 신규 사용자 - Firebase 익명 인증 시작');
+      }
+      
       final credential = await firebase_auth.FirebaseAuth.instance.signInAnonymously();
       final firebaseUser = credential.user;
-
+      
       if (firebaseUser != null) {
-        // Firestore에서 카카오 ID로 기존 사용자 찾기
-        app_user.User? existingUser = await UserService.getUserByKakaoId(kakaoId);
-        
-        if (existingUser == null) {
-          // 신규 사용자임을 명확히 표시 (name을 "NEW_USER"로 설정)
-          return app_user.User(
-            id: firebaseUser.uid,
-            name: 'NEW_USER', // 신규 사용자 표시자
-            email: email,
-            profileImageUrl: profileImage,
-            kakaoId: kakaoId,
-          );
-        } else {
-          // 기존 사용자 - Firebase UID 업데이트 후 반환
-          // 기존 사용자 문서 삭제 (이전 UID)
-          await UserService.deleteUser(existingUser.id);
-          
-          // 새로운 UID로 사용자 문서 생성
-          final updatedUser = existingUser.copyWith(
-            id: firebaseUser.uid,
-            profileImageUrl: profileImage,
-            updatedAt: DateTime.now(),
-          );
-          
-          await UserService.createUser(updatedUser);
-          return updatedUser;
+        if (kDebugMode) {
+          print('✅ Firebase 익명 인증 완료: ${firebaseUser.uid}');
         }
+        
+        // 신규 사용자 데이터 생성
+        return app_user.User(
+          id: firebaseUser.uid,
+          name: 'NEW_USER',
+          email: email,
+          profileImageUrl: profileImage,
+          kakaoId: kakaoId,
+          createdAt: DateTime.now(),
+          updatedAt: DateTime.now(),
+        );
       }
       
       return null;
     } catch (e) {
+      if (kDebugMode) {
+        print('❌ Firebase 사용자 연동 실패: $e');
+      }
       rethrow;
+    }
+  }
+  
+  // 기존 사용자를 위한 Firebase 재인증
+  static Future<void> _signInWithExistingUser(app_user.User existingUser, String? profileImage) async {
+    try {
+      // 현재 Firebase 사용자와 기존 사용자 ID가 다르면 재인증
+      final currentUser = firebase_auth.FirebaseAuth.instance.currentUser;
+      
+      if (currentUser == null || currentUser.uid != existingUser.id) {
+        if (kDebugMode) {
+          print('🔄 기존 사용자를 위한 Firebase 재인증 필요');
+        }
+        
+        // 로그아웃 후 새로 익명 인증 (기존 UID는 Firestore에서 관리)
+        if (currentUser != null) {
+          await firebase_auth.FirebaseAuth.instance.signOut();
+        }
+        
+        await firebase_auth.FirebaseAuth.instance.signInAnonymously();
+      }
+    } catch (e) {
+      if (kDebugMode) {
+        print('⚠️ Firebase 재인증 실패, 계속 진행: $e');
+      }
     }
   }
 
@@ -128,4 +173,5 @@ class KakaoAuthService {
       rethrow;
     }
   }
+
 }

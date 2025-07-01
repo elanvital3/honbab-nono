@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import '../models/meeting.dart';
+import '../styles/text_styles.dart';
 
 class MeetingCard extends StatelessWidget {
   final Meeting meeting;
@@ -38,10 +39,50 @@ class MeetingCard extends StatelessWidget {
                   borderRadius: BorderRadius.circular(6),  // 당근마켓 스타일
                   color: Theme.of(context).colorScheme.surfaceContainer,
                 ),
-                child: Icon(
-                  Icons.restaurant,
-                  size: 28,  // 더 작게
-                  color: Theme.of(context).colorScheme.outline,
+                child: ClipRRect(
+                  borderRadius: BorderRadius.circular(6),
+                  child: meeting.representativeImageUrl != null && meeting.representativeImageUrl!.isNotEmpty
+                    ? Image.network(
+                        meeting.representativeImageUrl!,
+                        width: 72,
+                        height: 72,
+                        fit: BoxFit.cover,
+                        errorBuilder: (context, error, stackTrace) {
+                          // 이미지 로드 실패 시 기본 아이콘 표시
+                          return Container(
+                            color: Theme.of(context).colorScheme.surfaceContainer,
+                            child: Icon(
+                              Icons.restaurant,
+                              size: 28,
+                              color: Theme.of(context).colorScheme.outline,
+                            ),
+                          );
+                        },
+                        loadingBuilder: (context, child, loadingProgress) {
+                          if (loadingProgress == null) return child;
+                          // 로딩 중 표시
+                          return Container(
+                            color: Theme.of(context).colorScheme.surfaceContainer,
+                            child: Center(
+                              child: CircularProgressIndicator(
+                                value: loadingProgress.expectedTotalBytes != null
+                                    ? loadingProgress.cumulativeBytesLoaded / 
+                                      loadingProgress.expectedTotalBytes!
+                                    : null,
+                                strokeWidth: 2,
+                                valueColor: AlwaysStoppedAnimation<Color>(
+                                  Theme.of(context).colorScheme.primary,
+                                ),
+                              ),
+                            ),
+                          );
+                        },
+                      )
+                    : Icon(
+                        Icons.restaurant,
+                        size: 28,  // 더 작게
+                        color: Theme.of(context).colorScheme.outline,
+                      ),
                 ),
               ),
               const SizedBox(width: 12),  // 당근마켓 스타일
@@ -58,12 +99,7 @@ class MeetingCard extends StatelessWidget {
                         Expanded(
                           child: Text(
                             meeting.restaurantName ?? meeting.location,  // 식당 이름을 메인 타이틀로
-                            style: TextStyle(
-                              fontSize: 15,  // 당근마켓 스타일
-                              fontWeight: FontWeight.w600,  // 당근마켓 스타일
-                              color: Theme.of(context).colorScheme.onSurface,
-                              height: 1.3,  // 줄간격
-                            ),
+                            style: AppTextStyles.titleLarge,
                             maxLines: 2,
                             overflow: TextOverflow.ellipsis,
                           ),

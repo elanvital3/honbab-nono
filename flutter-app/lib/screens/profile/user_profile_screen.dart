@@ -162,35 +162,62 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
     return CommonCard(
       padding: AppPadding.all16,
       margin: AppPadding.vertical8.add(AppPadding.horizontal16),
-      child: Row(
-        mainAxisAlignment: MainAxisAlignment.spaceAround,
-        children: [
-          _buildStatItem(
-            '참여한 모임',
-            widget.user.meetingsJoined.toString(),
-            Icons.group,
-          ),
-          Container(
-            width: 1,
-            height: 40,
-            color: Theme.of(context).colorScheme.outline.withOpacity(0.3),
-          ),
-          _buildStatItem(
-            '주최한 모임',
-            widget.user.meetingsHosted.toString(),
-            Icons.flag,
-          ),
-          Container(
-            width: 1,
-            height: 40,
-            color: Theme.of(context).colorScheme.outline.withOpacity(0.3),
-          ),
-          _buildStatItem(
-            '평균 별점',
-            widget.user.rating.toStringAsFixed(1),
-            Icons.star,
-          ),
-        ],
+      child: StreamBuilder<List<Meeting>>(
+        stream: MeetingService.getUserMeetingsStream(widget.user.id),
+        builder: (context, snapshot) {
+          // 실제 모임 데이터로 통계 계산
+          int completedCount = 0;
+          int activeCount = 0;
+          int hostedCount = 0;
+          
+          if (snapshot.hasData) {
+            final meetings = snapshot.data!;
+            for (final meeting in meetings) {
+              // 참여한 모임 분류
+              if (meeting.status == 'completed') {
+                completedCount++;
+              } else {
+                activeCount++;
+              }
+              
+              // 주최한 모임 카운트
+              if (meeting.hostId == widget.user.id) {
+                hostedCount++;
+              }
+            }
+          }
+          
+          return Row(
+            mainAxisAlignment: MainAxisAlignment.spaceAround,
+            children: [
+              _buildStatItem(
+                '완료된 모임',
+                completedCount.toString(),
+                Icons.check_circle,
+              ),
+              Container(
+                width: 1,
+                height: 40,
+                color: Theme.of(context).colorScheme.outline.withOpacity(0.3),
+              ),
+              _buildStatItem(
+                '진행중인 모임',
+                activeCount.toString(),
+                Icons.schedule,
+              ),
+              Container(
+                width: 1,
+                height: 40,
+                color: Theme.of(context).colorScheme.outline.withOpacity(0.3),
+              ),
+              _buildStatItem(
+                '주최한 모임',
+                hostedCount.toString(),
+                Icons.flag,
+              ),
+            ],
+          );
+        },
       ),
     );
   }

@@ -13,6 +13,7 @@ class Restaurant {
   final String? province;
   final bool? isActive;
   final DateTime? updatedAt;
+  final String? imageUrl; // 대표 이미지 URL 추가
   
   // 표시용 거리 문자열 (동적 계산 결과 저장)
   String displayDistance = '';
@@ -32,6 +33,7 @@ class Restaurant {
     this.province,
     this.isActive,
     this.updatedAt,
+    this.imageUrl,
   });
 
   factory Restaurant.fromJson(Map<String, dynamic> json) {
@@ -45,6 +47,7 @@ class Restaurant {
       phone: json['phone'] as String?,
       url: json['place_url'] as String?,
       distance: json['distance'] as String?,
+      imageUrl: json['image_url'] as String?, // 이미지 URL 파싱 추가
     );
   }
 
@@ -59,6 +62,7 @@ class Restaurant {
       'phone': phone,
       'place_url': url,
       'distance': distance,
+      'image_url': imageUrl,
     };
   }
 
@@ -107,6 +111,7 @@ class Restaurant {
       updatedAt: data['updatedAt'] != null 
           ? (data['updatedAt'] as dynamic).toDate() as DateTime?
           : null,
+      imageUrl: data['imageUrl'] as String?,
     );
   }
 
@@ -126,6 +131,7 @@ class Restaurant {
       'province': province,
       'isActive': isActive ?? true,
       'updatedAt': updatedAt,
+      'imageUrl': imageUrl,
     };
   }
 }

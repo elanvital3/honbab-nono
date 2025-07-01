@@ -136,21 +136,29 @@ class ChatService {
     }
   }
 
-  // 안읽은 메시지 수 실시간 스트림 (최적화된 버전)
+  // 안읽은 메시지 수 실시간 스트림 (개선된 버전)
   static Stream<int> getUnreadMessageCountStream(String meetingId, String userId) {
     return _firestore
         .collection(_messagesCollection)
         .where('meetingId', isEqualTo: meetingId)
-        .where('senderId', isNotEqualTo: userId) // 자신의 메시지 제외
-        .where('isRead', isEqualTo: false) // 읽지 않은 메시지만
         .snapshots()
         .map((snapshot) {
-      // 시스템 메시지 제외하고 카운트
-      final count = snapshot.docs.where((doc) {
+      int count = 0;
+      for (final doc in snapshot.docs) {
         final data = doc.data();
+        final senderId = data['senderId'] as String;
+        final isRead = data['isRead'] as bool? ?? false;
         final messageType = data['type'] as String? ?? 'text';
-        return messageType != 'system';
-      }).length;
+        
+        // 자신이 보낸 메시지가 아니고, 읽지 않은 메시지이며, 시스템 메시지가 아닌 경우
+        if (senderId != userId && !isRead && messageType != 'system') {
+          count++;
+        }
+      }
+      
+      if (kDebugMode) {
+        print('📊 안읽은 메시지 카운트 (모임 $meetingId): $count');
+      }
       
       return count;
     }).distinct(); // 중복 제거

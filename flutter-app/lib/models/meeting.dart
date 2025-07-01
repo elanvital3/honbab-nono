@@ -9,9 +9,9 @@ class Meeting {
   final int currentParticipants;
   final String hostId;
   final String hostName;
-  final String? hostKakaoId; // 카카오 ID 기반 소유권 확인용
   final List<String> tags;
   final List<String> participantIds;
+  final List<String> pendingApplicantIds; // 승인 대기중인 신청자 ID 목록
   final double? price;
   final double? latitude;
   final double? longitude;
@@ -22,6 +22,7 @@ class Meeting {
   final String status; // 모임 상태: 'active', 'completed'
   final DateTime createdAt;
   final DateTime updatedAt;
+  final String? representativeImageUrl; // 대표 이미지 URL (식당 이미지)
 
   Meeting({
     required this.id,
@@ -32,9 +33,9 @@ class Meeting {
     this.currentParticipants = 1,
     required this.hostId,
     required this.hostName,
-    this.hostKakaoId, // 카카오 ID 추가
     this.tags = const [],
     this.participantIds = const [],
+    this.pendingApplicantIds = const [],
     this.price,
     this.latitude,
     this.longitude,
@@ -45,6 +46,7 @@ class Meeting {
     this.status = 'active',
     DateTime? createdAt,
     DateTime? updatedAt,
+    this.representativeImageUrl,
   }) : createdAt = createdAt ?? DateTime.now(),
         updatedAt = updatedAt ?? DateTime.now();
 
@@ -81,9 +83,9 @@ class Meeting {
       currentParticipants: data['currentParticipants'] ?? 1,
       hostId: data['hostId'] ?? '',
       hostName: data['hostName'] ?? '',
-      hostKakaoId: data['hostKakaoId'] as String?,
       tags: List<String>.from(data['tags'] ?? []),
       participantIds: List<String>.from(data['participantIds'] ?? []),
+      pendingApplicantIds: List<String>.from(data['pendingApplicantIds'] ?? []),
       price: data['price']?.toDouble(),
       latitude: data['latitude']?.toDouble(),
       longitude: data['longitude']?.toDouble(),
@@ -94,6 +96,7 @@ class Meeting {
       status: data['status'] ?? 'active',
       createdAt: (data['createdAt'] as Timestamp?)?.toDate() ?? DateTime.now(),
       updatedAt: (data['updatedAt'] as Timestamp?)?.toDate() ?? DateTime.now(),
+      representativeImageUrl: data['representativeImageUrl'] as String?,
     );
   }
 
@@ -106,9 +109,9 @@ class Meeting {
       'currentParticipants': currentParticipants,
       'hostId': hostId,
       'hostName': hostName,
-      'hostKakaoId': hostKakaoId,
       'tags': tags,
       'participantIds': participantIds,
+      'pendingApplicantIds': pendingApplicantIds,
       'price': price,
       'latitude': latitude,
       'longitude': longitude,
@@ -119,6 +122,7 @@ class Meeting {
       'status': status,
       'createdAt': Timestamp.fromDate(createdAt),
       'updatedAt': Timestamp.fromDate(updatedAt),
+      'representativeImageUrl': representativeImageUrl,
     };
   }
 
@@ -131,9 +135,9 @@ class Meeting {
     int? currentParticipants,
     String? hostId,
     String? hostName,
-    String? hostKakaoId,
     List<String>? tags,
     List<String>? participantIds,
+    List<String>? pendingApplicantIds,
     double? price,
     double? latitude,
     double? longitude,
@@ -144,6 +148,7 @@ class Meeting {
     String? status,
     DateTime? createdAt,
     DateTime? updatedAt,
+    String? representativeImageUrl,
   }) {
     return Meeting(
       id: id ?? this.id,
@@ -154,9 +159,9 @@ class Meeting {
       currentParticipants: currentParticipants ?? this.currentParticipants,
       hostId: hostId ?? this.hostId,
       hostName: hostName ?? this.hostName,
-      hostKakaoId: hostKakaoId ?? this.hostKakaoId,
       tags: tags ?? this.tags,
       participantIds: participantIds ?? this.participantIds,
+      pendingApplicantIds: pendingApplicantIds ?? this.pendingApplicantIds,
       price: price ?? this.price,
       latitude: latitude ?? this.latitude,
       longitude: longitude ?? this.longitude,
@@ -167,6 +172,7 @@ class Meeting {
       status: status ?? this.status,
       createdAt: createdAt ?? this.createdAt,
       updatedAt: updatedAt ?? this.updatedAt,
+      representativeImageUrl: representativeImageUrl ?? this.representativeImageUrl,
     );
   }
 }

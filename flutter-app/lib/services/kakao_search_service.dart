@@ -1,11 +1,20 @@
 import 'dart:convert';
 import 'package:http/http.dart' as http;
+import 'package:flutter_dotenv/flutter_dotenv.dart';
 import '../models/restaurant.dart';
 import 'location_service.dart';
 
 class KakaoSearchService {
   static const String _baseUrl = 'https://dapi.kakao.com/v2/local/search/keyword.json';
-  static const String _apiKey = 'c73d308c736b033acf2208469891f0e0'; // REST API 키 사용 - ⚠️ 유효성 확인 필요!
+  static String get _apiKey {
+    final key = dotenv.env['KAKAO_REST_API_KEY'] ?? '';
+    if (key.isEmpty) {
+      print('⚠️ KAKAO_REST_API_KEY 환경변수가 비어있음');
+    } else {
+      print('✅ 카카오 API 키 로드됨: ${key.substring(0, 8)}...');
+    }
+    return key;
+  }
   
   // 현재 선택된 지역 (기본: null = GPS 위치 사용)
   static String? _selectedCity;

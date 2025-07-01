@@ -7,6 +7,8 @@ import 'package:provider/provider.dart';
 import 'package:firebase_auth/firebase_auth.dart' as firebase_auth;
 import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:timezone/data/latest.dart' as tz;
+import 'package:flutter_dotenv/flutter_dotenv.dart';
+import 'package:firebase_messaging/firebase_messaging.dart';
 import 'config/firebase_config.dart';
 import 'services/auth_service.dart';
 import 'services/user_service.dart';
@@ -19,12 +21,40 @@ import 'screens/auth/signup_complete_screen.dart';
 import 'screens/home/home_screen.dart';
 import 'screens/meeting/create_meeting_screen.dart';
 import 'screens/meeting/meeting_detail_screen.dart';
-import 'screens/test/firebase_test_screen.dart';
 import 'models/meeting.dart';
 import 'models/user.dart' as app_user;
+import 'scripts/add_test_ratings.dart';
+import 'scripts/add_crawled_data.dart';
+
+/// 백그라운드 메시지 핸들러
+/// 앱이 백그라운드나 종료된 상태에서 FCM 메시지를 받을 때 실행
+@pragma('vm:entry-point')
+Future<void> firebaseMessagingBackgroundHandler(RemoteMessage message) async {
+  // Firebase 초기화가 필요한 경우
+  await FirebaseConfig.initialize();
+  
+  print('🔔 백그라운드 메시지 수신: ${message.messageId}');
+  print('   제목: ${message.notification?.title}');
+  print('   내용: ${message.notification?.body}');
+  print('   데이터: ${message.data}');
+  
+  // 백그라운드에서 로컬 알림 표시
+  await NotificationService().initialize();
+  
+  if (message.notification != null) {
+    await NotificationService().showTestNotification(
+      message.notification!.title ?? '알림',
+      message.notification!.body ?? '새로운 메시지가 도착했습니다.',
+    );
+  }
+}
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  
+  // 환경변수 로드
+  await dotenv.load(fileName: ".env");
+  print('✅ 환경변수 로드 완료');
   
   // 카카오 SDK 초기화
   KakaoSdk.init(nativeAppKey: 'aa44527cad103e9986ceedb39cc915f9');
@@ -34,6 +64,10 @@ void main() async {
     // Firebase 초기화
     await FirebaseConfig.initialize();
     print('✅ Firebase 초기화 성공');
+    
+    // Firebase Messaging 백그라운드 핸들러 등록
+    FirebaseMessaging.onBackgroundMessage(firebaseMessagingBackgroundHandler);
+    print('✅ FCM 백그라운드 핸들러 등록 완료');
   } catch (e) {
     print('❌ Firebase 초기화 실패: $e');
   }
@@ -49,18 +83,12 @@ void main() async {
     print('❌ 알림 서비스 초기화 실패: $e');
   }
   
-  // 모임 데이터 마이그레이션 (백그라운드에서 실행)
-  Future.delayed(const Duration(seconds: 3), () async {
-    try {
-      await MeetingService.migrateMeetingsWithHostKakaoId();
-    } catch (e) {
-      print('❌ 모임 데이터 마이그레이션 실패: $e');
-    }
-  });
+  // 마이그레이션 제거 - 이제 UID만 사용하므로 불필요
   
   try {
     // 카카오맵 초기화 - JavaScript 키 적용
-    await KakaoMapsFlutter.init('72f1d70089c36f4a8c9fabe7dc6be080');
+    final kakaoJSKey = dotenv.env['KAKAO_JAVASCRIPT_KEY'] ?? '';
+    await KakaoMapsFlutter.init(kakaoJSKey);
     print('✅ 카카오맵 초기화 성공');
   } catch (e) {
     print('❌ 카카오맵 초기화 실패: $e');
@@ -76,6 +104,20 @@ void main() async {
   }).catchError((e) {
     print('📍 앱 시작 시 위치 가져오기 에러: $e');
   });
+  
+  // 테스트 평점 데이터 추가 (한 번만 실행)
+  try {
+    await TestRatingsAdder.addTestRatings();
+  } catch (e) {
+    print('⚠️ 테스트 데이터 추가 중 오류 (이미 존재할 수 있음): $e');
+  }
+  
+  // 크롤링한 실제 데이터 추가 (임시 비활성화 - 네트워크 문제)
+  // try {
+  //   await CrawledDataAdder.addCrawledData();
+  // } catch (e) {
+  //   print('⚠️ 크롤링 데이터 추가 중 오류 (이미 존재할 수 있음): $e');
+  // }
   
   runApp(const HonbabNoNoApp());
 }
@@ -164,8 +206,6 @@ class HonbabNoNoApp extends StatelessWidget {
             return MaterialPageRoute(
               builder: (context) => MeetingDetailScreen(meeting: meeting),
             );
-          case '/test':
-            return MaterialPageRoute(builder: (context) => const FirebaseTestScreen());
           default:
             return MaterialPageRoute(builder: (context) => const LoginScreen());
         }

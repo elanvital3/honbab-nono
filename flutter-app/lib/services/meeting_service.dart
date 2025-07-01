@@ -17,16 +17,16 @@ class MeetingService {
         print('✅ Meeting created: ${docRef.id}');
       }
       
-      // 새 모임 생성 알림 발송
+      // 근처 사용자들에게 새 모임 생성 알림 발송
       try {
         final createdMeeting = meeting.copyWith(id: docRef.id);
-        await NotificationService().showNewMeetingNotification(createdMeeting);
+        await NotificationService().notifyNearbyUsersOfNewMeeting(createdMeeting);
         if (kDebugMode) {
-          print('✅ 새 모임 알림 발송 완료');
+          print('✅ 근처 사용자들에게 새 모임 알림 발송 완료');
         }
       } catch (notificationError) {
         if (kDebugMode) {
-          print('⚠️ 새 모임 알림 발송 실패: $notificationError');
+          print('⚠️ 근처 모임 알림 발송 실패: $notificationError');
         }
         // 알림 실패는 모임 생성을 방해하지 않음
       }
@@ -125,7 +125,29 @@ class MeetingService {
   // 모임 삭제
   static Future<void> deleteMeeting(String id) async {
     try {
+      // 모임 정보를 먼저 가져와서 호스트 정보 확인
+      final meetingDoc = await _firestore.collection(_collection).doc(id).get();
+      if (!meetingDoc.exists) {
+        throw Exception('Meeting not found');
+      }
+      
+      final meeting = Meeting.fromFirestore(meetingDoc);
+      
+      // 모임 삭제
       await _firestore.collection(_collection).doc(id).delete();
+      
+      // 호스트의 주최한 모임 수 감소
+      try {
+        await UserService.decrementHostedMeetings(meeting.hostId);
+        if (kDebugMode) {
+          print('✅ 호스트 통계 감소 완료: ${meeting.hostId}');
+        }
+      } catch (statsError) {
+        if (kDebugMode) {
+          print('⚠️ 호스트 통계 감소 실패: $statsError');
+        }
+        // 통계 업데이트 실패는 모임 삭제를 방해하지 않음
+      }
       
       if (kDebugMode) {
         print('✅ Meeting deleted: $id');
@@ -138,107 +160,12 @@ class MeetingService {
     }
   }
 
-  // 기존 모임 데이터에 hostKakaoId 마이그레이션
-  static Future<void> migrateMeetingsWithHostKakaoId() async {
-    try {
-      if (kDebugMode) {
-        print('🔄 모임 데이터 마이그레이션 시작...');
-      }
+  // 마이그레이션 함수 제거 - 이제 UID만 사용하므로 불필요
 
-      // hostKakaoId가 없는 모임들 찾기
-      final query = await _firestore
-          .collection(_collection)
-          .where('hostKakaoId', isNull: true)
-          .get();
-
-      if (query.docs.isEmpty) {
-        if (kDebugMode) {
-          print('✅ 마이그레이션할 모임이 없음');
-        }
-        return;
-      }
-
-      if (kDebugMode) {
-        print('🔍 마이그레이션 대상 모임: ${query.docs.length}개');
-      }
-
-      int successCount = 0;
-      int failCount = 0;
-
-      for (final doc in query.docs) {
-        try {
-          final meetingData = doc.data();
-          final hostId = meetingData['hostId'] as String?;
-          
-          if (hostId == null) continue;
-
-          // 호스트의 카카오 ID 찾기
-          final hostDoc = await _firestore.collection('users').doc(hostId).get();
-          if (!hostDoc.exists) {
-            if (kDebugMode) {
-              print('⚠️ 호스트 정보 없음: $hostId');
-            }
-            failCount++;
-            continue;
-          }
-
-          final hostData = hostDoc.data() as Map<String, dynamic>;
-          final hostKakaoId = hostData['kakaoId'] as String?;
-          
-          if (hostKakaoId == null) {
-            if (kDebugMode) {
-              print('⚠️ 호스트 카카오 ID 없음: $hostId');
-            }
-            failCount++;
-            continue;
-          }
-
-          // 모임 문서에 hostKakaoId 추가
-          await doc.reference.update({
-            'hostKakaoId': hostKakaoId,
-            'updatedAt': Timestamp.fromDate(DateTime.now()),
-          });
-
-          successCount++;
-          
-          if (kDebugMode) {
-            print('✅ 마이그레이션 완료: ${doc.id} -> $hostKakaoId');
-          }
-
-        } catch (e) {
-          if (kDebugMode) {
-            print('❌ 마이그레이션 실패: ${doc.id} - $e');
-          }
-          failCount++;
-        }
-      }
-
-      if (kDebugMode) {
-        print('🎉 마이그레이션 완료: 성공 $successCount개, 실패 $failCount개');
-      }
-
-    } catch (e) {
-      if (kDebugMode) {
-        print('❌ 마이그레이션 실패: $e');
-      }
-    }
-  }
-
-  // 모임 참여
-  static Future<void> joinMeeting(String meetingId, String userId) async {
+  // 모임 신청
+  static Future<void> applyToMeeting(String meetingId, String userId) async {
     try {
       final meetingRef = _firestore.collection(_collection).doc(meetingId);
-      
-      // 사용자의 카카오 ID 가져오기
-      String? userKakaoId;
-      try {
-        final user = await UserService.getUser(userId);
-        userKakaoId = user?.kakaoId;
-      } catch (e) {
-        if (kDebugMode) {
-          print('⚠️ 사용자 카카오 ID 조회 실패: $e');
-        }
-      }
       
       await _firestore.runTransaction((transaction) async {
         final snapshot = await transaction.get(meetingRef);
@@ -249,11 +176,235 @@ class MeetingService {
         
         final meeting = Meeting.fromFirestore(snapshot);
         
-        // Firebase UID 또는 카카오 ID로 이미 참여했는지 확인
+        // 이미 신청했거나 참여중인지 확인
+        bool alreadyApplied = meeting.pendingApplicantIds.contains(userId);
         bool alreadyJoined = meeting.participantIds.contains(userId);
-        if (userKakaoId != null) {
-          alreadyJoined = alreadyJoined || meeting.participantIds.contains(userKakaoId);
+        
+        if (alreadyApplied) {
+          throw Exception('Already applied to this meeting');
         }
+        
+        if (alreadyJoined) {
+          throw Exception('Already joined this meeting');
+        }
+        
+        if (meeting.hostId == userId) {
+          throw Exception('Cannot apply to your own meeting');
+        }
+        
+        if (meeting.currentParticipants >= meeting.maxParticipants) {
+          throw Exception('Meeting is full');
+        }
+        
+        // 신청자 목록에 추가
+        final updatedApplicants = [...meeting.pendingApplicantIds, userId];
+        
+        transaction.update(meetingRef, {
+          'pendingApplicantIds': updatedApplicants,
+          'updatedAt': Timestamp.fromDate(DateTime.now()),
+        });
+        
+        if (kDebugMode) {
+          print('✅ 모임 신청 완료: $meetingId');
+          print('  - 신청자 UID: $userId');
+          print('  - 전체 신청자 수: ${updatedApplicants.length}');
+        }
+      });
+      
+      // 호스트에게 신청 알림 발송
+      try {
+        final meeting = await getMeeting(meetingId);
+        if (meeting != null) {
+          // 신청자 실제 닉네임 가져오기
+          final applicantUser = await UserService.getUser(userId);
+          final applicantName = applicantUser?.name ?? 'User-${userId.substring(0, 8)}';
+          
+          // 호스트에게 FCM 알림 발송
+          await NotificationService().notifyMeetingApplication(
+            meeting: meeting,
+            applicantUserId: userId,
+            applicantName: applicantName,
+          );
+          
+          if (kDebugMode) {
+            print('✅ 모임 신청 FCM 알림 처리 완료');
+          }
+        }
+      } catch (notificationError) {
+        if (kDebugMode) {
+          print('⚠️ 모임 신청 알림 처리 실패: $notificationError');
+        }
+      }
+    } catch (e) {
+      if (kDebugMode) {
+        print('❌ Error applying to meeting: $e');
+      }
+      rethrow;
+    }
+  }
+
+  // 모임 신청 승인
+  static Future<void> approveMeetingApplication(String meetingId, String applicantId) async {
+    try {
+      final meetingRef = _firestore.collection(_collection).doc(meetingId);
+      
+      await _firestore.runTransaction((transaction) async {
+        final snapshot = await transaction.get(meetingRef);
+        
+        if (!snapshot.exists) {
+          throw Exception('Meeting not found');
+        }
+        
+        final meeting = Meeting.fromFirestore(snapshot);
+        
+        // 신청자가 실제로 신청했는지 확인
+        if (!meeting.pendingApplicantIds.contains(applicantId)) {
+          throw Exception('User has not applied to this meeting');
+        }
+        
+        // 이미 참여중인지 확인
+        if (meeting.participantIds.contains(applicantId)) {
+          throw Exception('User is already a participant');
+        }
+        
+        // 정원 확인
+        if (meeting.currentParticipants >= meeting.maxParticipants) {
+          throw Exception('Meeting is full');
+        }
+        
+        // 신청자를 참여자로 이동
+        final updatedApplicants = meeting.pendingApplicantIds.where((id) => id != applicantId).toList();
+        final updatedParticipants = [...meeting.participantIds, applicantId];
+        
+        transaction.update(meetingRef, {
+          'pendingApplicantIds': updatedApplicants,
+          'participantIds': updatedParticipants,
+          'currentParticipants': updatedParticipants.length,
+          'updatedAt': Timestamp.fromDate(DateTime.now()),
+        });
+        
+        if (kDebugMode) {
+          print('✅ 모임 신청 승인 완료: $meetingId');
+          print('  - 승인된 사용자: $applicantId');
+          print('  - 전체 참여자 수: ${updatedParticipants.length}');
+        }
+      });
+      
+      // 신청자에게 승인 알림 발송 & 사용자 통계 업데이트
+      try {
+        final meeting = await getMeeting(meetingId);
+        if (meeting != null) {
+          // 사용자 참여 모임 수 증가
+          await UserService.incrementJoinedMeetings(applicantId);
+          
+          // 신청자에게 승인 알림 발송
+          final applicantUser = await UserService.getUser(applicantId);
+          final applicantName = applicantUser?.name ?? 'User-${applicantId.substring(0, 8)}';
+          
+          await NotificationService().notifyMeetingApproval(
+            meeting: meeting,
+            applicantUserId: applicantId,
+            applicantName: applicantName,
+          );
+          
+          if (kDebugMode) {
+            print('✅ 모임 승인 알림 및 통계 처리 완료');
+          }
+        }
+      } catch (postProcessError) {
+        if (kDebugMode) {
+          print('⚠️ 모임 승인 후처리 실패: $postProcessError');
+        }
+      }
+    } catch (e) {
+      if (kDebugMode) {
+        print('❌ Error approving meeting application: $e');
+      }
+      rethrow;
+    }
+  }
+
+  // 모임 신청 거절
+  static Future<void> rejectMeetingApplication(String meetingId, String applicantId) async {
+    try {
+      final meetingRef = _firestore.collection(_collection).doc(meetingId);
+      
+      await _firestore.runTransaction((transaction) async {
+        final snapshot = await transaction.get(meetingRef);
+        
+        if (!snapshot.exists) {
+          throw Exception('Meeting not found');
+        }
+        
+        final meeting = Meeting.fromFirestore(snapshot);
+        
+        // 신청자가 실제로 신청했는지 확인
+        if (!meeting.pendingApplicantIds.contains(applicantId)) {
+          throw Exception('User has not applied to this meeting');
+        }
+        
+        // 신청자를 목록에서 제거
+        final updatedApplicants = meeting.pendingApplicantIds.where((id) => id != applicantId).toList();
+        
+        transaction.update(meetingRef, {
+          'pendingApplicantIds': updatedApplicants,
+          'updatedAt': Timestamp.fromDate(DateTime.now()),
+        });
+        
+        if (kDebugMode) {
+          print('✅ 모임 신청 거절 완료: $meetingId');
+          print('  - 거절된 사용자: $applicantId');
+        }
+      });
+      
+      // 신청자에게 거절 알림 발송
+      try {
+        final meeting = await getMeeting(meetingId);
+        if (meeting != null) {
+          final applicantUser = await UserService.getUser(applicantId);
+          final applicantName = applicantUser?.name ?? 'User-${applicantId.substring(0, 8)}';
+          
+          await NotificationService().notifyMeetingRejection(
+            meeting: meeting,
+            applicantUserId: applicantId,
+            applicantName: applicantName,
+          );
+          
+          if (kDebugMode) {
+            print('✅ 모임 거절 알림 처리 완료');
+          }
+        }
+      } catch (notificationError) {
+        if (kDebugMode) {
+          print('⚠️ 모임 거절 알림 처리 실패: $notificationError');
+        }
+      }
+    } catch (e) {
+      if (kDebugMode) {
+        print('❌ Error rejecting meeting application: $e');
+      }
+      rethrow;
+    }
+  }
+
+  // 기존 모임 참여 (직접 참여 - 호환성 유지)
+  static Future<void> joinMeeting(String meetingId, String userId) async {
+    try {
+      final meetingRef = _firestore.collection(_collection).doc(meetingId);
+      
+      // 카카오 ID 조회 로직 제거 - 이제 UID만 사용
+      
+      await _firestore.runTransaction((transaction) async {
+        final snapshot = await transaction.get(meetingRef);
+        
+        if (!snapshot.exists) {
+          throw Exception('Meeting not found');
+        }
+        
+        final meeting = Meeting.fromFirestore(snapshot);
+        
+        // UID로 이미 참여했는지 확인
+        bool alreadyJoined = meeting.participantIds.contains(userId);
         
         if (alreadyJoined) {
           throw Exception('Already joined this meeting');
@@ -263,14 +414,8 @@ class MeetingService {
           throw Exception('Meeting is full');
         }
         
-        // Firebase UID와 카카오 ID 모두 추가 (중복 방지)
-        final updatedParticipants = [...meeting.participantIds];
-        if (!updatedParticipants.contains(userId)) {
-          updatedParticipants.add(userId);
-        }
-        if (userKakaoId != null && !updatedParticipants.contains(userKakaoId)) {
-          updatedParticipants.add(userKakaoId);
-        }
+        // UID 추가 만 처리
+        final updatedParticipants = [...meeting.participantIds, userId];
         
         transaction.update(meetingRef, {
           'participantIds': updatedParticipants,
@@ -280,8 +425,7 @@ class MeetingService {
         
         if (kDebugMode) {
           print('✅ 모임 참여: $meetingId');
-          print('  - Firebase UID: $userId');
-          print('  - 카카오 ID: $userKakaoId');
+          print('  - UID: $userId');
           print('  - 전체 참여자 수: ${updatedParticipants.length}');
         }
       });
@@ -297,8 +441,9 @@ class MeetingService {
           // 리마인더 알림 예약
           await NotificationService().scheduleMeetingReminder(meeting);
           
-          // 참여자 이름 가져오기 (간단한 예시로 userId 사용)
-          final joinerName = 'User-${userId.substring(0, 8)}';
+          // 참여자 실제 닉네임 가져오기
+          final joinerUser = await UserService.getUser(userId);
+          final joinerName = joinerUser?.name ?? 'User-${userId.substring(0, 8)}';
           
           // 모든 참여자에게 FCM 알림 발송 (참여한 본인 제외)
           await NotificationService().notifyMeetingParticipation(
@@ -328,6 +473,7 @@ class MeetingService {
   static Future<void> leaveMeeting(String meetingId, String userId) async {
     try {
       final meetingRef = _firestore.collection(_collection).doc(meetingId);
+      Meeting? originalMeeting;
       
       await _firestore.runTransaction((transaction) async {
         final snapshot = await transaction.get(meetingRef);
@@ -336,13 +482,13 @@ class MeetingService {
           throw Exception('Meeting not found');
         }
         
-        final meeting = Meeting.fromFirestore(snapshot);
+        originalMeeting = Meeting.fromFirestore(snapshot);
         
-        if (!meeting.participantIds.contains(userId)) {
+        if (!originalMeeting!.participantIds.contains(userId)) {
           throw Exception('Not a participant of this meeting');
         }
         
-        final updatedParticipants = meeting.participantIds.where((id) => id != userId).toList();
+        final updatedParticipants = originalMeeting!.participantIds.where((id) => id != userId).toList();
         
         transaction.update(meetingRef, {
           'participantIds': updatedParticipants,
@@ -353,6 +499,46 @@ class MeetingService {
       
       if (kDebugMode) {
         print('✅ Left meeting: $meetingId');
+        print('  - 탈퇴한 사용자: $userId');
+        print('  - 남은 참여자 수: ${originalMeeting!.participantIds.length - 1}');
+      }
+      
+      // 탈퇴한 사용자의 참여 모임 수 감소
+      try {
+        await UserService.decrementJoinedMeetings(userId);
+        if (kDebugMode) {
+          print('✅ 사용자 참여 통계 감소 완료: $userId');
+        }
+      } catch (statsError) {
+        if (kDebugMode) {
+          print('⚠️ 사용자 참여 통계 감소 실패: $statsError');
+        }
+        // 통계 업데이트 실패는 탈퇴를 방해하지 않음
+      }
+      
+      // 모임 탈퇴 후 알림 처리 (남은 참여자가 있을 때만)
+      if (originalMeeting!.participantIds.length > 1) {
+        try {
+          // 탈퇴한 사용자 실제 닉네임 가져오기
+          final leaverUser = await UserService.getUser(userId);
+          final leaverName = leaverUser?.name ?? 'User-${userId.substring(0, 8)}';
+          
+          // 남은 참여자들에게 FCM 알림 발송 (탈퇴한 본인 제외)
+          await NotificationService().notifyMeetingLeave(
+            meeting: originalMeeting!,
+            leaverUserId: userId,
+            leaverName: leaverName,
+          );
+          
+          if (kDebugMode) {
+            print('✅ 모임 탈퇴 FCM 알림 처리 완료');
+          }
+        } catch (notificationError) {
+          if (kDebugMode) {
+            print('⚠️ 모임 탈퇴 알림 처리 실패: $notificationError');
+          }
+          // 알림 실패는 탈퇴를 방해하지 않음
+        }
       }
     } catch (e) {
       if (kDebugMode) {

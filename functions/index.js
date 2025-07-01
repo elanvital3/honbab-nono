@@ -1,17 +1,85 @@
 /**
  * 혼밥노노 Firebase Functions
- * 식당 데이터 자동 업데이트 시스템
+ * 카카오 ID 기반 Custom Token 인증 및 식당 데이터 자동 업데이트 시스템
  */
 
+const {onCall} = require("firebase-functions/v2/https");
 const {onRequest} = require("firebase-functions/v2/https");
 const {onSchedule: onScheduleV2} = require("firebase-functions/v2/scheduler");
 const logger = require("firebase-functions/logger");
 const admin = require("firebase-admin");
 const axios = require("axios");
 
-// Firebase Admin 초기화
-admin.initializeApp();
+// Firebase Admin 초기화 (서비스 계정 명시적 지정)
+admin.initializeApp({
+  credential: admin.credential.applicationDefault(),
+  projectId: 'honbab-nono'
+});
 const db = admin.firestore();
+
+/**
+ * 카카오 ID 기반으로 고정된 Firebase UID를 가진 Custom Token 생성
+ * 
+ * @param {string} kakaoId - 카카오 사용자 ID
+ * @returns {string} customToken - Firebase Custom Token
+ */
+exports.createCustomToken = onCall(async (request) => {
+  const data = request.data;
+  // 입력 검증
+  if (!data.kakaoId) {
+    throw new Error('kakaoId is required');
+  }
+
+  const kakaoId = data.kakaoId.toString();
+  
+  try {
+    // 카카오 ID를 기반으로 고정된 UID 생성
+    // 'kakao_' 접두사를 붙여 다른 인증 방식과 구분
+    const uid = `kakao_${kakaoId}`;
+    
+    // 기존 사용자 확인 또는 생성
+    let userRecord;
+    try {
+      // 기존 사용자 조회
+      userRecord = await admin.auth().getUser(uid);
+      logger.info('기존 사용자 발견:', uid);
+    } catch (error) {
+      if (error.code === 'auth/user-not-found') {
+        // 신규 사용자 생성
+        userRecord = await admin.auth().createUser({
+          uid: uid,
+          // 카카오 관련 커스텀 클레임 추가
+          customClaims: {
+            provider: 'kakao',
+            kakaoId: kakaoId
+          }
+        });
+        logger.info('신규 사용자 생성:', uid);
+      } else {
+        throw error;
+      }
+    }
+    
+    // Custom Token 생성
+    const customToken = await admin.auth().createCustomToken(uid, {
+      provider: 'kakao',
+      kakaoId: kakaoId
+    });
+    
+    return {
+      customToken: customToken,
+      uid: uid,
+      isNewUser: !userRecord.metadata.lastSignInTime
+    };
+    
+  } catch (error) {
+    logger.error('Custom Token 생성 실패:', error);
+    throw new Error(`Failed to create custom token: ${error.message}`);
+  }
+});
+
+// TODO: 사용자 삭제 시 관련 데이터 정리는 추후 구현
+// Firebase Functions v2에서 beforeUserDeleted 지원 확인 필요
 
 // 네이버 API 설정
 const NAVER_CLIENT_ID = "Hf3AWGaBRFz0FTSb9hCg";
@@ -384,6 +452,336 @@ function generateRestaurantId(name, address) {
       .replace(/[+/=]/g, "")
       .substring(0, 20);
 }
+
+/**
+ * 실제 크로스 디바이스 FCM 메시지 발송
+ * Firebase Admin SDK를 사용해 실제 FCM 서버로 메시지 전송
+ */
+exports.sendFCMMessage = onCall(async (request) => {
+  const data = request.data;
+  
+  // 입력 검증
+  if (!data.targetToken || !data.title || !data.body) {
+    throw new Error('targetToken, title, body are required');
+  }
+
+  try {
+    const message = {
+      token: data.targetToken,
+      notification: {
+        title: data.title,
+        body: data.body,
+        imageUrl: data.imageUrl || undefined,
+      },
+      data: {
+        type: data.type || 'general',
+        meetingId: data.meetingId || '',
+        clickAction: data.clickAction || '',
+        ...data.customData || {}
+      },
+      android: {
+        notification: {
+          icon: 'ic_launcher',
+          color: '#D2B48C', // 베이지 컬러
+          sound: 'default',
+          channelId: data.channelId || 'default',
+        },
+        priority: 'high',
+      },
+      apns: {
+        payload: {
+          aps: {
+            sound: 'default',
+            badge: 1,
+          },
+        },
+      },
+    };
+
+    const response = await admin.messaging().send(message);
+    
+    logger.info('✅ FCM 메시지 발송 성공:', {
+      targetToken: data.targetToken.substring(0, 20) + '...',
+      title: data.title,
+      messageId: response
+    });
+
+    return {
+      success: true,
+      messageId: response,
+      timestamp: new Date().toISOString()
+    };
+
+  } catch (error) {
+    logger.error('❌ FCM 메시지 발송 실패:', error);
+    throw new Error(`FCM send failed: ${error.message}`);
+  }
+});
+
+/**
+ * 여러 기기에 FCM 메시지 일괄 발송 (멀티캐스트)
+ */
+exports.sendFCMMulticast = onCall(async (request) => {
+  const data = request.data;
+  
+  // 입력 검증
+  if (!data.tokens || !Array.isArray(data.tokens) || data.tokens.length === 0) {
+    throw new Error('tokens array is required and must not be empty');
+  }
+  
+  if (!data.title || !data.body) {
+    throw new Error('title and body are required');
+  }
+
+  try {
+    const message = {
+      tokens: data.tokens,
+      notification: {
+        title: data.title,
+        body: data.body,
+        imageUrl: data.imageUrl || undefined,
+      },
+      data: {
+        type: data.type || 'general',
+        meetingId: data.meetingId || '',
+        clickAction: data.clickAction || '',
+        ...data.customData || {}
+      },
+      android: {
+        notification: {
+          icon: 'ic_launcher',
+          color: '#D2B48C',
+          sound: 'default',
+          channelId: data.channelId || 'default',
+        },
+        priority: 'high',
+      },
+      apns: {
+        payload: {
+          aps: {
+            sound: 'default',
+            badge: 1,
+          },
+        },
+      },
+    };
+
+    const response = await admin.messaging().sendEachForMulticast(message);
+    
+    logger.info('✅ FCM 멀티캐스트 발송 완료:', {
+      totalTokens: data.tokens.length,
+      successCount: response.successCount,
+      failureCount: response.failureCount,
+      title: data.title
+    });
+
+    // 실패한 토큰들 로깅
+    if (response.failureCount > 0) {
+      response.responses.forEach((resp, idx) => {
+        if (!resp.success) {
+          logger.warn(`❌ 토큰 ${idx} 발송 실패:`, resp.error?.message);
+        }
+      });
+    }
+
+    return {
+      success: true,
+      successCount: response.successCount,
+      failureCount: response.failureCount,
+      responses: response.responses,
+      timestamp: new Date().toISOString()
+    };
+
+  } catch (error) {
+    logger.error('❌ FCM 멀티캐스트 발송 실패:', error);
+    throw new Error(`FCM multicast failed: ${error.message}`);
+  }
+});
+
+/**
+ * 모임 관련 FCM 알림 자동 발송
+ * 모임 생성, 참여자 변경, 채팅 메시지 등
+ */
+exports.sendMeetingNotification = onCall(async (request) => {
+  const data = request.data;
+  
+  // 입력 검증
+  if (!data.meetingId || !data.notificationType) {
+    throw new Error('meetingId and notificationType are required');
+  }
+
+  try {
+    // 모임 정보 조회
+    const meetingDoc = await db.collection('meetings').doc(data.meetingId).get();
+    if (!meetingDoc.exists) {
+      throw new Error('Meeting not found');
+    }
+    
+    const meeting = meetingDoc.data();
+    const participantIds = meeting.participantIds || [];
+    
+    // 참여자들의 FCM 토큰 수집 (채팅 알림 스마트 필터링 포함)
+    const tokens = [];
+    const userPromises = participantIds.map(async (userId) => {
+      if (userId === data.excludeUserId) return; // 발송자 제외
+      
+      const userDoc = await db.collection('users').doc(userId).get();
+      if (userDoc.exists) {
+        const userData = userDoc.data();
+        
+        // 채팅 메시지 알림의 경우: 현재 해당 채팅방에 있는 사용자는 제외
+        if (data.notificationType === 'chat_message') {
+          const currentChatRoom = userData.currentChatRoom;
+          // 사용자가 현재 이 모임의 채팅방에 있으면 알림 발송 안 함
+          if (currentChatRoom === data.meetingId) {
+            logger.info(`📵 채팅방 활성 사용자 알림 제외: ${userId}`);
+            return;
+          }
+        }
+        
+        if (userData.fcmToken) {
+          tokens.push(userData.fcmToken);
+        }
+      }
+    });
+    
+    await Promise.all(userPromises);
+    
+    if (tokens.length === 0) {
+      logger.info('📭 발송할 FCM 토큰이 없습니다');
+      return { success: true, message: 'No tokens to send' };
+    }
+
+    // 알림 타입별 메시지 생성
+    let title, body, notificationData;
+    
+    switch (data.notificationType) {
+      case 'new_meeting':
+        title = '🍽️ 새로운 모임이 생성되었어요!';
+        body = `${meeting.restaurantName || meeting.location}에서 함께 식사하실래요?`;
+        notificationData = {
+          type: 'new_meeting',
+          meetingId: data.meetingId,
+          clickAction: 'MEETING_DETAIL',
+          channelId: 'new_meeting'
+        };
+        break;
+        
+      case 'chat_message':
+        title = meeting.description || '모임 채팅';
+        body = `${data.senderName}: ${data.message}`;
+        notificationData = {
+          type: 'chat_message',
+          meetingId: data.meetingId,
+          clickAction: 'CHAT_ROOM',
+          channelId: 'chat_message'
+        };
+        break;
+        
+      case 'participant_update':
+        title = '새로운 참여자';
+        body = data.message || '새로운 참여자가 모임에 참여했습니다.';
+        notificationData = {
+          type: 'participant_update',
+          meetingId: data.meetingId,
+          clickAction: 'MEETING_DETAIL',
+          channelId: 'participant_update'
+        };
+        break;
+        
+      case 'participant_left':
+        title = '참여자 변동';
+        body = data.message || '참여자가 모임에서 나가셨습니다.';
+        notificationData = {
+          type: 'participant_left',
+          meetingId: data.meetingId,
+          clickAction: 'MEETING_DETAIL',
+          channelId: 'participant_update'
+        };
+        break;
+        
+      default:
+        throw new Error(`Unknown notification type: ${data.notificationType}`);
+    }
+
+    // FCM 멀티캐스트 발송
+    const result = await exports.sendFCMMulticast.handler({
+      data: {
+        tokens: tokens,
+        title: title,
+        body: body,
+        ...notificationData
+      }
+    });
+
+    logger.info(`✅ 모임 알림 발송 완료 (${data.notificationType}):`, {
+      meetingId: data.meetingId,
+      recipientCount: tokens.length,
+      successCount: result.successCount
+    });
+
+    return result;
+
+  } catch (error) {
+    logger.error('❌ 모임 알림 발송 실패:', error);
+    throw new Error(`Meeting notification failed: ${error.message}`);
+  }
+});
+
+/**
+ * 모든 Firebase Auth 사용자 삭제 (개발/테스트용)
+ * ⚠️ 주의: 이 함수는 모든 사용자를 삭제합니다!
+ */
+exports.deleteAllAuthUsers = onCall(async (request) => {
+  try {
+    logger.info('🧹 모든 Firebase Auth 사용자 삭제 시작');
+    
+    let deletedCount = 0;
+    let nextPageToken;
+    
+    // 페이지네이션으로 모든 사용자 조회 및 삭제
+    do {
+      const listUsersResult = await admin.auth().listUsers(1000, nextPageToken);
+      
+      if (listUsersResult.users.length === 0) {
+        break;
+      }
+      
+      // 사용자 UID 목록 생성
+      const uids = listUsersResult.users.map(user => user.uid);
+      
+      logger.info(`📝 ${uids.length}명의 사용자 삭제 중...`);
+      
+      // 배치로 사용자 삭제
+      const deleteResult = await admin.auth().deleteUsers(uids);
+      
+      deletedCount += deleteResult.successCount;
+      
+      if (deleteResult.failureCount > 0) {
+        logger.warn(`⚠️ ${deleteResult.failureCount}명 삭제 실패`);
+        deleteResult.errors.forEach(error => {
+          logger.error(`❌ 사용자 삭제 실패: ${error.error.code} - ${error.error.message}`);
+        });
+      }
+      
+      nextPageToken = listUsersResult.pageToken;
+      
+    } while (nextPageToken);
+    
+    logger.info(`✅ Firebase Auth 사용자 삭제 완료: ${deletedCount}명`);
+    
+    return {
+      success: true,
+      deletedCount: deletedCount,
+      message: `총 ${deletedCount}명의 사용자가 삭제되었습니다.`,
+      timestamp: new Date().toISOString()
+    };
+    
+  } catch (error) {
+    logger.error('❌ Firebase Auth 사용자 삭제 실패:', error);
+    throw new Error(`Auth 사용자 삭제 실패: ${error.message}`);
+  }
+});
 
 // 헬스체크 엔드포인트
 exports.healthCheck = onRequest((request, response) => {

@@ -7,6 +7,7 @@ import '../../components/restaurant_search_modal.dart';
 import '../../services/auth_service.dart';
 import '../../services/meeting_service.dart';
 import '../../services/user_service.dart';
+import '../../services/kakao_image_search_service.dart';
 import '../../constants/app_design_tokens.dart';
 import '../../styles/text_styles.dart';
 
@@ -65,7 +66,7 @@ class _CreateMeetingScreenState extends State<CreateMeetingScreen> {
   Future<void> _selectDate() async {
     final DateTime? picked = await showDatePicker(
       context: context,
-      initialDate: DateTime.now().add(const Duration(days: 1)),
+      initialDate: DateTime.now(),
       firstDate: DateTime.now(),
       lastDate: DateTime.now().add(const Duration(days: 30)),
       locale: const Locale('ko', 'KR'),
@@ -89,6 +90,33 @@ class _CreateMeetingScreenState extends State<CreateMeetingScreen> {
       confirmText: '확인',
       hourLabelText: '시간',
       minuteLabelText: '분',
+      builder: (context, child) {
+        return Theme(
+          data: Theme.of(context).copyWith(
+            timePickerTheme: TimePickerThemeData(
+              dialHandColor: const Color(0xFFD2B48C),
+              hourMinuteTextColor: const Color(0xFF333333),
+              backgroundColor: Colors.white,
+              hourMinuteColor: const Color(0xFFF9F9F9),
+              dayPeriodTextColor: WidgetStateColor.resolveWith((states) {
+                if (states.contains(WidgetState.selected)) {
+                  return Colors.white; // 선택된 상태: 흰색 텍스트
+                }
+                return const Color(0xFF333333); // 기본 상태: 검은색 텍스트
+              }),
+              dayPeriodColor: WidgetStateColor.resolveWith((states) {
+                if (states.contains(WidgetState.selected)) {
+                  return const Color(0xFFD2B48C); // 선택된 상태: 베이지색 배경
+                }
+                return const Color(0xFFF9F9F9); // 기본 상태: 연한 회색 배경
+              }),
+              dayPeriodBorderSide: const BorderSide(color: Color(0xFFD2B48C), width: 1),
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+            ),
+          ),
+          child: child!,
+        );
+      },
     );
     if (picked != null) {
       setState(() {
@@ -151,6 +179,25 @@ class _CreateMeetingScreenState extends State<CreateMeetingScreen> {
       // 선택된 식당 주소에서 도시 정보 추출
       String city = _extractCityFromAddress(_selectedRestaurant!.address);
       
+      // 식당 이미지 검색 (백그라운드에서 진행)
+      String? restaurantImageUrl;
+      try {
+        if (kDebugMode) {
+          print('🔍 식당 이미지 검색 중: ${_selectedRestaurant!.name}');
+        }
+        restaurantImageUrl = await KakaoImageSearchService.searchRestaurantImage(
+          _selectedRestaurant!.name
+        );
+        if (kDebugMode) {
+          print('📸 식당 이미지 검색 결과: $restaurantImageUrl');
+        }
+      } catch (e) {
+        if (kDebugMode) {
+          print('⚠️ 식당 이미지 검색 실패: $e');
+        }
+        // 이미지 검색 실패해도 모임 생성은 계속 진행
+      }
+      
       // 새 모임 생성
       final newMeeting = Meeting(
         id: '', // MeetingService에서 자동 생성
@@ -161,7 +208,6 @@ class _CreateMeetingScreenState extends State<CreateMeetingScreen> {
         currentParticipants: 1,
         hostId: currentUser.id,
         hostName: currentUser.name,
-        hostKakaoId: currentUser.kakaoId, // 카카오 ID 저장
         tags: _extractTags(_descriptionController.text),
         participantIds: [currentUser.id],
         latitude: _selectedRestaurant!.latitude,
@@ -170,6 +216,7 @@ class _CreateMeetingScreenState extends State<CreateMeetingScreen> {
         genderPreference: _genderPreference,
         city: city, // 도시 정보 추가
         fullAddress: _selectedRestaurant!.address, // 전체 주소 추가
+        representativeImageUrl: restaurantImageUrl, // 검색된 식당 이미지 URL
       );
 
       if (kDebugMode) {
@@ -179,7 +226,6 @@ class _CreateMeetingScreenState extends State<CreateMeetingScreen> {
         print('  - 날짜: ${newMeeting.dateTime}');
         print('  - 성별선호: ${newMeeting.genderPreference}');
         print('  - 호스트: ${newMeeting.hostName}');
-        print('  - 호스트 카카오 ID: ${newMeeting.hostKakaoId}');
         print('  - 도시: ${newMeeting.city}');
         print('  - 주소: ${newMeeting.fullAddress}');
       }
@@ -373,9 +419,8 @@ class _CreateMeetingScreenState extends State<CreateMeetingScreen> {
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
                             Text(
-                              _selectedRestaurant?.name ?? '식당을 검색해주세요',
-                              style: TextStyle(
-                                fontSize: 16,
+                              _selectedRestaurant?.name ?? '지역과 식당이름 검색 (예: 천안 맘스터치)',
+                              style: AppTextStyles.bodyLarge.copyWith(
                                 fontWeight: _selectedRestaurant != null ? FontWeight.w600 : FontWeight.normal,
                                 color: _selectedRestaurant == null 
                                   ? Theme.of(context).colorScheme.outline
@@ -445,8 +490,7 @@ class _CreateMeetingScreenState extends State<CreateMeetingScreen> {
                               _selectedDate == null
                                   ? '날짜 선택'
                                   : '${_selectedDate!.month}월 ${_selectedDate!.day}일',
-                              style: TextStyle(
-                                fontSize: 16,
+                              style: AppTextStyles.bodyLarge.copyWith(
                                 color: _selectedDate == null
                                   ? Theme.of(context).colorScheme.outline
                                   : Theme.of(context).colorScheme.onSurface,
@@ -483,8 +527,7 @@ class _CreateMeetingScreenState extends State<CreateMeetingScreen> {
                               _selectedTime == null
                                   ? '시간 선택'
                                   : '${_selectedTime!.hour}:${_selectedTime!.minute.toString().padLeft(2, '0')}',
-                              style: TextStyle(
-                                fontSize: 16,
+                              style: AppTextStyles.bodyLarge.copyWith(
                                 color: _selectedTime == null
                                   ? Theme.of(context).colorScheme.outline
                                   : Theme.of(context).colorScheme.onSurface,
@@ -513,10 +556,7 @@ class _CreateMeetingScreenState extends State<CreateMeetingScreen> {
                   children: [
                     Text(
                       '최대 인원',
-                      style: TextStyle(
-                        fontSize: 16,
-                        color: Theme.of(context).colorScheme.onSurface,
-                      ),
+                      style: AppTextStyles.bodyLarge,
                     ),
                     const Spacer(),
                     IconButton(
@@ -570,7 +610,7 @@ class _CreateMeetingScreenState extends State<CreateMeetingScreen> {
               
               TextFormField(
                 controller: _descriptionController,
-                style: const TextStyle(fontSize: 16),
+                style: AppTextStyles.bodyLarge,
                 decoration: InputDecoration(
                   labelText: '모임 설명',
                   hintText: '어떤 모임인지 간단히 설명해주세요',
@@ -607,11 +647,7 @@ class _CreateMeetingScreenState extends State<CreateMeetingScreen> {
   Widget _buildSectionTitle(String title) {
     return Text(
       title,
-      style: TextStyle(
-        fontSize: 18,
-        fontWeight: FontWeight.bold,
-        color: Theme.of(context).colorScheme.onSurface,
-      ),
+      style: AppTextStyles.headlineMedium,
     );
   }
 
@@ -645,10 +681,8 @@ class _CreateMeetingScreenState extends State<CreateMeetingScreen> {
         children: [
           Text(
             '성별 선호도',
-            style: TextStyle(
-              fontSize: 16,
+            style: AppTextStyles.bodyLarge.copyWith(
               fontWeight: FontWeight.w600,
-              color: Theme.of(context).colorScheme.onSurface,
             ),
           ),
           const SizedBox(height: 12),

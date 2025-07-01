@@ -10,7 +10,7 @@ import '../../services/chat_service.dart';
 import '../chat/chat_room_screen.dart';
 import '../profile/user_profile_screen.dart';
 import 'edit_meeting_screen.dart';
-import 'participant_management_screen.dart';
+import 'applicant_management_screen.dart';
 import '../../constants/app_design_tokens.dart';
 import '../../styles/text_styles.dart';
 import '../../components/common/common_card.dart';
@@ -28,20 +28,46 @@ class MeetingDetailScreen extends StatefulWidget {
   State<MeetingDetailScreen> createState() => _MeetingDetailScreenState();
 }
 
-class _MeetingDetailScreenState extends State<MeetingDetailScreen> {
+class _MeetingDetailScreenState extends State<MeetingDetailScreen> with WidgetsBindingObserver {
   bool _isJoined = false;
   bool _isHost = false;
+  bool _isPending = false; // 승인 대기 상태
   bool _isLoading = true;
   String? _currentUserId;
   app_user.User? _currentUser;
   app_user.User? _hostUser;
   List<app_user.User> _participants = [];
+  List<app_user.User> _pendingApplicants = []; // 승인 대기자 목록
   bool _isLoadingParticipants = true;
+  Meeting? _currentMeeting; // 현재 모임 데이터 (실시간 업데이트용)
   
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
+    _currentMeeting = widget.meeting; // 초기 데이터 설정
     _initializeUserState();
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    super.didChangeAppLifecycleState(state);
+    
+    // 앱이 다시 포어그라운드로 돌아올 때 모임 데이터 새로고침
+    if (state == AppLifecycleState.resumed) {
+      if (kDebugMode) {
+        print('🔄 앱 포어그라운드 복귀 - 모임 데이터 새로고침');
+      }
+      Future.delayed(const Duration(milliseconds: 500), () {
+        _refreshMeetingData();
+      });
+    }
   }
   
   Future<void> _initializeUserState() async {
@@ -65,32 +91,23 @@ class _MeetingDetailScreenState extends State<MeetingDetailScreen> {
       if (user != null) {
         _currentUser = user;
         
-        // 호스트 여부 판단 (카카오 ID 기반 + Firebase UID 백업)
-        bool isHostByKakaoId = false;
-        if (widget.meeting.hostKakaoId != null && user.kakaoId != null) {
-          isHostByKakaoId = widget.meeting.hostKakaoId == user.kakaoId;
-        }
-        bool isHostByFirebaseUid = widget.meeting.hostId == _currentUserId;
+        // 호스트 여부 판단 (UID만 사용)
+        _isHost = _currentMeeting!.hostId == _currentUserId;
         
-        _isHost = isHostByKakaoId || isHostByFirebaseUid;
-        
-        // 참여 여부 판단
-        _isJoined = widget.meeting.participantIds.contains(_currentUserId);
+        // 참여 여부 및 신청 상태 판단
+        _isJoined = _currentMeeting!.participantIds.contains(_currentUserId);
+        _isPending = _currentMeeting!.pendingApplicantIds.contains(_currentUserId);
         
         if (kDebugMode) {
           print('✅ 사용자 상태 확인:');
           print('  - 사용자: ${user.name}');
-          print('  - 사용자 카카오 ID: ${user.kakaoId}');
-          print('  - 모임 호스트 카카오 ID: ${widget.meeting.hostKakaoId}');
-          print('  - 카카오 ID로 호스트 확인: $isHostByKakaoId');
-          print('  - Firebase UID로 호스트 확인: $isHostByFirebaseUid');
-          print('  - 최종 호스트 여부: $_isHost');
+          print('  - 호스트 여부: $_isHost');
           print('  - 참여 여부: $_isJoined');
         }
         
         // 호스트 정보 가져오기
-        if (widget.meeting.hostId != _currentUserId) {
-          final hostUser = await UserService.getUser(widget.meeting.hostId);
+        if (_currentMeeting!.hostId != _currentUserId) {
+          final hostUser = await UserService.getUser(_currentMeeting!.hostId);
           if (hostUser != null) {
             _hostUser = hostUser;
           }
@@ -112,7 +129,7 @@ class _MeetingDetailScreenState extends State<MeetingDetailScreen> {
   }
   
   Future<void> _loadParticipants() async {
-    if (widget.meeting.participantIds.isEmpty) {
+    if (_currentMeeting == null || _currentMeeting!.participantIds.isEmpty) {
       setState(() {
         _participants = [];
         _isLoadingParticipants = false;
@@ -127,7 +144,7 @@ class _MeetingDetailScreenState extends State<MeetingDetailScreen> {
     try {
       final List<app_user.User> participantUsers = [];
       
-      for (final participantId in widget.meeting.participantIds) {
+      for (final participantId in _currentMeeting!.participantIds) {
         final user = await UserService.getUser(participantId);
         if (user != null) {
           participantUsers.add(user);
@@ -136,8 +153,8 @@ class _MeetingDetailScreenState extends State<MeetingDetailScreen> {
       
       // 호스트를 맨 앞으로 정렬
       participantUsers.sort((a, b) {
-        if (a.id == widget.meeting.hostId) return -1;
-        if (b.id == widget.meeting.hostId) return 1;
+        if (a.id == _currentMeeting!.hostId) return -1;
+        if (b.id == _currentMeeting!.hostId) return 1;
         return 0;
       });
       
@@ -156,6 +173,50 @@ class _MeetingDetailScreenState extends State<MeetingDetailScreen> {
       setState(() {
         _isLoadingParticipants = false;
       });
+    }
+  }
+
+  /// 모임 데이터 새로고침 (승인 처리 후 상태 업데이트용)
+  Future<void> _refreshMeetingData() async {
+    try {
+      if (kDebugMode) {
+        print('🔄 모임 데이터 새로고침 시작...');
+      }
+
+      // Firestore에서 최신 모임 데이터 가져오기
+      final updatedMeeting = await MeetingService.getMeeting(widget.meeting.id);
+      if (updatedMeeting != null) {
+        setState(() {
+          _currentMeeting = updatedMeeting;
+        });
+
+        if (kDebugMode) {
+          print('✅ 모임 데이터 새로고침 완료');
+          print('  - 참여자 수: ${_currentMeeting!.participantIds.length}명');
+          print('  - 대기자 수: ${_currentMeeting!.pendingApplicantIds.length}명');
+        }
+
+        // 사용자 상태 재계산
+        if (_currentUserId != null) {
+          setState(() {
+            _isJoined = _currentMeeting!.participantIds.contains(_currentUserId);
+            _isPending = _currentMeeting!.pendingApplicantIds.contains(_currentUserId);
+          });
+
+          if (kDebugMode) {
+            print('🔄 사용자 상태 업데이트:');
+            print('  - 참여 여부: $_isJoined');
+            print('  - 대기 여부: $_isPending');
+          }
+        }
+
+        // 참여자 목록 새로고침
+        await _loadParticipants();
+      }
+    } catch (e) {
+      if (kDebugMode) {
+        print('❌ 모임 데이터 새로고침 실패: $e');
+      }
     }
   }
   
@@ -268,16 +329,12 @@ class _MeetingDetailScreenState extends State<MeetingDetailScreen> {
           }
         }
 
-        // 참여 상태 실시간 업데이트
+        // 참여 상태 및 신청 상태 실시간 업데이트
         final isCurrentlyJoined = currentMeeting.participantIds.contains(_currentUserId);
+        final isCurrentlyPending = currentMeeting.pendingApplicantIds.contains(_currentUserId);
         
-        // 호스트 여부 실시간 업데이트 (카카오 ID 기반 + Firebase UID 백업)
-        bool isCurrentlyHostByKakaoId = false;
-        if (currentMeeting.hostKakaoId != null && _currentUser?.kakaoId != null) {
-          isCurrentlyHostByKakaoId = currentMeeting.hostKakaoId == _currentUser!.kakaoId;
-        }
-        bool isCurrentlyHostByFirebaseUid = currentMeeting.hostId == _currentUserId;
-        final isCurrentlyHost = isCurrentlyHostByKakaoId || isCurrentlyHostByFirebaseUid;
+        // 호스트 여부 실시간 업데이트 (UID만 사용)
+        final isCurrentlyHost = currentMeeting.hostId == _currentUserId;
 
         return Scaffold(
           appBar: AppBar(
@@ -286,6 +343,11 @@ class _MeetingDetailScreenState extends State<MeetingDetailScreen> {
             elevation: 0,
             title: Text('모임 상세', style: AppTextStyles.titleLarge),
             actions: [
+              IconButton(
+                icon: const Icon(Icons.refresh),
+                onPressed: _refreshMeetingData,
+                tooltip: '새로고침',
+              ),
               IconButton(
                 icon: const Icon(Icons.share),
                 onPressed: () => _shareContent(currentMeeting),
@@ -304,7 +366,7 @@ class _MeetingDetailScreenState extends State<MeetingDetailScreen> {
               ],
             ),
           ),
-          bottomNavigationBar: _buildJoinButton(currentMeeting, isCurrentlyJoined, isCurrentlyHost),
+          bottomNavigationBar: _buildJoinButton(currentMeeting, isCurrentlyJoined, isCurrentlyPending, isCurrentlyHost),
         );
       },
     );
@@ -460,7 +522,7 @@ class _MeetingDetailScreenState extends State<MeetingDetailScreen> {
             children: [
               Text(
                 '참여자',
-                style: AppTextStyles.titleMedium.semiBold,
+                style: AppTextStyles.headlineMedium,
               ),
               const Spacer(),
               Container(
@@ -643,7 +705,7 @@ class _MeetingDetailScreenState extends State<MeetingDetailScreen> {
     return users;
   }
 
-  Widget _buildJoinButton(Meeting meeting, bool isCurrentlyJoined, bool isCurrentlyHost) {
+  Widget _buildJoinButton(Meeting meeting, bool isCurrentlyJoined, bool isCurrentlyPending, bool isCurrentlyHost) {
     return Container(
       padding: AppPadding.all16,
       decoration: BoxDecoration(
@@ -657,7 +719,7 @@ class _MeetingDetailScreenState extends State<MeetingDetailScreen> {
         ],
       ),
       child: SafeArea(
-        child: isCurrentlyHost ? _buildHostButtons() : _buildParticipantButton(meeting, isCurrentlyJoined),
+        child: isCurrentlyHost ? _buildHostButtons() : _buildParticipantButton(meeting, isCurrentlyJoined, isCurrentlyPending),
       ),
     );
   }
@@ -669,7 +731,7 @@ class _MeetingDetailScreenState extends State<MeetingDetailScreen> {
           child: CommonButton(
             text: '채팅방',
             variant: ButtonVariant.outline,
-            onPressed: _showChatRoom,
+            onPressed: () => _showChatRoom(),
             fullWidth: true,
           ),
         ),
@@ -686,7 +748,7 @@ class _MeetingDetailScreenState extends State<MeetingDetailScreen> {
     );
   }
   
-  Widget _buildParticipantButton(Meeting meeting, bool isCurrentlyJoined) {
+  Widget _buildParticipantButton(Meeting meeting, bool isCurrentlyJoined, bool isCurrentlyPending) {
     if (isCurrentlyJoined) {
       return Row(
         children: [
@@ -706,19 +768,30 @@ class _MeetingDetailScreenState extends State<MeetingDetailScreen> {
             child: CommonButton(
               text: '채팅방 입장',
               variant: ButtonVariant.primary,
-              onPressed: _showChatRoom,
+              onPressed: () => _showChatRoom(),
               fullWidth: true,
             ),
           ),
         ],
       );
+    } else if (isCurrentlyPending) {
+      // 승인 대기 상태
+      return CommonButton(
+        text: '승인 대기중...',
+        variant: ButtonVariant.outline,
+        onPressed: _isLoading ? null : () async {
+          await _cancelApplication();
+        },
+        isLoading: _isLoading,
+        fullWidth: true,
+      );
     } else {
       return CommonButton(
-        text: meeting.isAvailable ? '모임 참여하기' : '모집 마감',
+        text: meeting.isAvailable ? '모임 신청하기' : '모집 마감',
         variant: ButtonVariant.primary,
         onPressed: (meeting.isAvailable && !_isLoading && _currentUserId != null)
             ? () async {
-                await _joinMeeting();
+                await _applyToMeeting();
               }
             : null,
         isLoading: _isLoading,
@@ -727,11 +800,17 @@ class _MeetingDetailScreenState extends State<MeetingDetailScreen> {
     }
   }
   
-  void _showChatRoom() {
+  Future<void> _showChatRoom() async {
     if (_currentUserId == null) {
       _showErrorMessage('로그인이 필요합니다');
       return;
     }
+    
+    // 채팅방 입장 전 모임 데이터 새로고침 (승인 처리 반영)
+    if (kDebugMode) {
+      print('🔄 채팅방 입장 전 모임 데이터 새로고침...');
+    }
+    await _refreshMeetingData();
     
     // 참여자만 채팅방 입장 가능
     if (!_isJoined && !_isHost) {
@@ -739,10 +818,16 @@ class _MeetingDetailScreenState extends State<MeetingDetailScreen> {
       return;
     }
     
+    if (kDebugMode) {
+      print('✅ 채팅방 입장 권한 확인 완료');
+      print('  - 참여 여부: $_isJoined');
+      print('  - 호스트 여부: $_isHost');
+    }
+    
     Navigator.push(
       context,
       MaterialPageRoute(
-        builder: (context) => ChatRoomScreen(meeting: widget.meeting),
+        builder: (context) => ChatRoomScreen(meeting: _currentMeeting ?? widget.meeting),
       ),
     );
   }
@@ -822,14 +907,32 @@ class _MeetingDetailScreenState extends State<MeetingDetailScreen> {
                 ),
                 const SizedBox(width: 8),
                 
-                // 참여자 관리
+                // 신청자 관리
                 Expanded(
-                  child: _buildCompactManagementOption(
-                    icon: Icons.people,
-                    title: '참여자 관리',
-                    onTap: () {
-                      Navigator.pop(context);
-                      _manageParticipants();
+                  child: StreamBuilder<List<Meeting>>(
+                    stream: MeetingService.getMeetingsStream(),
+                    builder: (context, snapshot) {
+                      int pendingCount = 0;
+                      if (snapshot.hasData) {
+                        try {
+                          final currentMeeting = snapshot.data!.firstWhere(
+                            (meeting) => meeting.id == widget.meeting.id,
+                          );
+                          pendingCount = currentMeeting.pendingApplicantIds.length;
+                        } catch (e) {
+                          pendingCount = 0;
+                        }
+                      }
+                      
+                      return _buildCompactManagementOptionWithBadge(
+                        icon: Icons.people,
+                        title: '신청자 관리',
+                        badgeCount: pendingCount,
+                        onTap: () {
+                          Navigator.pop(context);
+                          _manageApplicants();
+                        },
+                      );
                     },
                   ),
                 ),
@@ -870,6 +973,99 @@ class _MeetingDetailScreenState extends State<MeetingDetailScreen> {
     );
   }
   
+  Widget _buildCompactManagementOptionWithBadge({
+    required IconData icon,
+    required String title,
+    required VoidCallback onTap,
+    int badgeCount = 0,
+    bool isDestructive = false,
+    bool isSpecial = false,
+  }) {
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(12),
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 8),
+          decoration: BoxDecoration(
+            border: Border.all(
+              color: Theme.of(context).colorScheme.outline.withOpacity(0.1),
+            ),
+            borderRadius: BorderRadius.circular(12),
+          ),
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Stack(
+                children: [
+                  Container(
+                    width: 36,
+                    height: 36,
+                    decoration: BoxDecoration(
+                      color: isDestructive 
+                          ? Colors.red.withOpacity(0.1)
+                          : isSpecial
+                              ? Colors.green.withOpacity(0.1)
+                              : Theme.of(context).colorScheme.primary.withOpacity(0.1),
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    child: Icon(
+                      icon,
+                      color: isDestructive 
+                          ? Colors.red
+                          : isSpecial
+                              ? Colors.green
+                              : Theme.of(context).colorScheme.primary,
+                      size: 18,
+                    ),
+                  ),
+                  if (badgeCount > 0)
+                    Positioned(
+                      right: -2,
+                      top: -2,
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
+                        decoration: BoxDecoration(
+                          color: Colors.red,
+                          borderRadius: BorderRadius.circular(8),
+                        ),
+                        constraints: const BoxConstraints(minWidth: 16, minHeight: 16),
+                        child: Text(
+                          badgeCount > 9 ? '9+' : badgeCount.toString(),
+                          style: const TextStyle(
+                            color: Colors.white,
+                            fontSize: 10,
+                            fontWeight: FontWeight.bold,
+                          ),
+                          textAlign: TextAlign.center,
+                        ),
+                      ),
+                    ),
+                ],
+              ),
+              const SizedBox(height: 4),
+              Text(
+                title,
+                style: TextStyle(
+                  fontSize: 11,
+                  fontWeight: FontWeight.w600,
+                  color: isDestructive 
+                      ? Colors.red
+                      : Theme.of(context).colorScheme.onSurface,
+                ),
+                textAlign: TextAlign.center,
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
   Widget _buildCompactManagementOption({
     required IconData icon,
     required String title,
@@ -950,15 +1146,15 @@ class _MeetingDetailScreenState extends State<MeetingDetailScreen> {
     }
   }
   
-  Future<void> _manageParticipants() async {
+  Future<void> _manageApplicants() async {
     final result = await Navigator.push(
       context,
       MaterialPageRoute(
-        builder: (context) => ParticipantManagementScreen(meeting: widget.meeting),
+        builder: (context) => ApplicantManagementScreen(meeting: widget.meeting),
       ),
     );
     
-    // 참여자 관리 후 화면 새로고침 (즉시 반영)
+    // 신청자 관리 후 화면 새로고침 (즉시 반영)
     if (result == true) {
       await _initializeUserState();
       await _loadParticipants();
@@ -1096,7 +1292,7 @@ class _MeetingDetailScreenState extends State<MeetingDetailScreen> {
     }
   }
   
-  Future<void> _joinMeeting() async {
+  Future<void> _applyToMeeting() async {
     if (_currentUserId == null) {
       _showErrorMessage('로그인이 필요합니다');
       return;
@@ -1107,45 +1303,102 @@ class _MeetingDetailScreenState extends State<MeetingDetailScreen> {
     });
     
     try {
-      await MeetingService.joinMeeting(widget.meeting.id, _currentUserId!);
+      await MeetingService.applyToMeeting(widget.meeting.id, _currentUserId!);
       
       setState(() {
-        _isJoined = true;
+        _isPending = true;
       });
       
-      // 참여자 목록 재로드
-      _loadParticipants();
-      
-      // 입장 시스템 메시지 전송
-      await ChatService.sendSystemMessage(
-        meetingId: widget.meeting.id,
-        content: '${_currentUser?.name ?? '사용자'}님이 모임에 참여했습니다.',
-      );
-      
       if (kDebugMode) {
-        print('✅ 모임 참여 성공: ${widget.meeting.id}');
+        print('✅ 모임 신청 성공: ${widget.meeting.id}');
       }
       
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: const Text('모임에 참여했습니다! 호스트와 함께 식사를 즐겨보세요.'),
+          content: const Text('모임 신청이 완료되었습니다! 호스트의 승인을 기다려주세요.\n(호스트에게 알림이 전송되었습니다)'),
           backgroundColor: Colors.green,
+          behavior: SnackBarBehavior.floating,
+          duration: const Duration(seconds: 4),
+        ),
+      );
+    } catch (e) {
+      if (kDebugMode) {
+        print('❌ 모임 신청 실패: $e');
+      }
+      
+      String errorMessage = '모임 신청에 실패했습니다';
+      if (e.toString().contains('Already applied')) {
+        errorMessage = '이미 신청한 모임입니다';
+      } else if (e.toString().contains('Already joined')) {
+        errorMessage = '이미 참여한 모임입니다';
+      } else if (e.toString().contains('Meeting is full')) {
+        errorMessage = '모임이 찬습니다';
+      } else if (e.toString().contains('Cannot apply to your own meeting')) {
+        errorMessage = '본인이 주최한 모임에는 신청할 수 없습니다';
+      }
+      
+      _showErrorMessage(errorMessage);
+    } finally {
+      setState(() {
+        _isLoading = false;
+      });
+    }
+  }
+  
+  Future<void> _cancelApplication() async {
+    if (_currentUserId == null) {
+      _showErrorMessage('로그인이 필요합니다');
+      return;
+    }
+    
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('신청 취소'),
+        content: const Text('모임 신청을 취소하시겠습니까?'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('아니오'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text('취소'),
+          ),
+        ],
+      ),
+    ) ?? false;
+
+    if (!confirmed) return;
+    
+    setState(() {
+      _isLoading = true;
+    });
+    
+    try {
+      await MeetingService.rejectMeetingApplication(widget.meeting.id, _currentUserId!);
+      
+      setState(() {
+        _isPending = false;
+      });
+      
+      if (kDebugMode) {
+        print('✅ 모임 신청 취소 성공: ${widget.meeting.id}');
+      }
+      
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: const Text('모임 신청을 취소했습니다'),
+          backgroundColor: Theme.of(context).colorScheme.primary,
           behavior: SnackBarBehavior.floating,
         ),
       );
     } catch (e) {
       if (kDebugMode) {
-        print('❌ 모임 참여 실패: $e');
+        print('❌ 모임 신청 취소 실패: $e');
       }
       
-      String errorMessage = '모임 참여에 실패했습니다';
-      if (e.toString().contains('Already joined')) {
-        errorMessage = '이미 참여한 모임입니다';
-      } else if (e.toString().contains('Meeting is full')) {
-        errorMessage = '모임이 막 찬습니다';
-      }
-      
-      _showErrorMessage(errorMessage);
+      _showErrorMessage('신청 취소에 실패했습니다');
     } finally {
       setState(() {
         _isLoading = false;

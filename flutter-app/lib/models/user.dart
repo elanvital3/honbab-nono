@@ -9,6 +9,10 @@ class User {
   final String? bio;
   final String? kakaoId;
   final String? fcmToken;  // FCM 푸시 알림 토큰
+  final String? currentChatRoom;  // 현재 활성 채팅방 ID (알림 필터링용)
+  final double? lastLatitude;  // 마지막 위치 (위도)
+  final double? lastLongitude; // 마지막 위치 (경도)
+  final DateTime? lastLocationUpdated; // 마지막 위치 업데이트 시간
   final double rating;
   final int meetingsHosted;
   final int meetingsJoined;
@@ -25,6 +29,10 @@ class User {
     this.bio,
     this.kakaoId,
     this.fcmToken,
+    this.currentChatRoom,
+    this.lastLatitude,
+    this.lastLongitude,
+    this.lastLocationUpdated,
     this.rating = 0.0,
     this.meetingsHosted = 0,
     this.meetingsJoined = 0,
@@ -45,6 +53,10 @@ class User {
       bio: data['bio'],
       kakaoId: data['kakaoId'],
       fcmToken: data['fcmToken'],
+      currentChatRoom: data['currentChatRoom'],
+      lastLatitude: data['lastLatitude']?.toDouble(),
+      lastLongitude: data['lastLongitude']?.toDouble(),
+      lastLocationUpdated: (data['lastLocationUpdated'] as Timestamp?)?.toDate(),
       rating: (data['rating'] ?? 0.0).toDouble(),
       meetingsHosted: data['meetingsHosted'] ?? 0,
       meetingsJoined: data['meetingsJoined'] ?? 0,
@@ -63,6 +75,10 @@ class User {
       'bio': bio,
       'kakaoId': kakaoId,
       'fcmToken': fcmToken,
+      'currentChatRoom': currentChatRoom,
+      'lastLatitude': lastLatitude,
+      'lastLongitude': lastLongitude,
+      'lastLocationUpdated': lastLocationUpdated != null ? Timestamp.fromDate(lastLocationUpdated!) : null,
       'rating': rating,
       'meetingsHosted': meetingsHosted,
       'meetingsJoined': meetingsJoined,
@@ -81,6 +97,10 @@ class User {
     String? bio,
     String? kakaoId,
     String? fcmToken,
+    String? currentChatRoom,
+    double? lastLatitude,
+    double? lastLongitude,
+    DateTime? lastLocationUpdated,
     double? rating,
     int? meetingsHosted,
     int? meetingsJoined,
@@ -97,6 +117,10 @@ class User {
       bio: bio ?? this.bio,
       kakaoId: kakaoId ?? this.kakaoId,
       fcmToken: fcmToken ?? this.fcmToken,
+      currentChatRoom: currentChatRoom ?? this.currentChatRoom,
+      lastLatitude: lastLatitude ?? this.lastLatitude,
+      lastLongitude: lastLongitude ?? this.lastLongitude,
+      lastLocationUpdated: lastLocationUpdated ?? this.lastLocationUpdated,
       rating: rating ?? this.rating,
       meetingsHosted: meetingsHosted ?? this.meetingsHosted,
       meetingsJoined: meetingsJoined ?? this.meetingsJoined,

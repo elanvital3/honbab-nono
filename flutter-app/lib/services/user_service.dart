@@ -1,3 +1,4 @@
+import 'dart:math' as math;
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart' as firebase_auth;
 import 'package:flutter/foundation.dart';
@@ -349,6 +350,44 @@ class UserService {
     }
   }
 
+  // 모임 호스팅 횟수 감소
+  static Future<void> decrementHostedMeetings(String userId) async {
+    try {
+      await _firestore.collection(_collection).doc(userId).update({
+        'meetingsHosted': FieldValue.increment(-1),
+        'updatedAt': Timestamp.fromDate(DateTime.now()),
+      });
+      
+      if (kDebugMode) {
+        print('✅ Decremented hosted meetings for user: $userId');
+      }
+    } catch (e) {
+      if (kDebugMode) {
+        print('❌ Error decrementing hosted meetings: $e');
+      }
+      rethrow;
+    }
+  }
+
+  // 모임 참여 횟수 감소
+  static Future<void> decrementJoinedMeetings(String userId) async {
+    try {
+      await _firestore.collection(_collection).doc(userId).update({
+        'meetingsJoined': FieldValue.increment(-1),
+        'updatedAt': Timestamp.fromDate(DateTime.now()),
+      });
+      
+      if (kDebugMode) {
+        print('✅ Decremented joined meetings for user: $userId');
+      }
+    } catch (e) {
+      if (kDebugMode) {
+        print('❌ Error decrementing joined meetings: $e');
+      }
+      rethrow;
+    }
+  }
+
   // 즐겨찾는 식당 추가
   static Future<void> addFavoriteRestaurant(String userId, String restaurantId) async {
     try {
@@ -385,5 +424,159 @@ class UserService {
       }
       rethrow;
     }
+  }
+
+  /// 사용자가 채팅방에 입장했음을 기록
+  static Future<void> enterChatRoom(String userId, String chatRoomId) async {
+    try {
+      await _firestore.collection(_collection).doc(userId).update({
+        'currentChatRoom': chatRoomId,
+        'updatedAt': Timestamp.fromDate(DateTime.now()),
+      });
+      
+      if (kDebugMode) {
+        print('✅ 사용자 채팅방 입장 기록: $userId -> $chatRoomId');
+      }
+    } catch (e) {
+      if (kDebugMode) {
+        print('❌ 채팅방 입장 기록 실패: $e');
+      }
+      rethrow;
+    }
+  }
+
+  /// 사용자가 채팅방에서 나갔음을 기록
+  static Future<void> leaveChatRoom(String userId) async {
+    try {
+      await _firestore.collection(_collection).doc(userId).update({
+        'currentChatRoom': null,
+        'updatedAt': Timestamp.fromDate(DateTime.now()),
+      });
+      
+      if (kDebugMode) {
+        print('✅ 사용자 채팅방 퇴장 기록: $userId');
+      }
+    } catch (e) {
+      if (kDebugMode) {
+        print('❌ 채팅방 퇴장 기록 실패: $e');
+      }
+      rethrow;
+    }
+  }
+
+  /// 사용자의 현재 채팅방 상태 조회
+  static Future<String?> getCurrentChatRoom(String userId) async {
+    try {
+      final doc = await _firestore.collection(_collection).doc(userId).get();
+      if (doc.exists) {
+        final data = doc.data() as Map<String, dynamic>;
+        return data['currentChatRoom'] as String?;
+      }
+      return null;
+    } catch (e) {
+      if (kDebugMode) {
+        print('❌ 현재 채팅방 조회 실패: $e');
+      }
+      return null;
+    }
+  }
+
+  /// 사용자의 현재 위치 정보 업데이트
+  static Future<void> updateUserLocation(String userId, double latitude, double longitude) async {
+    try {
+      await _firestore.collection(_collection).doc(userId).update({
+        'lastLatitude': latitude,
+        'lastLongitude': longitude,
+        'lastLocationUpdated': Timestamp.fromDate(DateTime.now()),
+        'updatedAt': Timestamp.fromDate(DateTime.now()),
+      });
+      
+      if (kDebugMode) {
+        print('✅ 사용자 위치 업데이트: $userId -> ($latitude, $longitude)');
+      }
+    } catch (e) {
+      if (kDebugMode) {
+        print('❌ 사용자 위치 업데이트 실패: $e');
+      }
+      rethrow;
+    }
+  }
+
+  /// 반경 내 사용자들의 FCM 토큰 조회 (근처 모임 알림용)
+  static Future<List<String>> getNearbyUserTokens({
+    required double centerLatitude,
+    required double centerLongitude,
+    required double radiusKm,
+    String? excludeUserId,
+    int maxResults = 100,
+  }) async {
+    try {
+      // Firestore는 지리적 쿼리를 직접 지원하지 않으므로
+      // 모든 사용자를 가져와서 클라이언트에서 거리 계산
+      final query = await _firestore.collection(_collection)
+          .where('lastLatitude', isNull: false)
+          .where('lastLongitude', isNull: false)
+          .where('fcmToken', isNull: false)
+          .limit(500) // 성능을 위해 제한
+          .get();
+      
+      final nearbyTokens = <String>[];
+      
+      for (final doc in query.docs) {
+        final data = doc.data();
+        final userId = doc.id;
+        
+        if (excludeUserId != null && userId == excludeUserId) continue;
+        
+        final latitude = data['lastLatitude'] as double?;
+        final longitude = data['lastLongitude'] as double?;
+        final fcmToken = data['fcmToken'] as String?;
+        
+        if (latitude != null && longitude != null && fcmToken != null) {
+          final distance = _calculateDistance(
+            centerLatitude, centerLongitude,
+            latitude, longitude,
+          );
+          
+          if (distance <= radiusKm) {
+            nearbyTokens.add(fcmToken);
+            if (nearbyTokens.length >= maxResults) break;
+          }
+        }
+      }
+      
+      if (kDebugMode) {
+        print('🔍 반경 ${radiusKm}km 내 사용자 토큰: ${nearbyTokens.length}개');
+      }
+      
+      return nearbyTokens;
+    } catch (e) {
+      if (kDebugMode) {
+        print('❌ 근처 사용자 토큰 조회 실패: $e');
+      }
+      return [];
+    }
+  }
+
+  /// 두 지점 간의 거리 계산 (Haversine 공식)
+  static double _calculateDistance(double lat1, double lon1, double lat2, double lon2) {
+    const double earthRadius = 6371; // 지구 반지름 (km)
+    
+    final double dLat = _degreesToRadians(lat2 - lat1);
+    final double dLon = _degreesToRadians(lon2 - lon1);
+    
+    final double a = 
+        math.sin(dLat / 2) * math.sin(dLat / 2) +
+        math.cos(_degreesToRadians(lat1)) * math.cos(_degreesToRadians(lat2)) *
+        math.sin(dLon / 2) * math.sin(dLon / 2);
+    
+    final double c = 2 * math.atan2(math.sqrt(a), math.sqrt(1 - a));
+    
+    return earthRadius * c;
+  }
+
+  /// 도(degree)를 라디안(radian)으로 변환
+  static double _degreesToRadians(double degrees) {
+    return degrees * (math.pi / 180);
   }
 }
