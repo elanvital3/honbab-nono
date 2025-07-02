@@ -5,6 +5,8 @@ class User {
   final String name;
   final String? email;
   final String? phoneNumber;
+  final String? gender; // 성별 (male/female)
+  final int? birthYear; // 출생연도
   final String? profileImageUrl;
   final String? bio;
   final String? kakaoId;
@@ -26,6 +28,8 @@ class User {
     required this.name,
     this.email,
     this.phoneNumber,
+    this.gender,
+    this.birthYear,
     this.profileImageUrl,
     this.bio,
     this.kakaoId,
@@ -51,6 +55,8 @@ class User {
       name: data['name'] ?? '',
       email: data['email'],
       phoneNumber: data['phoneNumber'],
+      gender: data['gender'],
+      birthYear: data['birthYear'],
       profileImageUrl: data['profileImageUrl'],
       bio: data['bio'],
       kakaoId: data['kakaoId'],
@@ -74,6 +80,8 @@ class User {
       'name': name,
       'email': email,
       'phoneNumber': phoneNumber,
+      'gender': gender,
+      'birthYear': birthYear,
       'profileImageUrl': profileImageUrl,
       'bio': bio,
       'kakaoId': kakaoId,
@@ -97,6 +105,8 @@ class User {
     String? name,
     String? email,
     String? phoneNumber,
+    String? gender,
+    int? birthYear,
     String? profileImageUrl,
     String? bio,
     String? kakaoId,
@@ -118,6 +128,8 @@ class User {
       name: name ?? this.name,
       email: email ?? this.email,
       phoneNumber: phoneNumber ?? this.phoneNumber,
+      gender: gender ?? this.gender,
+      birthYear: birthYear ?? this.birthYear,
       profileImageUrl: profileImageUrl ?? this.profileImageUrl,
       bio: bio ?? this.bio,
       kakaoId: kakaoId ?? this.kakaoId,

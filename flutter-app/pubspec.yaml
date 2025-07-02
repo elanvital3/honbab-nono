@@ -78,6 +78,12 @@ dependencies:
   
   # 환경변수 관리
   flutter_dotenv: ^5.1.0
+  
+  # 이미지 선택
+  image_picker: ^1.0.7
+  
+  # 보안 (비밀번호 해시 생성)
+  crypto: ^3.0.3
 
 dev_dependencies:
   flutter_test:

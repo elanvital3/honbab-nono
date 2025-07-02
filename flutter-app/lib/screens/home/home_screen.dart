@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import 'package:kakao_maps_flutter/kakao_maps_flutter.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:url_launcher/url_launcher.dart';
 import '../../models/meeting.dart';
 import '../../models/user.dart';
 import '../../components/meeting_card.dart';
@@ -4108,22 +4109,10 @@ class _ProfileTabState extends State<_ProfileTab> with AutomaticKeepAliveClientM
             () => _showNotificationSettings(),
           ),
           _buildSettingItem(
-            Icons.security,
-            '개인정보 설정',
-            '프로필 공개 범위 설정',
-            () => _showPrivacySettings(),
-          ),
-          _buildSettingItem(
             Icons.help,
             '고객센터',
             '문의하기 및 도움말',
             () => _showCustomerService(),
-          ),
-          _buildSettingItem(
-            Icons.info,
-            '앱 정보',
-            '버전 정보 및 이용약관',
-            () => _showAppInfo(),
           ),
           const SizedBox(height: 8),
           _buildSettingItem(
@@ -4280,13 +4269,80 @@ class _ProfileTabState extends State<_ProfileTab> with AutomaticKeepAliveClientM
     );
   }
 
-  void _showCustomerService() {
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: const Text('고객센터 화면으로 이동'),
-        backgroundColor: Theme.of(context).colorScheme.primary,
-      ),
+  void _showCustomerService() async {
+    const email = 'elanvital3@gmail.com';
+    const subject = '혼밥노노 앱 문의';
+    const body = '''
+안녕하세요, 혼밥노노 앱을 이용해주셔서 감사합니다.
+
+문의 사항을 아래에 작성해주세요:
+
+---
+[여기에 문의 내용을 입력해주세요]
+---
+
+기기 정보:
+- 플랫폼: 모바일
+- 앱 버전: 1.0.0
+
+감사합니다.
+''';
+
+    final Uri emailUri = Uri(
+      scheme: 'mailto',
+      path: email,
+      query: 'subject=${Uri.encodeComponent(subject)}&body=${Uri.encodeComponent(body)}',
     );
+
+    try {
+      if (await canLaunchUrl(emailUri)) {
+        await launchUrl(emailUri);
+      } else {
+        // 이메일 앱이 없는 경우 이메일 주소 복사
+        if (mounted) {
+          showDialog(
+            context: context,
+            builder: (context) => AlertDialog(
+              title: const Text('이메일 앱을 찾을 수 없습니다'),
+              content: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  const Text('아래 이메일 주소로 직접 문의해주세요:'),
+                  const SizedBox(height: 8),
+                  SelectableText(
+                    email,
+                    style: const TextStyle(
+                      fontWeight: FontWeight.bold,
+                      color: Colors.blue,
+                    ),
+                  ),
+                ],
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.pop(context),
+                  child: const Text('확인'),
+                ),
+              ],
+            ),
+          );
+        }
+      }
+    } catch (e) {
+      if (kDebugMode) {
+        print('❌ 이메일 앱 실행 실패: $e');
+      }
+      
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('이메일 앱을 실행할 수 없습니다. $email으로 직접 문의해주세요.'),
+            backgroundColor: Colors.red,
+            duration: const Duration(seconds: 4),
+          ),
+        );
+      }
+    }
   }
 
   void _showAppInfo() {

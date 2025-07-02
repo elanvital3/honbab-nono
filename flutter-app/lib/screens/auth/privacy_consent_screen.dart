@@ -7,6 +7,7 @@ import '../../constants/app_design_tokens.dart';
 import '../../constants/privacy_policy_content.dart';
 import 'nickname_input_screen.dart';
 import 'privacy_policy_screen.dart';
+import 'login_screen.dart';
 import '../home/home_screen.dart';
 
 class PrivacyConsentScreen extends StatefulWidget {
@@ -34,7 +35,6 @@ class PrivacyConsentScreen extends StatefulWidget {
 class _PrivacyConsentScreenState extends State<PrivacyConsentScreen> {
   bool _isLoading = false;
   bool _essentialConsent = true; // 필수 동의 - 기본 체크
-  bool _optionalConsent = true; // 선택 동의 - 기본 체크
   
   @override
   Widget build(BuildContext context) {
@@ -43,38 +43,38 @@ class _PrivacyConsentScreenState extends State<PrivacyConsentScreen> {
       body: SafeArea(
         child: Column(
           children: [
-            // 메인 컨텐츠 (스크롤 가능)
-            Expanded(
-              child: SingleChildScrollView(
-                padding: const EdgeInsets.symmetric(horizontal: 24),
-                child: Column(
-                  children: [
-                    const SizedBox(height: 60),
-                    
-                    // 제목
-                    Text(
-                      '혼밥노노 사용하기 위해\n동의해 주세요.',
-                      textAlign: TextAlign.center,
-                      style: AppTextStyles.headlineLarge.copyWith(
-                        height: 1.3,
-                      ),
+            // 상단 고정 영역
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 24),
+              child: Column(
+                children: [
+                  const SizedBox(height: 60),
+                  
+                  // 제목
+                  Text(
+                    '혼밥노노 사용하기 위해\n동의해 주세요.',
+                    textAlign: TextAlign.center,
+                    style: AppTextStyles.headlineLarge.copyWith(
+                      height: 1.3,
                     ),
-                    
-                    const SizedBox(height: 40),
-                    
-                    // 동의 옵션들
-                    _buildConsentOptions(),
-                    
-                    const SizedBox(height: 40),
-                    
-                    // 추가 정보 (간단하게)
-                    _buildInfoSection(),
-                    
-                    const SizedBox(height: 60),
-                  ],
-                ),
+                  ),
+                  
+                  const SizedBox(height: 40),
+                  
+                  // 동의 옵션들
+                  _buildConsentOptions(),
+                  
+                  const SizedBox(height: 24),
+                ],
               ),
             ),
+            
+            // 개인정보 처리방침 전문 (스크롤 가능)
+            Expanded(
+              child: _buildPolicyContent(),
+            ),
+            
+            const SizedBox(height: 24),
             
             // 하단 버튼 영역
             _buildBottomButtons(),
@@ -88,14 +88,6 @@ class _PrivacyConsentScreenState extends State<PrivacyConsentScreen> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Text(
-          '선택 약관',
-          style: AppTextStyles.titleMedium.copyWith(
-            color: AppDesignTokens.onSurfaceVariant,
-          ),
-        ),
-        const SizedBox(height: 16),
-        
         // 필수 동의 옵션
         _buildConsentOption(
           title: '개인정보 수집 · 이용 동의 (필수)',
@@ -105,21 +97,7 @@ class _PrivacyConsentScreenState extends State<PrivacyConsentScreen> {
               _essentialConsent = !_essentialConsent;
             });
           },
-          onDetailTap: () => _showConsentDetail('essential'),
-        ),
-        
-        const SizedBox(height: 12),
-        
-        // 선택 동의 옵션  
-        _buildConsentOption(
-          title: '서비스 품질 향상을 위한 개인정보 수집 · 이용 동의 (선택)',
-          isSelected: _optionalConsent,
-          onTap: () {
-            setState(() {
-              _optionalConsent = !_optionalConsent;
-            });
-          },
-          onDetailTap: () => _showConsentDetail('marketing'),
+          onDetailTap: () {}, // 더 이상 필요 없음 (전문이 이미 화면에 있음)
         ),
       ],
     );
@@ -187,76 +165,13 @@ class _PrivacyConsentScreenState extends State<PrivacyConsentScreen> {
               ),
             ),
             
-            // 화살표 아이콘
-            GestureDetector(
-              onTap: onDetailTap,
-              child: Container(
-                padding: const EdgeInsets.all(4),
-                child: Icon(
-                  Icons.chevron_right,
-                  color: AppDesignTokens.outline,
-                  size: 20,
-                ),
-              ),
-            ),
+            // 화살표 아이콘 제거 (전문이 이미 화면에 표시됨)
           ],
         ),
       ),
     );
   }
 
-  Widget _buildInfoSection() {
-    return Container(
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: AppDesignTokens.surfaceContainer,
-        borderRadius: BorderRadius.circular(12),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: [
-              Icon(
-                Icons.info_outline,
-                size: 16,
-                color: AppDesignTokens.primary,
-              ),
-              const SizedBox(width: 8),
-              Text(
-                '개인정보 처리 안내',
-                style: AppTextStyles.titleMedium.copyWith(
-                  color: AppDesignTokens.primary,
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 12),
-          Text(
-            '• 수집하는 개인정보: 이름, 이메일, 프로필 사진 등\n'
-            '• 개인정보는 서비스 제공 목적으로만 사용됩니다\n'
-            '• 개인정보 보관기간: 회원 탈퇴 시까지\n'
-            '• 언제든지 동의를 철회하실 수 있습니다',
-            style: AppTextStyles.bodyMedium.copyWith(
-              height: 1.5,
-              color: AppDesignTokens.onSurfaceVariant,
-            ),
-          ),
-          const SizedBox(height: 12),
-          GestureDetector(
-            onTap: _showFullPrivacyPolicy,
-            child: Text(
-              '개인정보 처리방침 전문 보기',
-              style: AppTextStyles.bodyMedium.copyWith(
-                color: AppDesignTokens.primary,
-                decoration: TextDecoration.underline,
-              ),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
 
   Widget _buildBottomButtons() {
     return Container(
@@ -345,8 +260,8 @@ class _PrivacyConsentScreenState extends State<PrivacyConsentScreen> {
       // 동의 정보 저장
       final consentData = <String, bool>{
         'essential': _essentialConsent,
-        'marketing': _optionalConsent, // 사용자 선택에 따라
-        'location': _optionalConsent, // 선택 동의와 함께 처리
+        'marketing': true, // 기본값으로 설정
+        'location': true, // 기본값으로 설정
       };
 
       await PrivacyConsentService.saveConsent(
@@ -400,90 +315,35 @@ class _PrivacyConsentScreenState extends State<PrivacyConsentScreen> {
   }
 
   void _handleCancel() {
-    Navigator.of(context).pop();
-  }
-
-  void _showConsentDetail(String consentType) {
-    final content = PrivacyPolicyContent.consentItems[consentType] ?? '';
-    final title = consentType == 'essential' ? '필수 동의 항목' : '선택 동의 항목';
-    
-    showModalBottomSheet(
-      context: context,
-      isScrollControlled: true,
-      backgroundColor: Colors.transparent,
-      builder: (context) => DraggableScrollableSheet(
-        initialChildSize: 0.7,
-        maxChildSize: 0.9,
-        minChildSize: 0.5,
-        builder: (context, scrollController) => Container(
-          decoration: const BoxDecoration(
-            color: Colors.white,
-            borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
-          ),
-          child: Column(
-            children: [
-              // 핸들 바
-              Container(
-                margin: const EdgeInsets.only(top: 12),
-                width: 40,
-                height: 4,
-                decoration: BoxDecoration(
-                  color: AppDesignTokens.outline,
-                  borderRadius: BorderRadius.circular(2),
-                ),
-              ),
-              
-              // 헤더
-              Container(
-                padding: const EdgeInsets.all(24),
-                decoration: BoxDecoration(
-                  border: Border(
-                    bottom: BorderSide(
-                      color: AppDesignTokens.outline.withOpacity(0.2),
-                    ),
-                  ),
-                ),
-                child: Row(
-                  children: [
-                    Expanded(
-                      child: Text(
-                        title,
-                        style: AppTextStyles.titleLarge,
-                      ),
-                    ),
-                    IconButton(
-                      onPressed: () => Navigator.pop(context),
-                      icon: const Icon(Icons.close),
-                    ),
-                  ],
-                ),
-              ),
-              
-              // 내용
-              Expanded(
-                child: SingleChildScrollView(
-                  controller: scrollController,
-                  padding: const EdgeInsets.all(24),
-                  child: Text(
-                    content,
-                    style: AppTextStyles.bodyLarge.copyWith(
-                      height: 1.6,
-                    ),
-                  ),
-                ),
-              ),
-            ],
-          ),
-        ),
-      ),
+    // 로그인 화면으로 돌아가기 (모든 인증 스택을 지우고)
+    Navigator.of(context).pushAndRemoveUntil(
+      MaterialPageRoute(builder: (context) => const LoginScreen()),
+      (Route<dynamic> route) => false,
     );
   }
 
-  void _showFullPrivacyPolicy() {
-    Navigator.push(
-      context,
-      MaterialPageRoute(
-        builder: (context) => const PrivacyPolicyScreen(),
+
+  Widget _buildPolicyContent() {
+    return Container(
+      margin: const EdgeInsets.symmetric(horizontal: 24), // 버튼과 동일한 마진
+      decoration: BoxDecoration(
+        color: AppDesignTokens.surface,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(
+          color: AppDesignTokens.outline.withOpacity(0.3),
+          width: 1,
+        ),
+      ),
+      child: SingleChildScrollView(
+        padding: const EdgeInsets.all(16),
+        child: Text(
+          PrivacyPolicyContent.fullContent,
+          style: AppTextStyles.bodySmall.copyWith(
+            height: 1.4,
+            color: AppDesignTokens.onSurfaceVariant,
+            fontSize: 11, // 작은 글씨로 설정
+          ),
+        ),
       ),
     );
   }

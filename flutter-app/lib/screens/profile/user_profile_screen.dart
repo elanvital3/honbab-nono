@@ -510,6 +510,35 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
               );
             },
           ),
+        
+        // 전체보기 버튼 (3개보다 많은 모임이 있을 때만 표시)
+        if (filteredMeetings.length > 3)
+          Padding(
+            padding: AppPadding.horizontal16.add(AppPadding.vertical8),
+            child: Center(
+              child: TextButton(
+                onPressed: () => _showAllMeetings(filteredMeetings),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text(
+                      '전체보기 (${filteredMeetings.length}개)',
+                      style: AppTextStyles.bodyMedium.copyWith(
+                        color: AppDesignTokens.primary,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                    const SizedBox(width: 4),
+                    Icon(
+                      Icons.arrow_forward_ios,
+                      size: 14,
+                      color: AppDesignTokens.primary,
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ),
       ],
     );
   }
@@ -644,6 +673,200 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
         builder: (context) => UserEvaluationScreen(
           meetingId: meeting.id,
           meeting: meeting,
+        ),
+      ),
+    );
+  }
+
+  void _showAllMeetings(List<Meeting> meetings) {
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (context) => DraggableScrollableSheet(
+        initialChildSize: 0.8,
+        minChildSize: 0.5,
+        maxChildSize: 0.95,
+        expand: false,
+        builder: (context, scrollController) => Column(
+          children: [
+            // 핸들 바
+            Container(
+              width: 40,
+              height: 4,
+              margin: const EdgeInsets.symmetric(vertical: 12),
+              decoration: BoxDecoration(
+                color: Colors.grey[300],
+                borderRadius: BorderRadius.circular(2),
+              ),
+            ),
+            
+            // 헤더
+            Padding(
+              padding: AppPadding.horizontal16,
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  Text(
+                    '주최한 모임 전체',
+                    style: AppTextStyles.titleLarge.copyWith(
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                  IconButton(
+                    onPressed: () => Navigator.pop(context),
+                    icon: const Icon(Icons.close),
+                  ),
+                ],
+              ),
+            ),
+            
+            const Divider(height: 1),
+            
+            // 모임 리스트
+            Expanded(
+              child: ListView.builder(
+                controller: scrollController,
+                padding: AppPadding.all16,
+                itemCount: meetings.length,
+                itemBuilder: (context, index) {
+                  final meeting = meetings[index];
+                  return CommonCard(
+                    margin: EdgeInsets.only(bottom: AppDesignTokens.spacing2),
+                    padding: AppPadding.all16,
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Row(
+                          children: [
+                            Expanded(
+                              child: Text(
+                                meeting.restaurantName ?? meeting.location,
+                                style: AppTextStyles.titleSmall,
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                              ),
+                            ),
+                            Container(
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: AppDesignTokens.spacing2,
+                                vertical: AppDesignTokens.spacing1,
+                              ),
+                              decoration: BoxDecoration(
+                                color: meeting.status == 'completed'
+                                    ? AppDesignTokens.outline.withOpacity(0.6)
+                                    : meeting.isAvailable
+                                        ? AppDesignTokens.primary
+                                        : AppDesignTokens.outline,
+                                borderRadius: AppBorderRadius.medium,
+                              ),
+                              child: Text(
+                                meeting.status == 'completed'
+                                    ? '완료'
+                                    : meeting.isAvailable
+                                        ? '모집중'
+                                        : '마감',
+                                style: AppTextStyles.labelSmall.copyWith(
+                                  color: Colors.white,
+                                  fontWeight: FontWeight.w600,
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: AppDesignTokens.spacing2),
+                        Text(
+                          meeting.description,
+                          style: AppTextStyles.bodyMedium,
+                          maxLines: 2,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                        const SizedBox(height: AppDesignTokens.spacing2),
+                        Row(
+                          children: [
+                            Icon(
+                              Icons.schedule,
+                              size: 16,
+                              color: AppDesignTokens.outline,
+                            ),
+                            const SizedBox(width: 4),
+                            Text(
+                              _formatDate(meeting.dateTime),
+                              style: AppTextStyles.bodySmall.copyWith(
+                                color: AppDesignTokens.outline,
+                              ),
+                            ),
+                            const SizedBox(width: AppDesignTokens.spacing3),
+                            Icon(
+                              Icons.people,
+                              size: 16,
+                              color: AppDesignTokens.outline,
+                            ),
+                            const SizedBox(width: 4),
+                            Text(
+                              '${meeting.participantIds.length}/${meeting.maxParticipants}명',
+                              style: AppTextStyles.bodySmall.copyWith(
+                                color: AppDesignTokens.outline,
+                              ),
+                            ),
+                          ],
+                        ),
+                        
+                        // 평가 버튼 (완료된 모임만)
+                        if (meeting.status == 'completed') ...[
+                          const SizedBox(height: AppDesignTokens.spacing2),
+                          Row(
+                            mainAxisAlignment: MainAxisAlignment.end,
+                            children: [
+                              GestureDetector(
+                                onTap: () {
+                                  Navigator.pop(context); // 모달 닫기
+                                  _navigateToEvaluation(meeting);
+                                },
+                                child: Container(
+                                  padding: const EdgeInsets.symmetric(
+                                    horizontal: 8,
+                                    vertical: 4,
+                                  ),
+                                  decoration: BoxDecoration(
+                                    color: AppDesignTokens.primary.withOpacity(0.1),
+                                    borderRadius: BorderRadius.circular(6),
+                                    border: Border.all(
+                                      color: AppDesignTokens.primary.withOpacity(0.3),
+                                    ),
+                                  ),
+                                  child: Row(
+                                    mainAxisSize: MainAxisSize.min,
+                                    children: [
+                                      Icon(
+                                        Icons.star,
+                                        size: 14,
+                                        color: AppDesignTokens.primary,
+                                      ),
+                                      const SizedBox(width: 4),
+                                      Text(
+                                        '평가',
+                                        style: AppTextStyles.labelSmall.copyWith(
+                                          color: AppDesignTokens.primary,
+                                          fontWeight: FontWeight.w600,
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ],
+                      ],
+                    ),
+                  );
+                },
+              ),
+            ),
+          ],
         ),
       ),
     );

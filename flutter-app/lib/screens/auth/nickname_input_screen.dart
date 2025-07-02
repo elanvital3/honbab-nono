@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/foundation.dart';
+import 'package:flutter/services.dart';
 import '../../services/user_service.dart';
 import '../../services/notification_service.dart';
 import '../home/home_screen.dart';
@@ -24,19 +25,29 @@ class NicknameInputScreen extends StatefulWidget {
 
 class _NicknameInputScreenState extends State<NicknameInputScreen> {
   final TextEditingController _nicknameController = TextEditingController();
+  final TextEditingController _phoneController = TextEditingController();
+  final TextEditingController _birthYearController = TextEditingController();
   bool _isLoading = false;
   bool _isNicknameValid = false;
   String? _nicknameError;
+  String? _selectedGender;
+  String? _phoneError;
+  String? _birthYearError;
+  int _selectedBirthYear = 1990; // 기본값
 
   @override
   void initState() {
     super.initState();
     _nicknameController.addListener(_validateNickname);
+    _phoneController.addListener(_validatePhone);
+    // 출생년도는 드롭다운으로 변경되어 리스너 제거
   }
 
   @override
   void dispose() {
     _nicknameController.dispose();
+    _phoneController.dispose();
+    _birthYearController.dispose();
     super.dispose();
   }
 
@@ -57,6 +68,45 @@ class _NicknameInputScreenState extends State<NicknameInputScreen> {
         _nicknameError = null;
       }
     });
+  }
+
+  void _validatePhone() {
+    final phone = _phoneController.text.trim();
+    final cleanPhone = phone.replaceAll('-', '').replaceAll(' ', '');
+    setState(() {
+      if (phone.isEmpty) {
+        _phoneError = null;
+      } else if (cleanPhone.length != 11 || !cleanPhone.startsWith('010')) {
+        _phoneError = '올바른 휴대폰 번호를 입력해주세요 (010-0000-0000)';
+      } else {
+        _phoneError = null;
+      }
+    });
+  }
+
+  void _validateBirthYear() {
+    final year = _birthYearController.text.trim();
+    final currentYear = DateTime.now().year;
+    setState(() {
+      if (year.isEmpty) {
+        _birthYearError = null;
+      } else {
+        final birthYear = int.tryParse(year);
+        if (birthYear == null || birthYear < 1900 || birthYear > currentYear - 14) {
+          _birthYearError = '유효한 출생연도를 입력해주세요 (만 14세 이상)';
+        } else {
+          _birthYearError = null;
+        }
+      }
+    });
+  }
+
+  bool _isFormValid() {
+    return _isNicknameValid &&
+           _selectedGender != null &&
+           _phoneController.text.trim().isNotEmpty &&
+           _phoneError == null;
+           // 출생년도는 기본값이 있어서 항상 유효
   }
 
   Future<void> _checkNicknameAvailability() async {
@@ -93,11 +143,17 @@ class _NicknameInputScreenState extends State<NicknameInputScreen> {
 
   Future<void> _completeSignup() async {
     try {
+      // 전화번호는 이미 포맷된 상태로 저장
+      final formattedPhone = _phoneController.text.trim();
+      
       // 사용자 정보 업데이트
       final user = await UserService.createUserWithNickname(
         id: widget.userId,
         name: _nicknameController.text.trim(),
         email: widget.email,
+        phoneNumber: formattedPhone,
+        gender: _selectedGender!,
+        birthYear: _selectedBirthYear,
         profileImageUrl: widget.profileImageUrl,
         kakaoId: widget.kakaoId,
       );
@@ -246,7 +302,7 @@ class _NicknameInputScreenState extends State<NicknameInputScreen> {
                     ),
                     const SizedBox(height: 16),
                     const Text(
-                      '혼밥노노에서 사용할\n닉네임을 입력해주세요',
+                      '혼밥노노에서 사용할\n기본 정보를 입력해주세요',
                       textAlign: TextAlign.center,
                       style: TextStyle(
                         fontSize: 16,
@@ -262,12 +318,49 @@ class _NicknameInputScreenState extends State<NicknameInputScreen> {
                   Expanded(
                     child: Column(
                   children: [
+                    // 안내 텍스트
+                    Container(
+                      padding: const EdgeInsets.all(16),
+                      decoration: BoxDecoration(
+                        color: const Color(0xFFF9F9F9),
+                        borderRadius: BorderRadius.circular(12),
+                        border: Border.all(color: const Color(0xFFE0E0E0)),
+                      ),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Row(
+                            children: [
+                              Icon(Icons.info_outline, color: const Color(0xFFD2B48C), size: 20),
+                              const SizedBox(width: 8),
+                              const Text(
+                                '개인정보 수집 안내',
+                                style: TextStyle(
+                                  fontSize: 14,
+                                  fontWeight: FontWeight.w600,
+                                  color: Color(0xFFD2B48C),
+                                ),
+                              ),
+                            ],
+                          ),
+                          const SizedBox(height: 12),
+                          _buildInfoItem('성별', '안전한 동성/이성 매칭을 위해 필요합니다'),
+                          const SizedBox(height: 8),
+                          _buildInfoItem('출생연도', '적절한 연령대 매칭을 위해 필요합니다'),
+                          const SizedBox(height: 8),
+                          _buildInfoItem('전화번호', '긴급 연락 및 계정 보안을 위해 필요합니다'),
+                        ],
+                      ),
+                    ),
+                    
+                    const SizedBox(height: 24),
+                    
                     // 닉네임 입력 필드
                     TextField(
                       controller: _nicknameController,
                       enabled: !_isLoading,
                       decoration: InputDecoration(
-                        labelText: '닉네임',
+                        labelText: '닉네임 *',
                         hintText: '2-10글자로 입력해주세요',
                         border: OutlineInputBorder(
                           borderRadius: BorderRadius.circular(12),
@@ -292,7 +385,120 @@ class _NicknameInputScreenState extends State<NicknameInputScreen> {
                         color: Color(0xFF333333),
                       ),
                       maxLength: 10,
-                      textAlign: TextAlign.center,
+                    ),
+                    
+                    const SizedBox(height: 16),
+                    
+                    // 성별 선택
+                    Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        const Text(
+                          '성별 *',
+                          style: TextStyle(
+                            fontSize: 16,
+                            fontWeight: FontWeight.w500,
+                            color: Color(0xFF333333),
+                          ),
+                        ),
+                        const SizedBox(height: 8),
+                        Row(
+                          children: [
+                            Expanded(
+                              child: _buildGenderButton('남성', 'male'),
+                            ),
+                            const SizedBox(width: 12),
+                            Expanded(
+                              child: _buildGenderButton('여성', 'female'),
+                            ),
+                          ],
+                        ),
+                      ],
+                    ),
+                    
+                    const SizedBox(height: 20),
+                    
+                    // 출생연도 선택
+                    Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        const Text(
+                          '출생연도 *',
+                          style: TextStyle(
+                            fontSize: 16,
+                            fontWeight: FontWeight.w500,
+                            color: Color(0xFF333333),
+                          ),
+                        ),
+                        const SizedBox(height: 8),
+                        Container(
+                          width: double.infinity,
+                          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+                          decoration: BoxDecoration(
+                            border: Border.all(color: const Color(0xFFE0E0E0)),
+                            borderRadius: BorderRadius.circular(12),
+                          ),
+                          child: DropdownButtonHideUnderline(
+                            child: DropdownButton<int>(
+                              value: _selectedBirthYear,
+                              isExpanded: true,
+                              icon: const Icon(Icons.arrow_drop_down, color: Color(0xFF666666)),
+                              style: const TextStyle(
+                                fontSize: 16,
+                                color: Color(0xFF333333),
+                              ),
+                              items: _generateBirthYearItems(),
+                              onChanged: _isLoading ? null : (int? newValue) {
+                                if (newValue != null) {
+                                  setState(() {
+                                    _selectedBirthYear = newValue;
+                                  });
+                                }
+                              },
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                    
+                    const SizedBox(height: 16),
+                    
+                    // 전화번호 입력
+                    TextField(
+                      controller: _phoneController,
+                      enabled: !_isLoading,
+                      keyboardType: TextInputType.number,
+                      inputFormatters: [
+                        FilteringTextInputFormatter.digitsOnly,
+                        LengthLimitingTextInputFormatter(11),
+                        _PhoneNumberFormatter(),
+                      ],
+                      decoration: InputDecoration(
+                        labelText: '전화번호 *',
+                        hintText: '010-0000-0000',
+                        border: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(12),
+                          borderSide: const BorderSide(color: Color(0xFFE0E0E0)),
+                        ),
+                        focusedBorder: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(12),
+                          borderSide: const BorderSide(color: Color(0xFFD2B48C), width: 2),
+                        ),
+                        errorBorder: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(12),
+                          borderSide: const BorderSide(color: Colors.red, width: 2),
+                        ),
+                        contentPadding: const EdgeInsets.symmetric(
+                          horizontal: 16,
+                          vertical: 16,
+                        ),
+                        errorText: _phoneError,
+                      ),
+                      style: const TextStyle(
+                        fontSize: 16,
+                        color: Color(0xFF333333),
+                      ),
+                      maxLength: 13, // 010-0000-0000 형태
                     ),
                     
                     const SizedBox(height: 24),
@@ -301,7 +507,7 @@ class _NicknameInputScreenState extends State<NicknameInputScreen> {
                     SizedBox(
                       width: double.infinity,
                       child: ElevatedButton(
-                        onPressed: (_isNicknameValid && !_isLoading) 
+                        onPressed: (_isFormValid() && !_isLoading) 
                             ? _checkNicknameAvailability 
                             : null,
                         style: ElevatedButton.styleFrom(
@@ -327,7 +533,7 @@ class _NicknameInputScreenState extends State<NicknameInputScreen> {
                                 style: TextStyle(
                                   fontSize: 16,
                                   fontWeight: FontWeight.w600,
-                                  color: (_isNicknameValid && !_isLoading) 
+                                  color: (_isFormValid() && !_isLoading) 
                                       ? Colors.white 
                                       : const Color(0xFF999999),
                                 ),
@@ -347,5 +553,101 @@ class _NicknameInputScreenState extends State<NicknameInputScreen> {
         ),
       ),
     );
+  }
+
+  Widget _buildInfoItem(String title, String description) {
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const Text('• ', style: TextStyle(color: Color(0xFF666666), fontSize: 12)),
+        Expanded(
+          child: RichText(
+            text: TextSpan(
+              style: const TextStyle(fontSize: 12, color: Color(0xFF666666)),
+              children: [
+                TextSpan(
+                  text: '$title: ',
+                  style: const TextStyle(fontWeight: FontWeight.w600),
+                ),
+                TextSpan(text: description),
+              ],
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildGenderButton(String label, String value) {
+    final isSelected = _selectedGender == value;
+    return GestureDetector(
+      onTap: _isLoading ? null : () {
+        setState(() {
+          _selectedGender = value;
+        });
+      },
+      child: Container(
+        padding: const EdgeInsets.symmetric(vertical: 16),
+        decoration: BoxDecoration(
+          color: isSelected ? const Color(0xFFD2B48C) : Colors.white,
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(
+            color: isSelected ? const Color(0xFFD2B48C) : const Color(0xFFE0E0E0),
+            width: isSelected ? 2 : 1,
+          ),
+        ),
+        child: Center(
+          child: Text(
+            label,
+            style: TextStyle(
+              fontSize: 16,
+              fontWeight: FontWeight.w500,
+              color: isSelected ? Colors.white : const Color(0xFF666666),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  List<DropdownMenuItem<int>> _generateBirthYearItems() {
+    final currentYear = DateTime.now().year;
+    final startYear = currentYear - 80; // 80세까지
+    final endYear = currentYear - 14;   // 만 14세까지
+    
+    return List.generate(
+      endYear - startYear + 1,
+      (index) {
+        final year = endYear - index; // 최신 연도부터 정렬
+        return DropdownMenuItem<int>(
+          value: year,
+          child: Text('$year년'),
+        );
+      },
+    );
+  }
+}
+
+class _PhoneNumberFormatter extends TextInputFormatter {
+  @override
+  TextEditingValue formatEditUpdate(
+    TextEditingValue oldValue,
+    TextEditingValue newValue,
+  ) {
+    final text = newValue.text;
+    
+    if (text.length <= 3) {
+      return newValue;
+    } else if (text.length <= 7) {
+      return TextEditingValue(
+        text: '${text.substring(0, 3)}-${text.substring(3)}',
+        selection: TextSelection.collapsed(offset: text.length + 1),
+      );
+    } else {
+      return TextEditingValue(
+        text: '${text.substring(0, 3)}-${text.substring(3, 7)}-${text.substring(7)}',
+        selection: TextSelection.collapsed(offset: text.length + 2),
+      );
+    }
   }
 }

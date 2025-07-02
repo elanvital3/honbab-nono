@@ -17,7 +17,6 @@ class LoginScreen extends StatefulWidget {
 
 class _LoginScreenState extends State<LoginScreen> {
   bool _isLoading = false;
-  bool _isRecovering = false;
 
   Future<void> _handleKakaoLogin() async {
     print('🎯 _handleKakaoLogin 함수 시작');
@@ -92,156 +91,6 @@ class _LoginScreenState extends State<LoginScreen> {
     }
   }
 
-  Future<void> _recoverAccount() async {
-    setState(() {
-      _isRecovering = true;
-    });
-
-    try {
-      // 먼저 카카오 로그인 시도
-      if (!await isKakaoTalkInstalled()) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('카카오톡 앱이 설치되어 있지 않습니다'),
-            backgroundColor: Colors.orange,
-          ),
-        );
-        return;
-      }
-
-      // 카카오 로그인
-      await UserApi.instance.loginWithKakaoTalk();
-      final kakaoUser = await UserApi.instance.me();
-      final kakaoId = kakaoUser.id.toString();
-
-      if (kDebugMode) {
-        print('🔧 계정 복구: 카카오 ID $kakaoId');
-      }
-
-      // Firebase 익명 로그인
-      final firebaseUser = await FirebaseAuth.instance.signInAnonymously();
-      final newUID = firebaseUser.user!.uid;
-
-      if (kDebugMode) {
-        print('🔧 계정 복구: 새 Firebase UID $newUID');
-      }
-
-      // 기존 카카오 ID로 사용자 데이터 찾기
-      final existingUserQuery = await FirebaseFirestore.instance
-          .collection('users')
-          .where('kakaoId', isEqualTo: kakaoId)
-          .get();
-
-      if (existingUserQuery.docs.isNotEmpty) {
-        // 기존 사용자 데이터 찾음
-        final existingUserData = existingUserQuery.docs.first.data();
-        final oldUID = existingUserQuery.docs.first.id;
-
-        if (kDebugMode) {
-          print('✅ 기존 사용자 데이터 찾음: $oldUID -> $newUID');
-        }
-
-        // 새로운 UID로 사용자 데이터 복사
-        await FirebaseFirestore.instance
-            .collection('users')
-            .doc(newUID)
-            .set(existingUserData);
-
-        // 모든 모임의 참여자 목록 업데이트
-        final meetingsSnapshot = await FirebaseFirestore.instance
-            .collection('meetings')
-            .get();
-
-        final batch = FirebaseFirestore.instance.batch();
-        int fixedCount = 0;
-
-        for (final meetingDoc in meetingsSnapshot.docs) {
-          final meetingData = meetingDoc.data();
-          final participantIds = List<String>.from(meetingData['participantIds'] ?? []);
-          final hostId = meetingData['hostId'] as String?;
-          final hostKakaoId = meetingData['hostKakaoId'] as String?;
-
-          bool needsUpdate = false;
-
-          // 이 사용자가 호스트거나 참여자인지 확인 (카카오 ID 기반)
-          bool isHost = hostKakaoId == kakaoId;
-          bool isParticipant = participantIds.contains(kakaoId) || participantIds.contains(oldUID);
-
-          if (isHost || isParticipant) {
-            // 기존 UID 제거하고 새 UID 추가
-            participantIds.removeWhere((id) => id == oldUID || id == kakaoId);
-            if (!participantIds.contains(newUID)) {
-              participantIds.add(newUID);
-              needsUpdate = true;
-            }
-
-            // 호스트인 경우 hostId도 업데이트
-            if (isHost && hostId != newUID) {
-              batch.update(meetingDoc.reference, {
-                'participantIds': participantIds,
-                'hostId': newUID,
-              });
-              needsUpdate = true;
-            } else if (needsUpdate) {
-              batch.update(meetingDoc.reference, {
-                'participantIds': participantIds,
-              });
-            }
-
-            if (needsUpdate) {
-              fixedCount++;
-            }
-          }
-        }
-
-        if (fixedCount > 0) {
-          await batch.commit();
-        }
-
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Text('✅ 계정 복구 완료! ($fixedCount개 모임 업데이트)'),
-              backgroundColor: Colors.green,
-              duration: const Duration(seconds: 3),
-            ),
-          );
-
-          // 잠시 대기 후 홈으로 이동
-          await Future.delayed(const Duration(seconds: 2));
-          Navigator.pushReplacementNamed(context, '/home');
-        }
-      } else {
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-              content: Text('❌ 복구할 계정을 찾을 수 없습니다. 새로 가입해주세요.'),
-              backgroundColor: Colors.orange,
-            ),
-          );
-        }
-      }
-    } catch (e) {
-      if (kDebugMode) {
-        print('❌ 계정 복구 실패: $e');
-      }
-      
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('계정 복구 실패: $e'),
-            backgroundColor: Colors.red,
-          ),
-        );
-      }
-    } finally {
-      if (mounted) {
-        setState(() {
-          _isRecovering = false;
-        });
-      }
-    }
-  }
 
   @override
   Widget build(BuildContext context) {
@@ -251,150 +100,107 @@ class _LoginScreenState extends State<LoginScreen> {
         child: Padding(
           padding: const EdgeInsets.symmetric(horizontal: 24),
           child: Column(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
               // Header Section
-              Column(
-                children: [
-                  const SizedBox(height: 80),
-                  
-                  // 앱 아이콘 (스플래시 화면과 동일)
-                  Container(
-                    width: 80,
-                    height: 80,
-                    decoration: BoxDecoration(
-                      borderRadius: BorderRadius.circular(16),
-                      boxShadow: [
-                        BoxShadow(
-                          color: Colors.black.withOpacity(0.1),
-                          blurRadius: 20,
-                          offset: const Offset(0, 8),
+              Expanded(
+                flex: 3,
+                child: Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    // 앱 아이콘 (스플래시 화면과 동일)
+                    Container(
+                      width: 80,
+                      height: 80,
+                      decoration: BoxDecoration(
+                        borderRadius: BorderRadius.circular(16),
+                        boxShadow: [
+                          BoxShadow(
+                            color: Colors.black.withOpacity(0.1),
+                            blurRadius: 20,
+                            offset: const Offset(0, 8),
+                          ),
+                        ],
+                      ),
+                      child: ClipRRect(
+                        borderRadius: BorderRadius.circular(16),
+                        child: Image.asset(
+                          'assets/images/app_icon.png',
+                          width: 80,
+                          height: 80,
+                          fit: BoxFit.cover,
                         ),
-                      ],
-                    ),
-                    child: ClipRRect(
-                      borderRadius: BorderRadius.circular(16),
-                      child: Image.asset(
-                        'assets/images/app_icon.png',
-                        width: 80,
-                        height: 80,
-                        fit: BoxFit.cover,
                       ),
                     ),
-                  ),
-                  const SizedBox(height: 24),
-                  const Text(
-                    '혼밥노노',
-                    style: TextStyle(
-                      fontSize: 28,
-                      fontWeight: FontWeight.bold,
-                      color: Color(0xFF333333),
+                    const SizedBox(height: 24),
+                    const Text(
+                      '혼밥노노',
+                      style: TextStyle(
+                        fontSize: 28,
+                        fontWeight: FontWeight.bold,
+                        color: Color(0xFF333333),
+                      ),
                     ),
-                  ),
-                  const SizedBox(height: 16),
-                  const Text(
-                    '혼여는 좋지만 맛집은 함께 🥹',
-                    textAlign: TextAlign.center,
-                    style: TextStyle(
-                      fontSize: 16,
-                      fontWeight: FontWeight.w500,
-                      color: Color(0xFF666666),
-                      height: 1.5,
-                    ),
-                  ),
-                ],
-              ),
-
-              // Social Login Buttons - 카카오만 활성화
-              Column(
-                children: [
-                  // Kakao Login (활성화)
-                  _buildSocialButton(
-                    onPressed: _isLoading ? null : () => _handleSocialLogin(context, '카카오'),
-                    backgroundColor: const Color(0xFFFEE500),
-                    textColor: const Color(0xFF3C1E1E),
-                    icon: _isLoading ? null : 'K',
-                    text: _isLoading ? '로그인 중...' : '카카오톡으로 시작하기',
-                    isLoading: _isLoading,
-                    isKakao: true,
-                  ),
-                  const SizedBox(height: 12),
-                  
-                  // Google Login (비활성화)
-                  _buildSocialButton(
-                    onPressed: null, // 비활성화
-                    backgroundColor: const Color(0xFFF5F5F5),
-                    textColor: const Color(0xFF999999),
-                    icon: '🌐',
-                    text: '구글로 시작하기 (준비 중)',
-                    isDisabled: true,
-                  ),
-                  const SizedBox(height: 12),
-                  
-                  // Naver Login (비활성화)
-                  _buildSocialButton(
-                    onPressed: null, // 비활성화
-                    backgroundColor: const Color(0xFFF5F5F5),
-                    textColor: const Color(0xFF999999),
-                    icon: 'N',
-                    text: '네이버로 시작하기 (준비 중)',
-                    isNaver: true,
-                    isDisabled: true,
-                  ),
-                ],
-              ),
-
-              // Footer
-              Column(
-                children: [
-                  const Text(
-                    '가입 시 이용약관 및 개인정보처리방침에 동의합니다',
-                    textAlign: TextAlign.center,
-                    style: TextStyle(
-                      fontSize: 12,
-                      fontWeight: FontWeight.w500,
-                      color: Color(0xFF999999),
-                    ),
-                  ),
-                  const SizedBox(height: 16),
-                  
-                  // 사업자 정보
-                  const Text(
-                    '© 2025 구구랩. All rights reserved.',
-                    textAlign: TextAlign.center,
-                    style: TextStyle(
-                      fontSize: 12,
-                      fontWeight: FontWeight.w600,
-                      color: Color(0xFF999999),
-                      height: 1.4,
-                    ),
-                  ),
-                  
-                  // 디버그 모드에서만 계정 복구 버튼 표시
-                  if (kDebugMode) ...[
-                    const SizedBox(height: 20),
-                    TextButton(
-                      onPressed: _isRecovering ? null : _recoverAccount,
-                      child: Row(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          if (_isRecovering)
-                            const SizedBox(
-                              width: 16,
-                              height: 16,
-                              child: CircularProgressIndicator(strokeWidth: 2),
-                            )
-                          else
-                            const Icon(Icons.refresh, size: 16),
-                          const SizedBox(width: 8),
-                          Text(_isRecovering ? '복구 중...' : '🔧 계정 복구'),
-                        ],
+                    const SizedBox(height: 16),
+                    const Text(
+                      '혼여는 좋지만 맛집은 함께 🥹',
+                      textAlign: TextAlign.center,
+                      style: TextStyle(
+                        fontSize: 16,
+                        fontWeight: FontWeight.w500,
+                        color: Color(0xFF666666),
+                        height: 1.5,
                       ),
                     ),
                   ],
-                  
-                  const SizedBox(height: 40),
-                ],
+                ),
+              ),
+
+              // Bottom Section
+              Expanded(
+                flex: 2,
+                child: Column(
+                  mainAxisAlignment: MainAxisAlignment.end,
+                  children: [
+                    // Social Login Buttons - 카카오만
+                    _buildSocialButton(
+                      onPressed: _isLoading ? null : () => _handleSocialLogin(context, '카카오'),
+                      backgroundColor: const Color(0xFFFEE500),
+                      textColor: const Color(0xFF3C1E1E),
+                      icon: _isLoading ? null : 'K',
+                      text: _isLoading ? '로그인 중...' : '카카오톡으로 시작하기',
+                      isLoading: _isLoading,
+                      isKakao: true,
+                    ),
+                    
+                    const SizedBox(height: 40),
+                    
+                    // Footer
+                    const Text(
+                      '가입 시 이용약관 및 개인정보처리방침에 동의합니다',
+                      textAlign: TextAlign.center,
+                      style: TextStyle(
+                        fontSize: 12,
+                        fontWeight: FontWeight.w500,
+                        color: Color(0xFF999999),
+                      ),
+                    ),
+                    const SizedBox(height: 16),
+                    
+                    // 사업자 정보
+                    const Text(
+                      '© 2025 구구랩. All rights reserved.',
+                      textAlign: TextAlign.center,
+                      style: TextStyle(
+                        fontSize: 12,
+                        fontWeight: FontWeight.w600,
+                        color: Color(0xFF999999),
+                        height: 1.4,
+                      ),
+                    ),
+                    
+                    const SizedBox(height: 40),
+                  ],
+                ),
               ),
             ],
           ),

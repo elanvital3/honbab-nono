@@ -25,7 +25,7 @@ class BadgeSelectionScreen extends StatefulWidget {
 class _BadgeSelectionScreenState extends State<BadgeSelectionScreen> {
   final Set<String> _selectedBadgeIds = <String>{};
   bool _isLoading = false;
-  static const int _maxBadges = 5; // 최대 선택 가능한 뱃지 수
+  static const int _maxBadges = 3; // 최대 선택 가능한 뱃지 수
 
   @override
   void initState() {

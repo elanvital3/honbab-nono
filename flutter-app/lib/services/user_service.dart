@@ -285,6 +285,9 @@ class UserService {
     required String id,
     required String name,
     String? email,
+    String? phoneNumber,
+    String? gender,
+    int? birthYear,
     String? profileImageUrl,
     String? kakaoId,
   }) async {
@@ -293,6 +296,9 @@ class UserService {
         id: id,
         name: name,
         email: email,
+        phoneNumber: phoneNumber,
+        gender: gender,
+        birthYear: birthYear,
         profileImageUrl: profileImageUrl,
         kakaoId: kakaoId,
       );
@@ -301,6 +307,9 @@ class UserService {
       
       if (kDebugMode) {
         print('✅ User created with nickname: ${user.name}');
+        if (phoneNumber != null) print('  - 전화번호: $phoneNumber');
+        if (gender != null) print('  - 성별: $gender');
+        if (birthYear != null) print('  - 출생연도: $birthYear');
       }
       
       return user;
