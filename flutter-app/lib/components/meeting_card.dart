@@ -5,11 +5,13 @@ import '../styles/text_styles.dart';
 class MeetingCard extends StatelessWidget {
   final Meeting meeting;
   final VoidCallback? onTap;
+  final String? currentUserId; // 현재 사용자 ID (호스트 표시용)
 
   const MeetingCard({
     super.key,
     required this.meeting,
     this.onTap,
+    this.currentUserId,
   });
 
   @override
@@ -32,58 +34,92 @@ class MeetingCard extends StatelessWidget {
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               // 왼쪽 이미지 영역 (당근마켓 스타일)
-              Container(
-                width: 72,  // 당근마켓 스타일
-                height: 72,
-                decoration: BoxDecoration(
-                  borderRadius: BorderRadius.circular(6),  // 당근마켓 스타일
-                  color: Theme.of(context).colorScheme.surfaceContainer,
-                ),
-                child: ClipRRect(
-                  borderRadius: BorderRadius.circular(6),
-                  child: meeting.representativeImageUrl != null && meeting.representativeImageUrl!.isNotEmpty
-                    ? Image.network(
-                        meeting.representativeImageUrl!,
-                        width: 72,
-                        height: 72,
-                        fit: BoxFit.cover,
-                        errorBuilder: (context, error, stackTrace) {
-                          // 이미지 로드 실패 시 기본 아이콘 표시
-                          return Container(
-                            color: Theme.of(context).colorScheme.surfaceContainer,
-                            child: Icon(
-                              Icons.restaurant,
-                              size: 28,
-                              color: Theme.of(context).colorScheme.outline,
-                            ),
-                          );
-                        },
-                        loadingBuilder: (context, child, loadingProgress) {
-                          if (loadingProgress == null) return child;
-                          // 로딩 중 표시
-                          return Container(
-                            color: Theme.of(context).colorScheme.surfaceContainer,
-                            child: Center(
-                              child: CircularProgressIndicator(
-                                value: loadingProgress.expectedTotalBytes != null
-                                    ? loadingProgress.cumulativeBytesLoaded / 
-                                      loadingProgress.expectedTotalBytes!
-                                    : null,
-                                strokeWidth: 2,
-                                valueColor: AlwaysStoppedAnimation<Color>(
-                                  Theme.of(context).colorScheme.primary,
+              Stack(
+                children: [
+                  Container(
+                    width: 72,  // 당근마켓 스타일
+                    height: 72,
+                    decoration: BoxDecoration(
+                      borderRadius: BorderRadius.circular(6),  // 당근마켓 스타일
+                      color: Theme.of(context).colorScheme.surfaceContainer,
+                    ),
+                    child: ClipRRect(
+                      borderRadius: BorderRadius.circular(6),
+                      child: meeting.representativeImageUrl != null && meeting.representativeImageUrl!.isNotEmpty
+                        ? Image.network(
+                            meeting.representativeImageUrl!,
+                            width: 72,
+                            height: 72,
+                            fit: BoxFit.cover,
+                            errorBuilder: (context, error, stackTrace) {
+                              // 이미지 로드 실패 시 기본 아이콘 표시
+                              return Container(
+                                color: Theme.of(context).colorScheme.surfaceContainer,
+                                child: Icon(
+                                  Icons.restaurant,
+                                  size: 28,
+                                  color: Theme.of(context).colorScheme.outline,
                                 ),
-                              ),
+                              );
+                            },
+                            loadingBuilder: (context, child, loadingProgress) {
+                              if (loadingProgress == null) return child;
+                              // 로딩 중 표시
+                              return Container(
+                                color: Theme.of(context).colorScheme.surfaceContainer,
+                                child: Center(
+                                  child: CircularProgressIndicator(
+                                    value: loadingProgress.expectedTotalBytes != null
+                                        ? loadingProgress.cumulativeBytesLoaded / 
+                                          loadingProgress.expectedTotalBytes!
+                                        : null,
+                                    strokeWidth: 2,
+                                    valueColor: AlwaysStoppedAnimation<Color>(
+                                      Theme.of(context).colorScheme.primary,
+                                    ),
+                                  ),
+                                ),
+                              );
+                            },
+                          )
+                        : Icon(
+                            Icons.restaurant,
+                            size: 28,  // 더 작게
+                            color: Theme.of(context).colorScheme.outline,
+                          ),
+                    ),
+                  ),
+                  
+                  // 호스트 뱃지 (내가 호스트일 때만 표시)
+                  if (currentUserId != null && currentUserId == meeting.hostId)
+                    Positioned(
+                      top: 4,
+                      right: 4,
+                      child: Container(
+                        padding: const EdgeInsets.all(4),
+                        decoration: BoxDecoration(
+                          color: Theme.of(context).colorScheme.primary,
+                          shape: BoxShape.circle,
+                          border: Border.all(
+                            color: Colors.white,
+                            width: 1.5,
+                          ),
+                          boxShadow: [
+                            BoxShadow(
+                              color: Colors.black.withOpacity(0.2),
+                              blurRadius: 4,
+                              offset: const Offset(0, 2),
                             ),
-                          );
-                        },
-                      )
-                    : Icon(
-                        Icons.restaurant,
-                        size: 28,  // 더 작게
-                        color: Theme.of(context).colorScheme.outline,
+                          ],
+                        ),
+                        child: const Icon(
+                          Icons.star,
+                          color: Colors.white,
+                          size: 12,
+                        ),
                       ),
-                ),
+                    ),
+                ],
               ),
               const SizedBox(width: 12),  // 당근마켓 스타일
               
@@ -198,24 +234,59 @@ class MeetingCard extends StatelessWidget {
                           children: [
                             CircleAvatar(
                               radius: 10,
-                              backgroundColor: Theme.of(context).colorScheme.surfaceContainer,
+                              backgroundColor: currentUserId != null && currentUserId == meeting.hostId
+                                  ? Theme.of(context).colorScheme.primary  // 내가 호스트면 베이지색
+                                  : Theme.of(context).colorScheme.surfaceContainer,
                               child: Text(
                                 meeting.hostName[0],
                                 style: TextStyle(
                                   fontSize: 10,
-                                  color: Theme.of(context).colorScheme.onSurface,
+                                  color: currentUserId != null && currentUserId == meeting.hostId
+                                      ? Colors.white  // 내가 호스트면 흰색 텍스트
+                                      : Theme.of(context).colorScheme.onSurface,
                                   fontWeight: FontWeight.bold,
                                 ),
                               ),
                             ),
                             const SizedBox(width: 6),
-                            Text(
-                              meeting.hostName,
-                              style: TextStyle(
-                                fontSize: 11,  // 당근마켓 스타일
-                                color: Theme.of(context).colorScheme.outline,  // 연한 회색
-                                fontWeight: FontWeight.normal,
-                              ),
+                            Row(
+                              children: [
+                                Text(
+                                  meeting.hostName,
+                                  style: TextStyle(
+                                    fontSize: 11,  // 당근마켓 스타일
+                                    color: currentUserId != null && currentUserId == meeting.hostId
+                                        ? Theme.of(context).colorScheme.onSurface  // 내가 호스트면 더 진한 색
+                                        : Theme.of(context).colorScheme.outline,  // 연한 회색
+                                    fontWeight: currentUserId != null && currentUserId == meeting.hostId
+                                        ? FontWeight.w600  // 내가 호스트면 더 굵게
+                                        : FontWeight.normal,
+                                  ),
+                                ),
+                                // 내가 호스트일 때 작은 호스트 표시 추가
+                                if (currentUserId != null && currentUserId == meeting.hostId) ...[
+                                  const SizedBox(width: 4),
+                                  Container(
+                                    padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 1),
+                                    decoration: BoxDecoration(
+                                      color: Theme.of(context).colorScheme.primary.withOpacity(0.1),
+                                      borderRadius: BorderRadius.circular(4),
+                                      border: Border.all(
+                                        color: Theme.of(context).colorScheme.primary.withOpacity(0.3),
+                                        width: 0.5,
+                                      ),
+                                    ),
+                                    child: Text(
+                                      '내 모임',
+                                      style: TextStyle(
+                                        fontSize: 8,
+                                        color: Theme.of(context).colorScheme.primary,
+                                        fontWeight: FontWeight.w600,
+                                      ),
+                                    ),
+                                  ),
+                                ],
+                              ],
                             ),
                           ],
                         ),

@@ -6,6 +6,9 @@ import '../../services/meeting_service.dart';
 import '../../constants/app_design_tokens.dart';
 import '../../styles/text_styles.dart';
 import '../../components/common/common_card.dart';
+import '../../components/user_badge_chip.dart';
+import 'badge_selection_screen.dart';
+import '../evaluation/user_evaluation_screen.dart';
 
 class UserProfileScreen extends StatefulWidget {
   final app_user.User user;
@@ -24,6 +27,7 @@ class UserProfileScreen extends StatefulWidget {
 class _UserProfileScreenState extends State<UserProfileScreen> {
   List<Meeting> _hostedMeetings = [];
   bool _isLoading = true;
+  bool _showCompletedMeetings = false; // 완료된 모임 표시 여부
 
   @override
   void initState() {
@@ -87,6 +91,7 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             _buildProfileHeader(),
+            _buildBadgeSection(),
             _buildStats(),
             _buildRatings(),
             _buildHostedMeetings(),
@@ -160,64 +165,70 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
 
   Widget _buildStats() {
     return CommonCard(
-      padding: AppPadding.all16,
+      padding: AppPadding.all20,
       margin: AppPadding.vertical8.add(AppPadding.horizontal16),
-      child: StreamBuilder<List<Meeting>>(
-        stream: MeetingService.getUserMeetingsStream(widget.user.id),
-        builder: (context, snapshot) {
-          // 실제 모임 데이터로 통계 계산
-          int completedCount = 0;
-          int activeCount = 0;
-          int hostedCount = 0;
-          
-          if (snapshot.hasData) {
-            final meetings = snapshot.data!;
-            for (final meeting in meetings) {
-              // 참여한 모임 분류
-              if (meeting.status == 'completed') {
-                completedCount++;
-              } else {
-                activeCount++;
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            '활동 통계',
+            style: AppTextStyles.titleMedium.copyWith(
+              fontWeight: AppDesignTokens.fontWeightBold,
+            ),
+          ),
+          const SizedBox(height: AppDesignTokens.spacing4),
+          StreamBuilder<List<Meeting>>(
+            stream: MeetingService.getUserMeetingsStream(widget.user.id),
+            builder: (context, snapshot) {
+              // 실제 모임 데이터로 통계 계산
+              int participatedCount = 0;
+              int hostedCount = 0;
+              double averageRating = widget.user.rating;
+              
+              if (snapshot.hasData) {
+                final meetings = snapshot.data!;
+                participatedCount = meetings.length;
+                hostedCount = meetings.where((m) => m.hostId == widget.user.id).length;
               }
               
-              // 주최한 모임 카운트
-              if (meeting.hostId == widget.user.id) {
-                hostedCount++;
-              }
-            }
-          }
-          
-          return Row(
-            mainAxisAlignment: MainAxisAlignment.spaceAround,
-            children: [
-              _buildStatItem(
-                '완료된 모임',
-                completedCount.toString(),
-                Icons.check_circle,
-              ),
-              Container(
-                width: 1,
-                height: 40,
-                color: Theme.of(context).colorScheme.outline.withOpacity(0.3),
-              ),
-              _buildStatItem(
-                '진행중인 모임',
-                activeCount.toString(),
-                Icons.schedule,
-              ),
-              Container(
-                width: 1,
-                height: 40,
-                color: Theme.of(context).colorScheme.outline.withOpacity(0.3),
-              ),
-              _buildStatItem(
-                '주최한 모임',
-                hostedCount.toString(),
-                Icons.flag,
-              ),
-            ],
-          );
-        },
+              return Row(
+                children: [
+                  Expanded(
+                    child: _buildStatItem(
+                      '참여한 모임',
+                      '${participatedCount}회',
+                      Icons.group,
+                    ),
+                  ),
+                  Container(
+                    width: 1,
+                    height: 40,
+                    color: Theme.of(context).colorScheme.outline.withOpacity(0.3),
+                  ),
+                  Expanded(
+                    child: _buildStatItem(
+                      '주최한 모임',
+                      '${hostedCount}회',
+                      Icons.star,
+                    ),
+                  ),
+                  Container(
+                    width: 1,
+                    height: 40,
+                    color: Theme.of(context).colorScheme.outline.withOpacity(0.3),
+                  ),
+                  Expanded(
+                    child: _buildStatItem(
+                      '평균 별점',
+                      '${averageRating.toStringAsFixed(1)}점',
+                      Icons.favorite,
+                    ),
+                  ),
+                ],
+              );
+            },
+          ),
+        ],
       ),
     );
   }
@@ -228,20 +239,23 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
         Icon(
           icon,
           color: AppDesignTokens.primary,
-          size: 20,
+          size: 24,
+        ),
+        const SizedBox(height: AppDesignTokens.spacing2),
+        Text(
+          value,
+          style: AppTextStyles.titleLarge.copyWith(
+            fontWeight: AppDesignTokens.fontWeightBold,
+            color: AppDesignTokens.primary,
+          ),
         ),
         const SizedBox(height: AppDesignTokens.spacing1),
         Text(
-          value,
-          style: AppTextStyles.titleMedium.copyWith(
-            fontWeight: AppDesignTokens.fontWeightBold,
-          ),
-        ),
-        Text(
           label,
-          style: AppTextStyles.labelSmall.copyWith(
+          style: AppTextStyles.labelMedium.copyWith(
             color: Theme.of(context).colorScheme.outline,
           ),
+          textAlign: TextAlign.center,
         ),
       ],
     );
@@ -300,6 +314,19 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
   }
 
   Widget _buildHostedMeetings() {
+    // 현재 시간
+    final now = DateTime.now();
+    
+    // 필터링된 모임 목록
+    final filteredMeetings = _hostedMeetings.where((meeting) {
+      if (_showCompletedMeetings) {
+        return true; // 모든 모임 표시
+      } else {
+        // 진행중인 모임만 표시 (미래 모임 + 완료되지 않은 모임)
+        return meeting.status != 'completed' || meeting.dateTime.isAfter(now);
+      }
+    }).toList();
+
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -308,15 +335,46 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
             AppDesignTokens.spacing4,
             AppDesignTokens.spacing3,
             AppDesignTokens.spacing4,
-            AppDesignTokens.spacing2,
+            AppDesignTokens.spacing1,
           ),
-          child: Text(
-            '주최한 모임',
-            style: AppTextStyles.titleMedium.copyWith(
-              fontWeight: AppDesignTokens.fontWeightBold,
-            ),
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Text(
+                '주최한 모임',
+                style: AppTextStyles.titleMedium.copyWith(
+                  fontWeight: AppDesignTokens.fontWeightBold,
+                ),
+              ),
+              // 필터 토글
+              Row(
+                children: [
+                  Icon(
+                    _showCompletedMeetings ? Icons.visibility : Icons.visibility_off,
+                    size: 16,
+                    color: AppDesignTokens.outline,
+                  ),
+                  const SizedBox(width: 4),
+                  GestureDetector(
+                    onTap: () {
+                      setState(() {
+                        _showCompletedMeetings = !_showCompletedMeetings;
+                      });
+                    },
+                    child: Text(
+                      _showCompletedMeetings ? '완료된 모임 숨기기' : '완료된 모임 보기',
+                      style: AppTextStyles.bodySmall.copyWith(
+                        color: AppDesignTokens.primary,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ],
           ),
         ),
+        const SizedBox(height: AppDesignTokens.spacing1),
         if (_isLoading)
           const Center(
             child: Padding(
@@ -324,7 +382,7 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
               child: CircularProgressIndicator(),
             ),
           )
-        else if (_hostedMeetings.isEmpty)
+        else if (filteredMeetings.isEmpty)
           CommonCard(
             padding: AppPadding.all20,
             margin: AppPadding.horizontal16,
@@ -338,7 +396,11 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
                   ),
                   const SizedBox(height: AppDesignTokens.spacing2),
                   Text(
-                    '주최한 모임이 없습니다',
+                    _hostedMeetings.isEmpty 
+                        ? '주최한 모임이 없습니다'
+                        : _showCompletedMeetings 
+                            ? '주최한 모임이 없습니다'
+                            : '진행중인 모임이 없습니다',
                     style: AppTextStyles.bodyMedium.copyWith(
                       color: Theme.of(context).colorScheme.outline,
                     ),
@@ -352,9 +414,9 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
             shrinkWrap: true,
             physics: const NeverScrollableScrollPhysics(),
             padding: AppPadding.horizontal16,
-            itemCount: _hostedMeetings.length > 3 ? 3 : _hostedMeetings.length,
+            itemCount: filteredMeetings.length > 3 ? 3 : filteredMeetings.length,
             itemBuilder: (context, index) {
-              final meeting = _hostedMeetings[index];
+              final meeting = filteredMeetings[index];
               return CommonCard(
                 margin: EdgeInsets.only(bottom: AppDesignTokens.spacing2),
                 padding: AppPadding.all16,
@@ -396,11 +458,52 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
                       ],
                     ),
                     const SizedBox(height: AppDesignTokens.spacing1),
-                    Text(
-                      '${_formatDate(meeting.dateTime)} · ${meeting.participantIds.length}/${meeting.maxParticipants}명',
-                      style: AppTextStyles.bodySmall.copyWith(
-                        color: Theme.of(context).colorScheme.outline,
-                      ),
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        Text(
+                          '${_formatDate(meeting.dateTime)} · ${meeting.participantIds.length}/${meeting.maxParticipants}명',
+                          style: AppTextStyles.bodySmall.copyWith(
+                            color: Theme.of(context).colorScheme.outline,
+                          ),
+                        ),
+                        // 완료된 모임에만 평가 버튼 표시
+                        if (meeting.status == 'completed' && widget.isCurrentUser)
+                          GestureDetector(
+                            onTap: () => _navigateToEvaluation(meeting),
+                            child: Container(
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 8,
+                                vertical: 4,
+                              ),
+                              decoration: BoxDecoration(
+                                color: AppDesignTokens.primary.withOpacity(0.1),
+                                borderRadius: BorderRadius.circular(6),
+                                border: Border.all(
+                                  color: AppDesignTokens.primary.withOpacity(0.3),
+                                ),
+                              ),
+                              child: Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  Icon(
+                                    Icons.star,
+                                    size: 14,
+                                    color: AppDesignTokens.primary,
+                                  ),
+                                  const SizedBox(width: 4),
+                                  Text(
+                                    '평가',
+                                    style: AppTextStyles.labelSmall.copyWith(
+                                      color: AppDesignTokens.primary,
+                                      fontWeight: FontWeight.w600,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ),
+                      ],
                     ),
                   ],
                 ),
@@ -409,6 +512,109 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
           ),
       ],
     );
+  }
+
+  Widget _buildBadgeSection() {
+    return CommonCard(
+      padding: AppPadding.all20,
+      margin: AppPadding.vertical8.add(AppPadding.horizontal16),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Text(
+                '특성 뱃지',
+                style: AppTextStyles.titleMedium.copyWith(
+                  fontWeight: AppDesignTokens.fontWeightBold,
+                ),
+              ),
+              if (widget.isCurrentUser)
+                GestureDetector(
+                  onTap: _editBadges,
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                    decoration: BoxDecoration(
+                      color: AppDesignTokens.primary.withOpacity(0.1),
+                      borderRadius: BorderRadius.circular(16),
+                    ),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Icon(
+                          Icons.edit,
+                          color: AppDesignTokens.primary,
+                          size: 16,
+                        ),
+                        const SizedBox(width: 4),
+                        Text(
+                          '편집',
+                          style: AppTextStyles.bodySmall.copyWith(
+                            color: AppDesignTokens.primary,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+            ],
+          ),
+          const SizedBox(height: AppDesignTokens.spacing4),
+          if (widget.user.badges.isNotEmpty)
+            UserBadgesList(badgeIds: widget.user.badges)
+          else
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.all(16),
+              decoration: BoxDecoration(
+                color: Colors.grey[50],
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(color: Colors.grey[200]!),
+              ),
+              child: Column(
+                children: [
+                  Icon(
+                    Icons.star_border,
+                    color: Colors.grey[400],
+                    size: 32,
+                  ),
+                  const SizedBox(height: 8),
+                  Text(
+                    widget.isCurrentUser
+                        ? '아직 특성 뱃지를 설정하지 않았어요\n편집 버튼을 눌러서 설정해보세요!'
+                        : '설정된 특성 뱃지가 없습니다',
+                    style: AppTextStyles.bodyMedium.copyWith(
+                      color: Colors.grey[600],
+                    ),
+                    textAlign: TextAlign.center,
+                  ),
+                ],
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+
+  void _editBadges() async {
+    final result = await Navigator.push<List<String>>(
+      context,
+      MaterialPageRoute(
+        builder: (context) => BadgeSelectionScreen(
+          initialBadges: widget.user.badges,
+          isOnboarding: false,
+        ),
+      ),
+    );
+
+    if (result != null && mounted) {
+      // 프로필 화면 새로고침 (부모 위젯에서 상태 업데이트 필요)
+      setState(() {
+        // 로컬 상태는 부모에서 관리되므로 여기서는 UI만 새로고침
+      });
+    }
   }
 
   String _getJoinDateText() {
@@ -429,5 +635,17 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
 
   String _formatDate(DateTime dateTime) {
     return '${dateTime.month}/${dateTime.day}';
+  }
+
+  void _navigateToEvaluation(Meeting meeting) {
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (context) => UserEvaluationScreen(
+          meetingId: meeting.id,
+          meeting: meeting,
+        ),
+      ),
+    );
   }
 }

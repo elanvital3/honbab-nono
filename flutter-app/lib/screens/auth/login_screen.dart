@@ -356,6 +356,19 @@ class _LoginScreenState extends State<LoginScreen> {
                       color: Color(0xFF999999),
                     ),
                   ),
+                  const SizedBox(height: 16),
+                  
+                  // 사업자 정보
+                  const Text(
+                    '© 2025 구구랩. All rights reserved.',
+                    textAlign: TextAlign.center,
+                    style: TextStyle(
+                      fontSize: 12,
+                      fontWeight: FontWeight.w600,
+                      color: Color(0xFF999999),
+                      height: 1.4,
+                    ),
+                  ),
                   
                   // 디버그 모드에서만 계정 복구 버튼 표시
                   if (kDebugMode) ...[

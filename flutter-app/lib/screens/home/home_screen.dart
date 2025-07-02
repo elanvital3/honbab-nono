@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:math' as math;
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:kakao_maps_flutter/kakao_maps_flutter.dart';
@@ -30,6 +31,7 @@ import '../../components/common/common_card.dart';
 import '../../components/common/common_button.dart';
 import '../profile/profile_edit_screen.dart';
 import '../settings/notification_settings_screen.dart';
+import '../../components/participant_profile_widget.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -221,50 +223,26 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   }
 
   Widget _buildChatIconWithBadge() {
-    // 전역 ValueNotifier 사용으로 안정성 확보
+    // BottomNavigationBar 호환성을 위한 단순한 Badge 위젯 사용
     return ValueListenableBuilder<int>(
       valueListenable: globalUnreadCountNotifier,
       builder: (context, totalUnreadCount, child) {
         if (kDebugMode) {
           print('🔔 채팅 배지 업데이트: $totalUnreadCount');
         }
-        return Stack(
-          clipBehavior: Clip.none,
-          children: [
-            const Icon(Icons.chat),
-            AnimatedSwitcher(
-              duration: const Duration(milliseconds: 200),
-              transitionBuilder: (Widget child, Animation<double> animation) {
-                return ScaleTransition(scale: animation, child: child);
-              },
-              child: totalUnreadCount > 0
-                  ? Positioned(
-                      key: ValueKey(totalUnreadCount), // 숫자 변경 시 애니메이션
-                      right: -6,
-                      top: -6,
-                      child: Container(
-                        padding: const EdgeInsets.all(2),
-                        decoration: BoxDecoration(
-                          color: Colors.red,
-                          borderRadius: BorderRadius.circular(AppDesignTokens.spacing2),
-                        ),
-                        constraints: const BoxConstraints(
-                          minWidth: 16,
-                          minHeight: 16,
-                        ),
-                        child: Text(
-                          totalUnreadCount > 99 ? '99+' : '$totalUnreadCount',
-                          style: AppTextStyles.labelSmall.copyWith(
-                            color: Colors.white,
-                            fontWeight: AppDesignTokens.fontWeightBold,
-                          ),
-                          textAlign: TextAlign.center,
-                        ),
-                      ),
-                    )
-                  : const SizedBox.shrink(key: ValueKey('empty')),
+        // Flutter Badge 위젯 사용 (BottomNavigationBar 안전)
+        return Badge(
+          isLabelVisible: totalUnreadCount > 0,
+          label: Text(
+            totalUnreadCount > 99 ? '99+' : '$totalUnreadCount',
+            style: const TextStyle(
+              color: Colors.white,
+              fontSize: 10,
+              fontWeight: FontWeight.bold,
             ),
-          ],
+          ),
+          backgroundColor: Colors.red,
+          child: const Icon(Icons.chat),
         );
       },
     );
@@ -300,7 +278,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     // 2. 상태 필터 적용
     if (_selectedStatusFilter == '모집중') {
       meetings = meetings.where((meeting) => meeting.isAvailable && meeting.status == 'active').toList();
-    } else if (_selectedStatusFilter == '완료') {
+    } else if (_selectedStatusFilter == '모집완료') {
       meetings = meetings.where((meeting) => meeting.status == 'completed').toList();
     }
     
@@ -560,6 +538,12 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
         }
 
         if (snapshot.hasError) {
+          // 에러 로깅 추가
+          if (kDebugMode) {
+            print('❌ HomeScreen StreamBuilder 에러: ${snapshot.error}');
+            print('❌ 에러 스택 트레이스: ${snapshot.stackTrace}');
+          }
+          
           return Scaffold(
             body: Center(
               child: Column(
@@ -569,6 +553,16 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                   const SizedBox(height: 16),
                   Text('데이터를 불러오는 중 오류가 발생했습니다.'),
                   const SizedBox(height: 8),
+                  if (kDebugMode) ...[
+                    Padding(
+                      padding: const EdgeInsets.all(16.0),
+                      child: Text(
+                        '에러: ${snapshot.error}',
+                        style: const TextStyle(fontSize: 12, color: Colors.red),
+                        textAlign: TextAlign.center,
+                      ),
+                    ),
+                  ],
                   ElevatedButton(
                     onPressed: () => setState(() {}),
                     child: const Text('다시 시도'),
@@ -762,7 +756,7 @@ class _MeetingListTab extends StatefulWidget {
 }
 
 class _MeetingListTabState extends State<_MeetingListTab> with AutomaticKeepAliveClientMixin {
-  final List<String> _statusFilters = ['전체', '모집중', '완료'];
+  final List<String> _statusFilters = ['전체', '모집중', '모집완료'];
   final List<String> _timeFilters = ['오늘', '내일', '일주일', '전체'];
   final List<String> _locationFilters = ['전체', '서울시 중구', '서울시 강남구', '서울시 마포구', '서울시 성동구', '서울시 용산구'];
 
@@ -867,6 +861,7 @@ class _MeetingListTabState extends State<_MeetingListTab> with AutomaticKeepAliv
                         curve: Curves.easeOutBack,
                         child: MeetingCard(
                           meeting: meeting,
+                          currentUserId: AuthService.currentUserId,
                           onTap: () {
                             Navigator.pushNamed(
                               context,
@@ -990,9 +985,51 @@ class _MapTab extends StatefulWidget {
 
 class _MapTabState extends State<_MapTab> with AutomaticKeepAliveClientMixin {
   final TextEditingController _searchController = TextEditingController();
-  final List<String> _statusFilters = ['전체', '모집중'];
+  final List<String> _statusFilters = ['전체', '모집중', '모집완료'];
   final List<String> _timeFilters = ['오늘', '내일', '일주일', '전체'];
   KakaoMapController? _mapController;
+  
+  // 지도 탭 독립적인 필터 상태
+  String _localStatusFilter = '전체';
+  String _localTimeFilter = '일주일';
+  
+  // 지도 탭 전용 필터링 함수
+  List<Meeting> _filterMapMeetings(List<Meeting> meetings) {
+    var filtered = List<Meeting>.from(meetings);
+    final now = DateTime.now();
+    
+    // 1. 시간 필터 적용
+    if (_localTimeFilter == '오늘') {
+      filtered = filtered.where((meeting) {
+        final meetingDate = DateTime(meeting.dateTime.year, meeting.dateTime.month, meeting.dateTime.day);
+        final today = DateTime(now.year, now.month, now.day);
+        return meetingDate.isAtSameMomentAs(today) && meeting.dateTime.isAfter(now);
+      }).toList();
+    } else if (_localTimeFilter == '내일') {
+      final tomorrow = now.add(const Duration(days: 1));
+      filtered = filtered.where((meeting) {
+        final meetingDate = DateTime(meeting.dateTime.year, meeting.dateTime.month, meeting.dateTime.day);
+        final tomorrowDate = DateTime(tomorrow.year, tomorrow.month, tomorrow.day);
+        return meetingDate.isAtSameMomentAs(tomorrowDate);
+      }).toList();
+    } else if (_localTimeFilter == '일주일') {
+      final oneWeekLater = now.add(const Duration(days: 7));
+      filtered = filtered.where((meeting) => 
+        meeting.dateTime.isAfter(now) && meeting.dateTime.isBefore(oneWeekLater)
+      ).toList();
+    } else if (_localTimeFilter == '전체') {
+      filtered = filtered.where((meeting) => meeting.dateTime.isAfter(now)).toList();
+    }
+    
+    // 2. 상태 필터 적용
+    if (_localStatusFilter == '모집중') {
+      filtered = filtered.where((meeting) => meeting.isAvailable && meeting.status == 'active').toList();
+    } else if (_localStatusFilter == '모집완료') {
+      filtered = filtered.where((meeting) => meeting.status == 'completed').toList();
+    }
+    
+    return filtered;
+  }
   final GlobalKey<KakaoWebViewMapState> _webMapKey = GlobalKey<KakaoWebViewMapState>();
   final ScrollController _cardScrollController = ScrollController();
   
@@ -1003,6 +1040,15 @@ class _MapTabState extends State<_MapTab> with AutomaticKeepAliveClientMixin {
   // 지도 중심 좌표 (현재 위치 기반)
   double _centerLatitude = 37.5665; // 기본값: 서울시청
   double _centerLongitude = 126.9780;
+  
+  // 재검색 관련 상태
+  bool _showReSearchButton = false; // 재검색 버튼 표시 여부
+  double _initialLat = 37.5665; // 초기 위도
+  double _initialLng = 126.9780; // 초기 경도
+  double _currentBoundsSWLat = 0.0; // 현재 경계 남서 위도
+  double _currentBoundsSWLng = 0.0; // 현재 경계 남서 경도
+  double _currentBoundsNELat = 0.0; // 현재 경계 북동 위도
+  double _currentBoundsNELng = 0.0; // 현재 경계 북동 경도
   bool _isLocationInitialized = false;
   
   // 검색 관련 상태
@@ -1042,6 +1088,86 @@ class _MapTabState extends State<_MapTab> with AutomaticKeepAliveClientMixin {
     }
   }
   
+  // 지도 이동 시 호출
+  void _onMapMoved(double lat, double lng) {
+    // 초기 위치에서 일정 거리 이상 이동했는지 확인
+    final distance = _calculateDistance(_initialLat, _initialLng, lat, lng);
+    
+    setState(() {
+      _centerLatitude = lat;
+      _centerLongitude = lng;
+    });
+    
+    if (distance > 0.5) { // 500m 이상 이동 시
+      if (!_showReSearchButton) {
+        setState(() {
+          _showReSearchButton = true;
+        });
+      }
+    }
+  }
+  
+  // 지도 경계 변경 시 호출
+  void _onBoundsChanged(double swLat, double swLng, double neLat, double neLng) {
+    _currentBoundsSWLat = swLat;
+    _currentBoundsSWLng = swLng;
+    _currentBoundsNELat = neLat;
+    _currentBoundsNELng = neLng;
+  }
+  
+  // 두 지점 사이의 거리 계산 (km)
+  double _calculateDistance(double lat1, double lng1, double lat2, double lng2) {
+    const double earthRadius = 6371; // 지구 반지름 (km)
+    final double dLat = _toRadians(lat2 - lat1);
+    final double dLng = _toRadians(lng2 - lng1);
+    
+    final double a = math.sin(dLat / 2) * math.sin(dLat / 2) +
+        math.cos(_toRadians(lat1)) * math.cos(_toRadians(lat2)) *
+        math.sin(dLng / 2) * math.sin(dLng / 2);
+    
+    final double c = 2 * math.atan2(math.sqrt(a), math.sqrt(1 - a));
+    return earthRadius * c;
+  }
+  
+  double _toRadians(double degrees) {
+    return degrees * math.pi / 180;
+  }
+  
+  // 이 지역 재검색
+  void _reSearchInArea() {
+    setState(() {
+      _showReSearchButton = false;
+      _initialLat = _centerLatitude;
+      _initialLng = _centerLongitude;
+    });
+    
+    // 현재 보이는 영역의 모임 개수 계산
+    final visibleMeetings = _getVisibleMeetings();
+    
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text('현재 지역에서 ${visibleMeetings.length}개의 모임을 찾았습니다'),
+        backgroundColor: Theme.of(context).colorScheme.primary,
+        behavior: SnackBarBehavior.floating,
+        duration: const Duration(seconds: 2),
+      ),
+    );
+  }
+  
+  // 현재 보이는 영역의 모임 필터링
+  List<Meeting> _getVisibleMeetings() {
+    final filteredMeetings = _filterMapMeetings(widget.meetings);
+    
+    return filteredMeetings.where((meeting) {
+      if (meeting.latitude == null || meeting.longitude == null) return false;
+      
+      return meeting.latitude! >= _currentBoundsSWLat &&
+             meeting.latitude! <= _currentBoundsNELat &&
+             meeting.longitude! >= _currentBoundsSWLng &&
+             meeting.longitude! <= _currentBoundsNELng;
+    }).toList();
+  }
+
   void _saveMapState() {
     // 현재 지도 상태 저장
     _HomeScreenState._savedMapLatitude = _centerLatitude;
@@ -1063,6 +1189,8 @@ class _MapTabState extends State<_MapTab> with AutomaticKeepAliveClientMixin {
       if (lat >= 33.0 && lat <= 43.0 && lng >= 124.0 && lng <= 132.0) {
         _centerLatitude = lat;
         _centerLongitude = lng;
+        _initialLat = lat;
+        _initialLng = lng;
         _isLocationInitialized = true;
         print('📍 캐시된 위치로 즉시 지도 초기화: $lat, $lng');
         // setState는 호출하지 않음 (build가 아직 호출되지 않았으므로)
@@ -1162,7 +1290,8 @@ class _MapTabState extends State<_MapTab> with AutomaticKeepAliveClientMixin {
       }
       
       // 모임 마커인 경우
-      final meeting = widget.meetings.firstWhere(
+      final filteredMeetings = _filterMapMeetings(widget.meetings);
+      final meeting = filteredMeetings.firstWhere(
         (m) => m.id == markerId,
       );
       
@@ -1346,7 +1475,7 @@ class _MapTabState extends State<_MapTab> with AutomaticKeepAliveClientMixin {
     final markers = <MapMarker>[];
     
     // 기존 모임 마커들 (베이지색)
-    final filteredMeetings = widget.meetings.where((meeting) {
+    final filteredMeetings = _filterMapMeetings(widget.meetings).where((meeting) {
       return meeting.latitude != null && meeting.longitude != null;
     }).toList();
     
@@ -1381,7 +1510,7 @@ class _MapTabState extends State<_MapTab> with AutomaticKeepAliveClientMixin {
     final markers = <WebMapMarker>[];
     
     // 기존 모임 마커들 (베이지색)
-    final filteredMeetings = widget.meetings.where((meeting) {
+    final filteredMeetings = _filterMapMeetings(widget.meetings).where((meeting) {
       return meeting.latitude != null && meeting.longitude != null;
     }).toList();
     
@@ -1444,6 +1573,8 @@ class _MapTabState extends State<_MapTab> with AutomaticKeepAliveClientMixin {
                   level: 5, // 적절한 범위로 조정 (주변 여러 결과 표시)
                   markers: _getFilteredMarkers(),
                   onMarkerClicked: _onMarkerClicked,
+                  onMapMoved: _onMapMoved,
+                  onBoundsChanged: _onBoundsChanged,
                 ),
           ),
         
@@ -1524,9 +1655,11 @@ class _MapTabState extends State<_MapTab> with AutomaticKeepAliveClientMixin {
                         itemCount: _statusFilters.length,
                         itemBuilder: (context, index) {
                           final filter = _statusFilters[index];
-                          final isSelected = widget.selectedStatusFilter == filter;
+                          final isSelected = _localStatusFilter == filter;
                           return _buildMapFilterChip(filter, isSelected, () {
-                            widget.onStatusFilterChanged(filter);
+                            setState(() {
+                              _localStatusFilter = filter;
+                            });
                           });
                         },
                       ),
@@ -1540,9 +1673,11 @@ class _MapTabState extends State<_MapTab> with AutomaticKeepAliveClientMixin {
                         itemCount: _timeFilters.length,
                         itemBuilder: (context, index) {
                           final filter = _timeFilters[index];
-                          final isSelected = widget.selectedTimeFilter == filter;
+                          final isSelected = _localTimeFilter == filter;
                           return _buildMapFilterChip(filter, isSelected, () {
-                            widget.onTimeFilterChanged(filter);
+                            setState(() {
+                              _localTimeFilter = filter;
+                            });
                           });
                         },
                       ),
@@ -1613,10 +1748,67 @@ class _MapTabState extends State<_MapTab> with AutomaticKeepAliveClientMixin {
           ),
         ),
         
-        // 검색 리스트 다시보기 버튼 (현재 위치 버튼 아래)
-        if (_searchResults.isNotEmpty && !_showSearchResults && _searchController.text.isNotEmpty)
+        // 이 지역 재검색 버튼 (현재 위치 버튼 아래) - 검색 후에만 표시
+        if (_showReSearchButton && _searchController.text.isNotEmpty)
           Positioned(
             top: MediaQuery.of(context).padding.top + 200, // 현재 위치 버튼 아래
+            right: 16,
+            child: AnimatedOpacity(
+              duration: const Duration(milliseconds: 300),
+              opacity: _showReSearchButton ? 1.0 : 0.0,
+              child: Container(
+                decoration: BoxDecoration(
+                  color: Colors.white.withOpacity(0.95),
+                  borderRadius: BorderRadius.circular(20),
+                  border: Border.all(
+                    color: Colors.grey.withOpacity(0.3),
+                    width: 1,
+                  ),
+                  boxShadow: [
+                    BoxShadow(
+                      color: Colors.black.withOpacity(0.1),
+                      blurRadius: 8,
+                      offset: const Offset(0, 2),
+                    ),
+                  ],
+                ),
+                child: Material(
+                  color: Colors.transparent,
+                  child: InkWell(
+                    borderRadius: BorderRadius.circular(20),
+                    onTap: _reSearchInArea,
+                    child: const Padding(
+                      padding: EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Icon(
+                            Icons.refresh,
+                            size: 18,
+                            color: Colors.black87,
+                          ),
+                          SizedBox(width: 6),
+                          Text(
+                            '이 지역 재검색',
+                            style: TextStyle(
+                              fontSize: 13,
+                              fontWeight: FontWeight.w600,
+                              color: Colors.black87,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          ),
+        
+        // 검색 리스트 다시보기 버튼 (재검색 버튼 아래)
+        if (_searchResults.isNotEmpty && !_showSearchResults && _searchController.text.isNotEmpty)
+          Positioned(
+            top: MediaQuery.of(context).padding.top + (_showReSearchButton ? 260 : 200), // 재검색 버튼이 있으면 더 아래로
             right: 16,
             child: Container(
               decoration: BoxDecoration(
@@ -2644,6 +2836,37 @@ class _ChatListTabState extends State<_ChatListTab> with AutomaticKeepAliveClien
   Map<String, StreamSubscription<int>> _unreadCountStreamSubscriptions = {};
   Timer? _updateDebounceTimer; // 디바운스 타이머
   
+  // 참여자 정보 캐시 (participantId -> User)
+  final Map<String, User> _participantCache = {};
+  
+  // 참여자 정보 로드 (캐시 활용)
+  Future<List<User>> _loadParticipants(List<String> participantIds) async {
+    final participants = <User>[];
+    
+    for (final participantId in participantIds) {
+      // 캐시에서 먼저 확인
+      if (_participantCache.containsKey(participantId)) {
+        participants.add(_participantCache[participantId]!);
+        continue;
+      }
+      
+      // 캐시에 없으면 Firestore에서 로드
+      try {
+        final user = await UserService.getUser(participantId);
+        if (user != null) {
+          _participantCache[participantId] = user; // 캐시에 저장
+          participants.add(user);
+        }
+      } catch (e) {
+        if (kDebugMode) {
+          print('❌ 참여자 정보 로드 실패: $participantId - $e');
+        }
+      }
+    }
+    
+    return participants;
+  }
+  
   // 총 안읽은 메시지 수 업데이트 (setState 없음!)
   void _updateTotalUnreadCount() {
     final newTotal = _unreadCountNotifiers.values.fold(0, (sum, notifier) => sum + notifier.value);
@@ -2995,23 +3218,35 @@ class _ChatListTabState extends State<_ChatListTab> with AutomaticKeepAliveClien
             padding: const EdgeInsets.all(16),
             child: Row(
               children: [
-                // 모임 아이콘
-                Container(
-                  width: 48,
-                  height: 48,
-                  decoration: BoxDecoration(
-                    color: isActive 
-                      ? Theme.of(context).colorScheme.primary
-                      : Theme.of(context).colorScheme.surfaceContainer,
-                    borderRadius: BorderRadius.circular(12),
-                  ),
-                  child: Icon(
-                    Icons.restaurant,
-                    color: isActive 
-                      ? Colors.white
-                      : Theme.of(context).colorScheme.outline,
-                    size: 24,
-                  ),
+                // 참여자 프로필 사진 (4등분)
+                FutureBuilder<List<User>>(
+                  future: _loadParticipants(meeting.participantIds),
+                  builder: (context, snapshot) {
+                    if (snapshot.connectionState == ConnectionState.waiting) {
+                      // 로딩 중 기본 아이콘 표시
+                      return Container(
+                        width: 48,
+                        height: 48,
+                        decoration: BoxDecoration(
+                          color: Theme.of(context).colorScheme.surfaceContainer,
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                        child: Icon(
+                          Icons.group,
+                          color: Theme.of(context).colorScheme.outline,
+                          size: 24,
+                        ),
+                      );
+                    }
+                    
+                    final participants = snapshot.data ?? [];
+                    return ParticipantProfileWidget(
+                      participants: participants,
+                      currentUserId: _currentUserId ?? '',
+                      hostId: meeting.hostId,
+                      size: 48,
+                    );
+                  },
                 ),
                 
                 const SizedBox(width: 12),
@@ -4404,12 +4639,19 @@ class _HomeTabWithSubTabsState extends State<_HomeTabWithSubTabs> with SingleTic
 }
 
 // 내모임 탭 위젯
-class _MyMeetingsTab extends StatelessWidget {
+class _MyMeetingsTab extends StatefulWidget {
   final List<Meeting> meetings;
   
   const _MyMeetingsTab({
     required this.meetings,
   });
+
+  @override
+  State<_MyMeetingsTab> createState() => _MyMeetingsTabState();
+}
+
+class _MyMeetingsTabState extends State<_MyMeetingsTab> {
+  bool _showCompletedMeetings = false; // 완료된 모임 표시 여부
 
   @override
   Widget build(BuildContext context) {
@@ -4421,11 +4663,11 @@ class _MyMeetingsTab extends StatelessWidget {
     }
 
     // 내 모임 필터링
-    final myHostedMeetings = meetings.where((meeting) => 
+    final myHostedMeetings = widget.meetings.where((meeting) => 
       meeting.hostId == currentUserId
     ).toList();
     
-    final myParticipatingMeetings = meetings.where((meeting) => 
+    final myParticipatingMeetings = widget.meetings.where((meeting) => 
       meeting.participantIds.contains(currentUserId) && meeting.hostId != currentUserId
     ).toList();
 
@@ -4448,8 +4690,22 @@ class _MyMeetingsTab extends StatelessWidget {
       });
     }
     
+    // 현재 시간
+    final now = DateTime.now();
+    
+    // 필터링된 모임 목록
+    final filteredMeetings = allMyMeetings.where((item) {
+      final meeting = item['meeting'] as Meeting;
+      if (_showCompletedMeetings) {
+        return true; // 모든 모임 표시
+      } else {
+        // 진행중인 모임만 표시 (미래 모임 + 완료되지 않은 모임)
+        return meeting.status != 'completed' || meeting.dateTime.isAfter(now);
+      }
+    }).toList();
+    
     // 날짜순 정렬 (가까운 날짜부터)
-    allMyMeetings.sort((a, b) => 
+    filteredMeetings.sort((a, b) => 
       (a['meeting'] as Meeting).dateTime.compareTo((b['meeting'] as Meeting).dateTime)
     );
 
@@ -4458,18 +4714,48 @@ class _MyMeetingsTab extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // 제목
-          Text(
-            '내 모임 (${allMyMeetings.length}개)',
-            style: AppTextStyles.titleLarge.copyWith(
-              fontWeight: FontWeight.w600,
-            ),
+          // 제목과 필터 토글
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Text(
+                '내 모임 (${filteredMeetings.length}개)',
+                style: AppTextStyles.titleLarge.copyWith(
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+              // 필터 토글
+              Row(
+                children: [
+                  Icon(
+                    _showCompletedMeetings ? Icons.visibility : Icons.visibility_off,
+                    size: 16,
+                    color: AppDesignTokens.outline,
+                  ),
+                  const SizedBox(width: 4),
+                  GestureDetector(
+                    onTap: () {
+                      setState(() {
+                        _showCompletedMeetings = !_showCompletedMeetings;
+                      });
+                    },
+                    child: Text(
+                      _showCompletedMeetings ? '완료된 모임 숨기기' : '완료된 모임 보기',
+                      style: AppTextStyles.bodySmall.copyWith(
+                        color: AppDesignTokens.primary,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ],
           ),
           
           const SizedBox(height: 16),
           
           // 모임이 없을 때
-          if (allMyMeetings.isEmpty)
+          if (filteredMeetings.isEmpty)
             CommonCard(
               child: Padding(
                 padding: const EdgeInsets.all(24),
@@ -4483,7 +4769,11 @@ class _MyMeetingsTab extends StatelessWidget {
                       ),
                       const SizedBox(height: 12),
                       Text(
-                        '참여 중인 모임이 없어요',
+                        allMyMeetings.isEmpty 
+                            ? '참여 중인 모임이 없어요'
+                            : _showCompletedMeetings 
+                                ? '참여한 모임이 없어요'
+                                : '진행중인 모임이 없어요',
                         style: AppTextStyles.bodyLarge.copyWith(
                           color: AppDesignTokens.onSurfaceVariant,
                         ),
@@ -4502,7 +4792,7 @@ class _MyMeetingsTab extends StatelessWidget {
             )
           // 모임 리스트
           else
-            ...allMyMeetings.map((item) => Padding(
+            ...filteredMeetings.map((item) => Padding(
               padding: const EdgeInsets.only(bottom: 8),
               child: _MyMeetingCard(
                 meeting: item['meeting'] as Meeting,

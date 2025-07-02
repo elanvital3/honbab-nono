@@ -176,6 +176,12 @@ class _CreateMeetingScreenState extends State<CreateMeetingScreen> {
         _selectedTime!.minute,
       );
 
+      // 과거 시간 검증
+      if (meetingDateTime.isBefore(DateTime.now())) {
+        _showErrorSnackBar('모임 시간은 현재 시간보다 늦어야 합니다');
+        return;
+      }
+
       // 선택된 식당 주소에서 도시 정보 추출
       String city = _extractCityFromAddress(_selectedRestaurant!.address);
       
@@ -213,6 +219,7 @@ class _CreateMeetingScreenState extends State<CreateMeetingScreen> {
         latitude: _selectedRestaurant!.latitude,
         longitude: _selectedRestaurant!.longitude,
         restaurantName: _selectedRestaurant!.name,
+        restaurantId: _selectedRestaurant!.id, // 즐겨찾기 시스템을 위한 식당 ID
         genderPreference: _genderPreference,
         city: city, // 도시 정보 추가
         fullAddress: _selectedRestaurant!.address, // 전체 주소 추가

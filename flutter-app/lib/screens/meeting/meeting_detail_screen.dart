@@ -15,6 +15,11 @@ import '../../constants/app_design_tokens.dart';
 import '../../styles/text_styles.dart';
 import '../../components/common/common_card.dart';
 import '../../components/common/common_button.dart';
+import '../../components/common/common_confirm_dialog.dart';
+import '../../components/dutch_pay_calculator.dart';
+import '../../components/meeting_auto_complete_dialog.dart';
+import '../../services/meeting_auto_completion_service.dart';
+import '../evaluation/user_evaluation_screen.dart';
 
 class MeetingDetailScreen extends StatefulWidget {
   final Meeting meeting;
@@ -28,7 +33,7 @@ class MeetingDetailScreen extends StatefulWidget {
   State<MeetingDetailScreen> createState() => _MeetingDetailScreenState();
 }
 
-class _MeetingDetailScreenState extends State<MeetingDetailScreen> with WidgetsBindingObserver {
+class _MeetingDetailScreenState extends State<MeetingDetailScreen> with WidgetsBindingObserver, TickerProviderStateMixin {
   bool _isJoined = false;
   bool _isHost = false;
   bool _isPending = false; // 승인 대기 상태
@@ -41,17 +46,35 @@ class _MeetingDetailScreenState extends State<MeetingDetailScreen> with WidgetsB
   bool _isLoadingParticipants = true;
   Meeting? _currentMeeting; // 현재 모임 데이터 (실시간 업데이트용)
   
+  // 탭 컨트롤러 추가
+  late TabController _tabController;
+  
   @override
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
     _currentMeeting = widget.meeting; // 초기 데이터 설정
+    _tabController = TabController(length: 2, vsync: this);
+    
+    // 탭 변경 시 화면 새로고침 (높이 재계산)
+    _tabController.addListener(() {
+      if (_tabController.indexIsChanging) {
+        setState(() {
+          // 탭 변경 시 화면 새로고침
+        });
+      }
+    });
+    
     _initializeUserState();
+    
+    // 자동 완료 체크 (호스트만)
+    _checkAutoCompletion();
   }
 
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
+    _tabController.dispose();
     super.dispose();
   }
 
@@ -362,7 +385,7 @@ class _MeetingDetailScreenState extends State<MeetingDetailScreen> with WidgetsB
                 _buildInfo(currentMeeting),
                 _buildDescription(currentMeeting),
                 _buildParticipants(currentMeeting),
-                const SizedBox(height: 80), // 버튼 공간 확보
+                const SizedBox(height: 60), // 버튼 공간 확보
               ],
             ),
           ),
@@ -512,179 +535,406 @@ class _MeetingDetailScreenState extends State<MeetingDetailScreen> with WidgetsB
 
 
   Widget _buildParticipants(Meeting meeting) {
-    return CommonCard(
-      padding: AppPadding.all20,
-      margin: AppPadding.vertical8.add(AppPadding.horizontal16),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
+    return StreamBuilder<List<Meeting>>(
+      stream: MeetingService.getMeetingsStream(),
+      builder: (context, snapshot) {
+        List<String> pendingApplicantIds = [];
+        if (snapshot.hasData) {
+          try {
+            final currentMeeting = snapshot.data!.firstWhere(
+              (m) => m.id == meeting.id,
+            );
+            pendingApplicantIds = currentMeeting.pendingApplicantIds;
+          } catch (e) {
+            pendingApplicantIds = meeting.pendingApplicantIds;
+          }
+        } else {
+          pendingApplicantIds = meeting.pendingApplicantIds;
+        }
+
+        return CommonCard(
+          padding: const EdgeInsets.all(20),
+          margin: AppPadding.vertical8.add(AppPadding.horizontal16),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Text(
-                '참여자',
-                style: AppTextStyles.headlineMedium,
-              ),
-              const Spacer(),
+              // 탭 바
               Container(
-                padding: const EdgeInsets.symmetric(horizontal: AppDesignTokens.spacing2, vertical: AppDesignTokens.spacing1),
                 decoration: BoxDecoration(
-                  color: AppDesignTokens.surfaceContainer,
-                  borderRadius: AppBorderRadius.medium,
+                  color: AppDesignTokens.surfaceContainer.withOpacity(0.5),
+                  borderRadius: BorderRadius.circular(8),
                 ),
-                child: Text(
-                  '${meeting.currentParticipants}/${meeting.maxParticipants}명',
-                  style: AppTextStyles.labelMedium.semiBold,
+                child: TabBar(
+                  controller: _tabController,
+                  labelColor: AppDesignTokens.primary,
+                  unselectedLabelColor: AppDesignTokens.outline,
+                  indicator: BoxDecoration(
+                    color: AppDesignTokens.primary.withOpacity(0.1),
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  indicatorSize: TabBarIndicatorSize.tab,
+                  dividerColor: Colors.transparent,
+                  labelStyle: AppTextStyles.bodyMedium.semiBold,
+                  unselectedLabelStyle: AppTextStyles.bodyMedium,
+                  tabs: [
+                    Tab(
+                      child: Row(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          const Icon(Icons.group, size: 18),
+                          const SizedBox(width: 8),
+                          Text('참여자 (${meeting.currentParticipants})'),
+                        ],
+                      ),
+                    ),
+                    Tab(
+                      child: Row(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          const Icon(Icons.people_outline, size: 18),
+                          const SizedBox(width: 8),
+                          Text('신청자 (${pendingApplicantIds.length})'),
+                          if (pendingApplicantIds.isNotEmpty && _isHost)
+                            Container(
+                              margin: const EdgeInsets.only(left: 4),
+                              padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
+                              decoration: BoxDecoration(
+                                color: Colors.red,
+                                borderRadius: BorderRadius.circular(8),
+                              ),
+                              child: Text(
+                                '${pendingApplicantIds.length}',
+                                style: const TextStyle(
+                                  color: Colors.white,
+                                  fontSize: 10,
+                                  fontWeight: FontWeight.bold,
+                                ),
+                              ),
+                            ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: AppDesignTokens.spacing4),
+              
+              // 탭 컨텐츠 (동적 높이)
+              AnimatedBuilder(
+                animation: _tabController,
+                builder: (context, child) {
+                  final int currentTabIndex = _tabController.index;
+                  final int userCount = currentTabIndex == 0 
+                    ? meeting.participantIds.length 
+                    : pendingApplicantIds.length;
+                  
+                  return SizedBox(
+                    height: _calculateTabHeight(userCount),
+                    child: TabBarView(
+                      controller: _tabController,
+                      children: [
+                        // 참여자 탭
+                        _buildParticipantList(meeting),
+                        // 신청자 탭
+                        _buildApplicantList(meeting, pendingApplicantIds),
+                      ],
+                    ),
+                  );
+                },
+              ),
+            ],
+          ),
+        );
+      },
+    );
+  }
+  
+  Widget _buildParticipantList(Meeting meeting) {
+    if (meeting.participantIds.isEmpty) {
+      return const Center(
+        child: Padding(
+          padding: EdgeInsets.all(12),
+          child: Text(
+            '참여자가 없습니다',
+            style: TextStyle(
+              color: Colors.grey,
+              fontSize: 14,
+            ),
+          ),
+        ),
+      );
+    }
+
+    return FutureBuilder<List<app_user.User>>(
+      future: _getParticipantUsers(meeting.participantIds),
+      builder: (context, snapshot) {
+        if (snapshot.connectionState == ConnectionState.waiting) {
+          return const Center(
+            child: Padding(
+              padding: EdgeInsets.all(24),
+              child: CircularProgressIndicator(
+                color: AppDesignTokens.primary,
+              ),
+            ),
+          );
+        }
+        
+        final participants = snapshot.data ?? [];
+        return ListView.builder(
+          padding: const EdgeInsets.symmetric(vertical: 8),
+          itemCount: participants.length,
+          physics: participants.length > 4 
+            ? const AlwaysScrollableScrollPhysics()
+            : const NeverScrollableScrollPhysics(),
+          itemBuilder: (context, index) {
+            final participant = participants[index];
+            final isHost = participant.id == meeting.hostId;
+            return Container(
+              margin: EdgeInsets.only(
+                bottom: index == participants.length - 1 ? 8 : 12,
+              ),
+              child: _buildClickableUserRow(
+                user: participant,
+                isHost: isHost,
+              ),
+            );
+          },
+        );
+      },
+    );
+  }
+
+  Widget _buildApplicantList(Meeting meeting, List<String> pendingApplicantIds) {
+    if (pendingApplicantIds.isEmpty) {
+      return const Center(
+        child: Padding(
+          padding: EdgeInsets.all(12),
+          child: Text(
+            '신청자가 없습니다',
+            style: TextStyle(
+              color: Colors.grey,
+              fontSize: 14,
+            ),
+          ),
+        ),
+      );
+    }
+
+    return FutureBuilder<List<app_user.User>>(
+      future: _getPendingApplicantUsers(pendingApplicantIds),
+      builder: (context, snapshot) {
+        if (snapshot.connectionState == ConnectionState.waiting) {
+          return const Center(
+            child: Padding(
+              padding: EdgeInsets.all(24),
+              child: CircularProgressIndicator(
+                color: AppDesignTokens.primary,
+              ),
+            ),
+          );
+        }
+
+        final applicants = snapshot.data ?? [];
+        return ListView.builder(
+          padding: const EdgeInsets.symmetric(vertical: 8),
+          itemCount: applicants.length,
+          physics: applicants.length > 4 
+            ? const AlwaysScrollableScrollPhysics()
+            : const NeverScrollableScrollPhysics(),
+          itemBuilder: (context, index) {
+            final applicant = applicants[index];
+            return Container(
+              margin: EdgeInsets.only(
+                bottom: index == applicants.length - 1 ? 8 : 12,
+              ),
+              child: Row(
+                children: [
+                  Expanded(
+                    child: _buildClickableUserRow(
+                      user: applicant,
+                      isHost: false,
+                    ),
+                  ),
+                  if (_isHost) ...[
+                    const SizedBox(width: 8),
+                    Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        SizedBox(
+                          width: 55,
+                          height: 30,
+                          child: ElevatedButton(
+                            onPressed: () => _approveApplicant(meeting.id, applicant.id),
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: AppDesignTokens.primary,
+                              foregroundColor: Colors.white,
+                              padding: EdgeInsets.zero,
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(6),
+                              ),
+                            ),
+                            child: const Text(
+                              '승인',
+                              style: TextStyle(
+                                fontSize: 12,
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
+                          ),
+                        ),
+                        const SizedBox(width: 6),
+                        SizedBox(
+                          width: 55,
+                          height: 30,
+                          child: OutlinedButton(
+                            onPressed: () => _rejectApplicant(meeting.id, applicant.id),
+                            style: OutlinedButton.styleFrom(
+                              foregroundColor: Colors.grey.shade600,
+                              side: BorderSide(color: Colors.grey.shade300),
+                              padding: EdgeInsets.zero,
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(6),
+                              ),
+                            ),
+                            child: const Text(
+                              '거절',
+                              style: TextStyle(
+                                fontSize: 12,
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ],
+                ],
+              ),
+            );
+          },
+        );
+      },
+    );
+  }
+
+  double _calculateTabHeight(int userCount) {
+    // 기본 높이 (empty 메시지용) - 줄임
+    const double minHeight = 60;
+    
+    // 사용자 1명당 높이 (padding 포함) - 줄임
+    const double itemHeight = 45;
+    
+    // 최대 4명까지만 높이 증가, 이후는 스크롤
+    const int maxVisibleUsers = 4;
+    const double maxHeight = minHeight + (maxVisibleUsers * itemHeight);
+    
+    if (userCount == 0) {
+      return minHeight;
+    } else if (userCount <= maxVisibleUsers) {
+      return minHeight + (userCount * itemHeight);
+    } else {
+      return maxHeight;
+    }
+  }
+
+  Widget _buildClickableUserRow({
+    required app_user.User user,
+    required bool isHost,
+  }) {
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        onTap: () {
+          Navigator.push(
+            context,
+            MaterialPageRoute(
+              builder: (context) => UserProfileScreen(
+                user: user,
+                isCurrentUser: user.id == _currentUserId,
+              ),
+            ),
+          );
+        },
+        borderRadius: BorderRadius.circular(8),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(vertical: 4, horizontal: 4),
+          child: Row(
+            children: [
+              CircleAvatar(
+                radius: 18,
+                backgroundColor: isHost 
+                    ? AppDesignTokens.primary
+                    : AppDesignTokens.surfaceContainer,
+                backgroundImage: user.profileImageUrl != null && user.profileImageUrl!.isNotEmpty
+                    ? NetworkImage(user.profileImageUrl!)
+                    : null,
+                child: user.profileImageUrl == null || user.profileImageUrl!.isEmpty
+                    ? Text(
+                        user.name[0],
+                        style: TextStyle(
+                          color: isHost 
+                            ? Colors.white
+                            : AppDesignTokens.onSurface,
+                          fontWeight: FontWeight.bold,
+                          fontSize: 14,
+                        ),
+                      )
+                    : null,
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        Text(
+                          user.name,
+                          style: TextStyle(
+                            fontWeight: isHost ? FontWeight.w600 : FontWeight.w500,
+                            fontSize: 15,
+                          ),
+                        ),
+                        if (isHost) ...[
+                          const SizedBox(width: 6),
+                          Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 2),
+                            decoration: BoxDecoration(
+                              color: AppDesignTokens.primary,
+                              borderRadius: BorderRadius.circular(3),
+                            ),
+                            child: const Text(
+                              '호스트',
+                              style: TextStyle(
+                                color: Colors.white,
+                                fontSize: 9,
+                                fontWeight: FontWeight.bold,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ],
+                    ),
+                    if (user.bio != null && user.bio!.isNotEmpty)
+                      Text(
+                        user.bio!,
+                        style: const TextStyle(
+                          color: Colors.grey,
+                          fontSize: 12,
+                        ),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                  ],
                 ),
               ),
             ],
           ),
-          const SizedBox(height: AppDesignTokens.spacing4),
-          // 실시간 참여자 리스트
-          meeting.participantIds.isEmpty
-              ? Padding(
-                  padding: const EdgeInsets.all(AppDesignTokens.spacing5),
-                  child: Text(
-                    '참여자가 없습니다',
-                    style: TextStyle(
-                      fontSize: AppDesignTokens.fontSizeBodySmall,
-                      color: AppDesignTokens.onSurfaceVariant,
-                    ),
-                    textAlign: TextAlign.center,
-                  ),
-                )
-              : FutureBuilder<List<app_user.User>>(
-                  future: _getParticipantUsers(meeting.participantIds),
-                  builder: (context, snapshot) {
-                    if (snapshot.connectionState == ConnectionState.waiting) {
-                      return const Center(
-                        child: Padding(
-                          padding: EdgeInsets.all(AppDesignTokens.spacing5),
-                          child: CircularProgressIndicator(
-                            color: AppDesignTokens.primary,
-                          ),
-                        ),
-                      );
-                    }
-                    
-                    final participants = snapshot.data ?? [];
-                    return ListView.builder(
-                      shrinkWrap: true,
-                      physics: const NeverScrollableScrollPhysics(),
-                      itemCount: participants.length,
-                      itemBuilder: (context, index) {
-                        final participant = participants[index];
-                        final isHost = participant.id == meeting.hostId;
-                        return Container(
-                          margin: EdgeInsets.only(bottom: index == participants.length - 1 ? 0 : AppDesignTokens.spacing3),
-                          child: Row(
-                            children: [
-                              CircleAvatar(
-                                radius: AppDesignTokens.spacing4,
-                                backgroundColor: isHost 
-                                    ? AppDesignTokens.primary
-                                    : AppDesignTokens.surfaceContainer,
-                                backgroundImage: participant.profileImageUrl != null && participant.profileImageUrl!.isNotEmpty
-                                    ? NetworkImage(participant.profileImageUrl!)
-                                    : null,
-                                child: participant.profileImageUrl == null || participant.profileImageUrl!.isEmpty
-                                    ? Text(
-                                        participant.name[0],
-                                        style: AppTextStyles.labelMedium.copyWith(
-                                          color: isHost 
-                                            ? Colors.white
-                                            : AppDesignTokens.onSurface,
-                                          fontWeight: AppDesignTokens.fontWeightBold,
-                                        ),
-                                      )
-                                    : null,
-                              ),
-                              const SizedBox(width: AppDesignTokens.spacing3),
-                              Expanded(
-                                child: Column(
-                                  crossAxisAlignment: CrossAxisAlignment.start,
-                                  children: [
-                                    Row(
-                                      children: [
-                                        Text(
-                                          participant.name,
-                                          style: AppTextStyles.bodyMedium.copyWith(
-                                            fontWeight: isHost ? AppDesignTokens.fontWeightSemiBold : AppDesignTokens.fontWeightRegular,
-                                          ),
-                                        ),
-                                        if (isHost) ...[
-                                          const SizedBox(width: AppDesignTokens.spacing1),
-                                          Container(
-                                            padding: const EdgeInsets.symmetric(horizontal: AppDesignTokens.spacing1, vertical: 2),
-                                            decoration: BoxDecoration(
-                                              color: AppDesignTokens.primary,
-                                              borderRadius: AppBorderRadius.small,
-                                            ),
-                                            child: Text(
-                                              '호스트',
-                                              style: AppTextStyles.labelSmall.copyWith(
-                                                color: Colors.white,
-                                                fontWeight: AppDesignTokens.fontWeightBold,
-                                              ),
-                                            ),
-                                          ),
-                                        ],
-                                      ],
-                                    ),
-                                    if (participant.bio != null && participant.bio!.isNotEmpty)
-                                      Text(
-                                        participant.bio!,
-                                        style: AppTextStyles.bodySmall,
-                                        maxLines: 1,
-                                        overflow: TextOverflow.ellipsis,
-                                      ),
-                                  ],
-                                ),
-                              ),
-                              if (isHost)
-                                Container(
-                                  decoration: BoxDecoration(
-                                    border: Border.all(
-                                      color: Theme.of(context).colorScheme.outline.withOpacity(0.3),
-                                    ),
-                                    borderRadius: BorderRadius.circular(8),
-                                  ),
-                                  child: TextButton(
-                                    onPressed: () {
-                                      Navigator.push(
-                                        context,
-                                        MaterialPageRoute(
-                                          builder: (context) => UserProfileScreen(
-                                            user: participant,
-                                            isCurrentUser: participant.id == _currentUserId,
-                                          ),
-                                        ),
-                                      );
-                                    },
-                                    style: TextButton.styleFrom(
-                                      minimumSize: const Size(60, 24),
-                                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
-                                    ),
-                                    child: Text(
-                                      '프로필 보기',
-                                      style: TextStyle(
-                                        color: Theme.of(context).colorScheme.onSurface,
-                                        fontSize: 12,
-                                      ),
-                                    ),
-                                  ),
-                                ),
-                            ],
-                          ),
-                        );
-                      },
-                    );
-                  },
-                ),
-        ],
+        ),
       ),
     );
   }
-  
+
   Future<List<app_user.User>> _getParticipantUsers(List<String> participantIds) async {
     final List<app_user.User> users = [];
     
@@ -725,8 +975,12 @@ class _MeetingDetailScreenState extends State<MeetingDetailScreen> with WidgetsB
   }
   
   Widget _buildHostButtons() {
+    final meeting = _currentMeeting ?? widget.meeting;
+    final isCompleted = meeting.status == 'completed';
+
     return Row(
       children: [
+        // 1. 채팅방 (항상 표시)
         Expanded(
           child: CommonButton(
             text: '채팅방',
@@ -735,13 +989,76 @@ class _MeetingDetailScreenState extends State<MeetingDetailScreen> with WidgetsB
             fullWidth: true,
           ),
         ),
-        const SizedBox(width: AppDesignTokens.spacing3),
+        const SizedBox(width: AppDesignTokens.spacing2),
+        
+        // 2. 모임완료 또는 참여자 평가
         Expanded(
           child: CommonButton(
-            text: '모임 관리',
+            text: isCompleted ? '참여자 평가' : '모임완료',
             variant: ButtonVariant.primary,
-            onPressed: _showMeetingManagement,
+            onPressed: isCompleted ? () => _navigateToEvaluation() : () => _completeMeeting(),
             fullWidth: true,
+            icon: isCompleted ? const Icon(Icons.star, size: 18, color: Colors.white) : null,
+          ),
+        ),
+        const SizedBox(width: AppDesignTokens.spacing2),
+        
+        // 3. 더치페이 계산기 (계산기 아이콘)
+        InkWell(
+          onTap: () => _showDutchPayCalculator(),
+          borderRadius: BorderRadius.circular(12),
+          child: Container(
+            width: 48,
+            height: 48,
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(12),
+              color: Theme.of(context).colorScheme.surfaceContainer,
+            ),
+            child: Icon(
+              Icons.calculate,
+              color: Theme.of(context).colorScheme.primary,
+              size: 20,
+            ),
+          ),
+        ),
+        const SizedBox(width: AppDesignTokens.spacing2),
+        
+        // 4. 모임수정 (연필 아이콘 - 테두리 없음)
+        InkWell(
+          onTap: () => _editMeeting(),
+          borderRadius: BorderRadius.circular(12),
+          child: Container(
+            width: 48,
+            height: 48,
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(12),
+              color: Theme.of(context).colorScheme.surfaceContainer,
+            ),
+            child: Icon(
+              Icons.edit,
+              color: Theme.of(context).colorScheme.outline,
+              size: 20,
+            ),
+          ),
+        ),
+        const SizedBox(width: AppDesignTokens.spacing2),
+        
+        // 5. 모임삭제 (빨간색 쓰레기통 - 테두리 없음)
+        InkWell(
+          onTap: () => _deleteMeeting(),
+          borderRadius: BorderRadius.circular(12),
+          child: Container(
+            width: 48,
+            height: 48,
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(12),
+              color: Theme.of(context).colorScheme.surfaceContainer,
+            ),
+            child: const Icon(
+              Icons.delete,
+              color: Color(0xFFE53935),
+              size: 20,
+            ),
           ),
         ),
       ],
@@ -832,305 +1149,6 @@ class _MeetingDetailScreenState extends State<MeetingDetailScreen> with WidgetsB
     );
   }
   
-  void _showMeetingManagement() {
-    showModalBottomSheet(
-      context: context,
-      isScrollControlled: true,
-      backgroundColor: Colors.transparent,
-      builder: (context) => _buildMeetingManagementModal(),
-    );
-  }
-  
-  Widget _buildMeetingManagementModal() {
-    return Container(
-      decoration: BoxDecoration(
-        color: AppDesignTokens.surface,
-        borderRadius: const BorderRadius.vertical(top: Radius.circular(AppDesignTokens.radiusLarge)),
-      ),
-      child: SafeArea(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-          // 핸들
-          Container(
-            margin: const EdgeInsets.only(top: AppDesignTokens.spacing3),
-            width: 40,
-            height: 4,
-            decoration: BoxDecoration(
-              color: AppDesignTokens.outline.withOpacity(0.3),
-              borderRadius: BorderRadius.circular(2),
-            ),
-          ),
-          
-          // 헤더 (더 컴팩트하게)
-          Padding(
-            padding: const EdgeInsets.fromLTRB(AppDesignTokens.spacing5, AppDesignTokens.spacing4, AppDesignTokens.spacing3, AppDesignTokens.spacing3),
-            child: Row(
-              children: [
-                Icon(
-                  Icons.settings,
-                  color: AppDesignTokens.primary,
-                  size: 22,
-                ),
-                const SizedBox(width: AppDesignTokens.spacing2),
-                Text(
-                  '모임 관리',
-                  style: AppTextStyles.headlineMedium,
-                ),
-                const Spacer(),
-                IconButton(
-                  onPressed: () => Navigator.pop(context),
-                  icon: const Icon(Icons.close, size: 22),
-                  padding: const EdgeInsets.all(8),
-                  constraints: const BoxConstraints(minWidth: 36, minHeight: 36),
-                ),
-              ],
-            ),
-          ),
-          
-          // 4개 관리 메뉴 (1줄에 4개 배치, 구분선 제거)
-          Container(
-            padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
-            child: Row(
-              mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-              children: [
-                // 모임 수정
-                Expanded(
-                  child: _buildCompactManagementOption(
-                    icon: Icons.edit,
-                    title: '모임 수정',
-                    onTap: () {
-                      Navigator.pop(context);
-                      _editMeeting();
-                    },
-                  ),
-                ),
-                const SizedBox(width: 8),
-                
-                // 신청자 관리
-                Expanded(
-                  child: StreamBuilder<List<Meeting>>(
-                    stream: MeetingService.getMeetingsStream(),
-                    builder: (context, snapshot) {
-                      int pendingCount = 0;
-                      if (snapshot.hasData) {
-                        try {
-                          final currentMeeting = snapshot.data!.firstWhere(
-                            (meeting) => meeting.id == widget.meeting.id,
-                          );
-                          pendingCount = currentMeeting.pendingApplicantIds.length;
-                        } catch (e) {
-                          pendingCount = 0;
-                        }
-                      }
-                      
-                      return _buildCompactManagementOptionWithBadge(
-                        icon: Icons.people,
-                        title: '신청자 관리',
-                        badgeCount: pendingCount,
-                        onTap: () {
-                          Navigator.pop(context);
-                          _manageApplicants();
-                        },
-                      );
-                    },
-                  ),
-                ),
-                const SizedBox(width: 8),
-                
-                // 모임 완료
-                Expanded(
-                  child: _buildCompactManagementOption(
-                    icon: Icons.check_circle_outline,
-                    title: '모임 완료',
-                    onTap: () {
-                      Navigator.pop(context);
-                      _completeMeeting();
-                    },
-                    isSpecial: true,
-                  ),
-                ),
-                const SizedBox(width: 8),
-                
-                // 모임 삭제
-                Expanded(
-                  child: _buildCompactManagementOption(
-                    icon: Icons.delete_outline,
-                    title: '모임 삭제',
-                    onTap: () {
-                      Navigator.pop(context);
-                      _deleteMeeting();
-                    },
-                    isDestructive: true,
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ],
-        ),
-      ),
-    );
-  }
-  
-  Widget _buildCompactManagementOptionWithBadge({
-    required IconData icon,
-    required String title,
-    required VoidCallback onTap,
-    int badgeCount = 0,
-    bool isDestructive = false,
-    bool isSpecial = false,
-  }) {
-    return Material(
-      color: Colors.transparent,
-      child: InkWell(
-        onTap: onTap,
-        borderRadius: BorderRadius.circular(12),
-        child: Container(
-          padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 8),
-          decoration: BoxDecoration(
-            border: Border.all(
-              color: Theme.of(context).colorScheme.outline.withOpacity(0.1),
-            ),
-            borderRadius: BorderRadius.circular(12),
-          ),
-          child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Stack(
-                children: [
-                  Container(
-                    width: 36,
-                    height: 36,
-                    decoration: BoxDecoration(
-                      color: isDestructive 
-                          ? Colors.red.withOpacity(0.1)
-                          : isSpecial
-                              ? Colors.green.withOpacity(0.1)
-                              : Theme.of(context).colorScheme.primary.withOpacity(0.1),
-                      borderRadius: BorderRadius.circular(8),
-                    ),
-                    child: Icon(
-                      icon,
-                      color: isDestructive 
-                          ? Colors.red
-                          : isSpecial
-                              ? Colors.green
-                              : Theme.of(context).colorScheme.primary,
-                      size: 18,
-                    ),
-                  ),
-                  if (badgeCount > 0)
-                    Positioned(
-                      right: -2,
-                      top: -2,
-                      child: Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
-                        decoration: BoxDecoration(
-                          color: Colors.red,
-                          borderRadius: BorderRadius.circular(8),
-                        ),
-                        constraints: const BoxConstraints(minWidth: 16, minHeight: 16),
-                        child: Text(
-                          badgeCount > 9 ? '9+' : badgeCount.toString(),
-                          style: const TextStyle(
-                            color: Colors.white,
-                            fontSize: 10,
-                            fontWeight: FontWeight.bold,
-                          ),
-                          textAlign: TextAlign.center,
-                        ),
-                      ),
-                    ),
-                ],
-              ),
-              const SizedBox(height: 4),
-              Text(
-                title,
-                style: TextStyle(
-                  fontSize: 11,
-                  fontWeight: FontWeight.w600,
-                  color: isDestructive 
-                      ? Colors.red
-                      : Theme.of(context).colorScheme.onSurface,
-                ),
-                textAlign: TextAlign.center,
-                maxLines: 2,
-                overflow: TextOverflow.ellipsis,
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-
-  Widget _buildCompactManagementOption({
-    required IconData icon,
-    required String title,
-    required VoidCallback onTap,
-    bool isDestructive = false,
-    bool isSpecial = false,
-  }) {
-    return Material(
-      color: Colors.transparent,
-      child: InkWell(
-        onTap: onTap,
-        borderRadius: BorderRadius.circular(12),
-        child: Container(
-          padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 8),
-          decoration: BoxDecoration(
-            border: Border.all(
-              color: Theme.of(context).colorScheme.outline.withOpacity(0.1),
-            ),
-            borderRadius: BorderRadius.circular(12),
-          ),
-          child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Container(
-                width: 36,
-                height: 36,
-                decoration: BoxDecoration(
-                  color: isDestructive 
-                      ? Colors.red.withOpacity(0.1)
-                      : isSpecial
-                          ? Colors.green.withOpacity(0.1)
-                          : Theme.of(context).colorScheme.primary.withOpacity(0.1),
-                  borderRadius: BorderRadius.circular(8),
-                ),
-                child: Icon(
-                  icon,
-                  color: isDestructive 
-                      ? Colors.red
-                      : isSpecial
-                          ? Colors.green
-                          : Theme.of(context).colorScheme.primary,
-                  size: 18,
-                ),
-              ),
-              const SizedBox(height: 4),
-              Text(
-                title,
-                style: TextStyle(
-                  fontSize: 11,
-                  fontWeight: FontWeight.w600,
-                  color: isDestructive 
-                      ? Colors.red
-                      : Theme.of(context).colorScheme.onSurface,
-                ),
-                textAlign: TextAlign.center,
-                maxLines: 2,
-                overflow: TextOverflow.ellipsis,
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
   
   Future<void> _editMeeting() async {
     final result = await Navigator.push(
@@ -1146,64 +1164,64 @@ class _MeetingDetailScreenState extends State<MeetingDetailScreen> with WidgetsB
     }
   }
   
-  Future<void> _manageApplicants() async {
-    final result = await Navigator.push(
+  Future<void> _navigateToEvaluation() async {
+    Navigator.push(
       context,
       MaterialPageRoute(
-        builder: (context) => ApplicantManagementScreen(meeting: widget.meeting),
+        builder: (context) => UserEvaluationScreen(
+          meetingId: widget.meeting.id,
+          meeting: _currentMeeting ?? widget.meeting,
+        ),
       ),
     );
-    
-    // 신청자 관리 후 화면 새로고침 (즉시 반영)
-    if (result == true) {
-      await _initializeUserState();
-      await _loadParticipants();
-    }
   }
   
   Future<void> _completeMeeting() async {
-    final confirmed = await showDialog<bool>(
+    final result = await MeetingAutoCompleteDialog.show(
       context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('모임 완료'),
-        content: const Text('모임을 완료하시겠습니까?\n완료된 모임의 채팅방은 읽기 전용이 됩니다.'),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context, false),
-            child: const Text('취소'),
-          ),
-          TextButton(
-            onPressed: () => Navigator.pop(context, true),
-            style: TextButton.styleFrom(
-              foregroundColor: Colors.green,
-            ),
-            child: const Text('완료'),
-          ),
-        ],
-      ),
-    ) ?? false;
+      meetingName: _currentMeeting?.description ?? widget.meeting.description,
+      onComplete: () {
+        // 다이얼로그 내부에서 처리됨
+      },
+      onPostpone: () {
+        // 1시간 후 다시 알림 (실제로는 사용되지 않음)
+      },
+      isManualCompletion: true, // 수동 완료임을 표시
+    );
 
-    if (!confirmed) return;
+    if (result == null || result == 'cancel') return;
+
+    // result가 'complete_keep' 또는 'complete_close'
+    final keepChatActive = result == 'complete_keep';
 
     try {
-      await MeetingService.completeMeeting(widget.meeting.id);
+      await MeetingService.completeMeeting(widget.meeting.id, keepChatActive: keepChatActive);
       
       // 모임 완료 시스템 메시지 전송
+      final systemMessage = keepChatActive 
+          ? '모임이 완료되었습니다. 채팅방은 계속 사용할 수 있습니다! 🎉'
+          : '모임이 완료되었습니다. 수고하셨습니다! 🎉';
+      
       await ChatService.sendSystemMessage(
         meetingId: widget.meeting.id,
-        content: '모임이 완료되었습니다. 수고하셨습니다! 🎉',
+        content: systemMessage,
       );
 
       if (kDebugMode) {
-        print('✅ 모임 완료 성공: ${widget.meeting.id}');
+        print('✅ 모임 완료 성공: ${widget.meeting.id}, 채팅방 유지: $keepChatActive');
       }
 
       if (mounted) {
+        final snackMessage = keepChatActive
+            ? '모임이 완료되었습니다!\n채팅방은 계속 사용 가능합니다 💬'
+            : '모임이 완료되었습니다!\n채팅방이 읽기 전용으로 전환됩니다 📖';
+            
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('모임이 완료되었습니다'),
+          SnackBar(
+            content: Text(snackMessage),
             backgroundColor: Colors.green,
             behavior: SnackBarBehavior.floating,
+            duration: Duration(seconds: 4),
           ),
         );
         
@@ -1221,30 +1239,17 @@ class _MeetingDetailScreenState extends State<MeetingDetailScreen> with WidgetsB
     }
   }
   
-  void _deleteMeeting() {
-    showDialog(
+  Future<void> _deleteMeeting() async {
+    final confirmed = await CommonConfirmDialog.showDelete(
       context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('모임 삭제'),
-        content: const Text('정말로 모임을 삭제하시겠습니까?\n삭제된 모임은 복구할 수 없습니다.'),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('취소'),
-          ),
-          TextButton(
-            onPressed: () async {
-              Navigator.pop(context); // 다이얼로그 닫기
-              await _performDeleteMeeting();
-            },
-            style: TextButton.styleFrom(
-              foregroundColor: Colors.red,
-            ),
-            child: const Text('삭제'),
-          ),
-        ],
-      ),
+      title: '모임 삭제',
+      content: '정말로 모임을 삭제하시겠습니까?\n삭제된 모임은 복구할 수 없습니다.',
+      confirmText: '삭제',
     );
+    
+    if (confirmed) {
+      await _performDeleteMeeting();
+    }
   }
   
   Future<void> _performDeleteMeeting() async {
@@ -1351,23 +1356,13 @@ class _MeetingDetailScreenState extends State<MeetingDetailScreen> with WidgetsB
       return;
     }
     
-    final confirmed = await showDialog<bool>(
+    final confirmed = await CommonConfirmDialog.showWarning(
       context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('신청 취소'),
-        content: const Text('모임 신청을 취소하시겠습니까?'),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context, false),
-            child: const Text('아니오'),
-          ),
-          TextButton(
-            onPressed: () => Navigator.pop(context, true),
-            child: const Text('취소'),
-          ),
-        ],
-      ),
-    ) ?? false;
+      title: '신청 취소',
+      content: '모임 신청을 취소하시겠습니까?',
+      cancelText: '아니오',
+      confirmText: '취소',
+    );
 
     if (!confirmed) return;
     
@@ -1465,6 +1460,75 @@ class _MeetingDetailScreenState extends State<MeetingDetailScreen> with WidgetsB
     }
   }
   
+
+
+  Future<List<app_user.User>> _getPendingApplicantUsers(List<String> applicantIds) async {
+    final List<app_user.User> users = [];
+    
+    for (final applicantId in applicantIds) {
+      final user = await UserService.getUser(applicantId);
+      if (user != null) {
+        users.add(user);
+      }
+    }
+    
+    return users;
+  }
+
+  Future<void> _approveApplicant(String meetingId, String applicantId) async {
+    try {
+      await MeetingService.approveMeetingApplication(meetingId, applicantId);
+      
+      if (kDebugMode) {
+        print('✅ 신청자 승인 성공: $applicantId');
+      }
+      
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('신청자를 승인했습니다'),
+          backgroundColor: Colors.green,
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+      
+      // 모임 데이터 새로고침
+      await _refreshMeetingData();
+    } catch (e) {
+      if (kDebugMode) {
+        print('❌ 신청자 승인 실패: $e');
+      }
+      
+      _showErrorMessage('신청자 승인에 실패했습니다');
+    }
+  }
+
+  Future<void> _rejectApplicant(String meetingId, String applicantId) async {
+    try {
+      await MeetingService.rejectMeetingApplication(meetingId, applicantId);
+      
+      if (kDebugMode) {
+        print('✅ 신청자 거절 성공: $applicantId');
+      }
+      
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('신청자를 거절했습니다'),
+          backgroundColor: AppDesignTokens.primary,
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+      
+      // 모임 데이터 새로고침
+      await _refreshMeetingData();
+    } catch (e) {
+      if (kDebugMode) {
+        print('❌ 신청자 거절 실패: $e');
+      }
+      
+      _showErrorMessage('신청자 거절에 실패했습니다');
+    }
+  }
+
   void _showErrorMessage(String message) {
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
@@ -1472,6 +1536,95 @@ class _MeetingDetailScreenState extends State<MeetingDetailScreen> with WidgetsB
         backgroundColor: Colors.red,
         behavior: SnackBarBehavior.floating,
       ),
+    );
+  }
+  
+  // 더치페이 계산기 열기
+  void _showDutchPayCalculator() async {
+    final result = await showDialog<String>(
+      context: context,
+      builder: (context) => DutchPayCalculator(
+        participantCount: _currentMeeting?.currentParticipants ?? widget.meeting.currentParticipants,
+        meetingName: _currentMeeting?.restaurantName ?? widget.meeting.restaurantName ?? widget.meeting.location,
+      ),
+    );
+    
+    // 결과가 있으면 채팅방에 전송
+    if (result != null && result.isNotEmpty) {
+      try {
+        await ChatService.sendSystemMessage(
+          meetingId: widget.meeting.id,
+          content: result,
+        );
+        
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('더치페이 계산 결과를 채팅방에 공유했습니다'),
+              backgroundColor: Colors.green,
+              behavior: SnackBarBehavior.floating,
+            ),
+          );
+        }
+      } catch (e) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('채팅방 공유 실패: $e'),
+              backgroundColor: Colors.red,
+              behavior: SnackBarBehavior.floating,
+            ),
+          );
+        }
+      }
+    }
+  }
+
+  // 자동 완료 조건 체크
+  void _checkAutoCompletion() {
+    // 호스트가 아니거나 이미 완료된 모임이면 체크 안 함
+    if (!_isHost || (widget.meeting.status == 'completed')) return;
+
+    final meeting = _currentMeeting ?? widget.meeting;
+    final now = DateTime.now();
+    final autoCompleteTime = meeting.dateTime.add(const Duration(hours: 2));
+
+    // 모임 시간 + 2시간이 지났으면 자동 완료 다이얼로그 표시
+    if (now.isAfter(autoCompleteTime)) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        _showAutoCompleteDialog();
+      });
+    }
+  }
+
+  // 자동 완료 다이얼로그 표시
+  void _showAutoCompleteDialog() {
+    final meeting = _currentMeeting ?? widget.meeting;
+    
+    MeetingAutoCompleteDialog.show(
+      context: context,
+      meetingName: meeting.restaurantName ?? meeting.location,
+      onComplete: () {
+        // 모임 완료 처리
+        _completeMeeting();
+      },
+      onPostpone: () {
+        // 1시간 후 재알림 예약
+        MeetingAutoCompletionService.postponeMeetingAutoCompletion(
+          meeting.id,
+          meeting.restaurantName ?? meeting.location,
+        );
+        
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('1시간 후 다시 알림드리겠습니다'),
+              backgroundColor: Colors.orange,
+              behavior: SnackBarBehavior.floating,
+            ),
+          );
+        }
+      },
     );
   }
 }

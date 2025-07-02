@@ -1,8 +1,11 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
+import 'package:flutter/foundation.dart';
 import '../models/restaurant.dart';
 import '../services/kakao_search_service.dart';
 import '../services/location_service.dart';
+import '../services/user_service.dart';
+import '../services/auth_service.dart';
 import 'hierarchical_location_picker.dart';
 import 'external_rating_widget.dart';
 
@@ -24,6 +27,8 @@ class _RestaurantSearchModalState extends State<RestaurantSearchModal> {
   bool _isLoading = false;
   bool _isInitialLoading = true;
   String? _selectedLocation; // null = 현재 위치 사용
+  String? _currentUserId;
+  Set<String> _favoriteRestaurantIds = {}; // 즐겨찾기 식당 ID 목록
 
   @override
   void initState() {
@@ -34,6 +39,27 @@ class _RestaurantSearchModalState extends State<RestaurantSearchModal> {
     });
     // 백그라운드에서 위치 초기화
     _initializeLocation();
+    // 사용자 정보 및 즐겨찾기 로드
+    _loadUserData();
+  }
+
+  Future<void> _loadUserData() async {
+    try {
+      final user = AuthService.currentFirebaseUser;
+      if (user != null) {
+        _currentUserId = user.uid;
+        final favoriteIds = await UserService.getUserFavoriteRestaurants(user.uid);
+        if (mounted) {
+          setState(() {
+            _favoriteRestaurantIds = favoriteIds.toSet();
+          });
+        }
+      }
+    } catch (e) {
+      if (kDebugMode) {
+        print('❌ 사용자 데이터 로드 실패: $e');
+      }
+    }
   }
 
   Future<void> _initializeLocation() async {
@@ -102,6 +128,68 @@ class _RestaurantSearchModalState extends State<RestaurantSearchModal> {
     return results;
   }
 
+  Future<void> _toggleFavorite(Restaurant restaurant) async {
+    if (_currentUserId == null) return;
+    
+    try {
+      final isFavorite = _favoriteRestaurantIds.contains(restaurant.id);
+      
+      if (isFavorite) {
+        // 즐겨찾기에서 제거
+        await UserService.removeFavoriteRestaurant(_currentUserId!, restaurant.id);
+        if (mounted) {
+          setState(() {
+            _favoriteRestaurantIds.remove(restaurant.id);
+          });
+        }
+        
+        // 사용자 피드백
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('❤️ ${restaurant.name}을(를) 즐겨찾기에서 제거했어요'),
+              duration: const Duration(seconds: 2),
+            ),
+          );
+        }
+      } else {
+        // 즐겨찾기에 추가
+        await UserService.addFavoriteRestaurant(_currentUserId!, restaurant.id);
+        if (mounted) {
+          setState(() {
+            _favoriteRestaurantIds.add(restaurant.id);
+          });
+        }
+        
+        // 사용자 피드백
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('❤️ ${restaurant.name}을(를) 즐겨찾기에 추가했어요!'),
+              duration: const Duration(seconds: 2),
+            ),
+          );
+        }
+      }
+      
+      if (kDebugMode) {
+        print('🍽️ 즐겨찾기 ${isFavorite ? "제거" : "추가"}: ${restaurant.name} (${restaurant.id})');
+      }
+    } catch (e) {
+      if (kDebugMode) {
+        print('❌ 즐겨찾기 토글 실패: $e');
+      }
+      
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('❌ 즐겨찾기 설정에 실패했어요'),
+            duration: Duration(seconds: 2),
+          ),
+        );
+      }
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -350,9 +438,35 @@ class _RestaurantSearchModalState extends State<RestaurantSearchModal> {
                   ),
                 ),
                 
-                // 거리 정보
+                // 즐겨찾기 및 거리 정보
                 Column(
                   children: [
+                    // 즐겨찾기 버튼
+                    if (_currentUserId != null)
+                      GestureDetector(
+                        onTap: () => _toggleFavorite(restaurant),
+                        child: Container(
+                          padding: const EdgeInsets.all(8),
+                          decoration: BoxDecoration(
+                            color: _favoriteRestaurantIds.contains(restaurant.id)
+                                ? Theme.of(context).colorScheme.primary.withOpacity(0.1)
+                                : Colors.transparent,
+                            borderRadius: BorderRadius.circular(20),
+                          ),
+                          child: Icon(
+                            _favoriteRestaurantIds.contains(restaurant.id)
+                                ? Icons.favorite
+                                : Icons.favorite_border,
+                            color: _favoriteRestaurantIds.contains(restaurant.id)
+                                ? Theme.of(context).colorScheme.primary
+                                : Theme.of(context).colorScheme.outline,
+                            size: 20,
+                          ),
+                        ),
+                      ),
+                    const SizedBox(height: 8),
+                    
+                    // 거리 정보
                     if (restaurant.formattedDistance.isNotEmpty)
                       Container(
                         padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),

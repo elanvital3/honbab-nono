@@ -3,6 +3,7 @@ import 'package:flutter/foundation.dart';
 import '../models/meeting.dart';
 import 'notification_service.dart';
 import 'user_service.dart';
+import 'meeting_auto_completion_service.dart';
 
 class MeetingService {
   static final FirebaseFirestore _firestore = FirebaseFirestore.instance;
@@ -31,6 +32,31 @@ class MeetingService {
         // 알림 실패는 모임 생성을 방해하지 않음
       }
       
+      // 즐겨찾기 식당 사용자들에게 알림 발송
+      try {
+        final createdMeeting = meeting.copyWith(id: docRef.id);
+        await _notifyFavoriteRestaurantUsers(createdMeeting);
+        if (kDebugMode) {
+          print('✅ 즐겨찾기 식당 사용자들에게 알림 발송 완료');
+        }
+      } catch (favoriteNotificationError) {
+        if (kDebugMode) {
+          print('⚠️ 즐겨찾기 식당 알림 발송 실패: $favoriteNotificationError');
+        }
+        // 알림 실패는 모임 생성을 방해하지 않음
+      }
+      
+      // 호스트에게 자동 완료 알림 예약
+      try {
+        final createdMeeting = meeting.copyWith(id: docRef.id);
+        await MeetingAutoCompletionService.scheduleMeetingAutoCompletion(createdMeeting);
+      } catch (autoCompleteError) {
+        if (kDebugMode) {
+          print('⚠️ 자동 완료 알림 예약 실패: $autoCompleteError');
+        }
+        // 알림 실패는 모임 생성을 방해하지 않음
+      }
+      
       return docRef.id;
     } catch (e) {
       if (kDebugMode) {
@@ -47,9 +73,28 @@ class MeetingService {
         .orderBy('dateTime', descending: false)
         .snapshots()
         .map((snapshot) {
-      return snapshot.docs
-          .map((doc) => Meeting.fromFirestore(doc))
-          .toList();
+      try {
+        return snapshot.docs
+            .map((doc) {
+              try {
+                return Meeting.fromFirestore(doc);
+              } catch (docError) {
+                if (kDebugMode) {
+                  print('❌ Meeting.fromFirestore 에러 - 문서 ID: ${doc.id}');
+                  print('❌ 문서 데이터: ${doc.data()}');
+                  print('❌ 에러: $docError');
+                }
+                rethrow;
+              }
+            })
+            .toList();
+      } catch (e) {
+        if (kDebugMode) {
+          print('❌ getMeetingsStream 전체 에러: $e');
+          print('❌ 전체 문서 수: ${snapshot.docs.length}');
+        }
+        rethrow;
+      }
     });
   }
 
@@ -104,15 +149,74 @@ class MeetingService {
   }
 
   // 모임 완료 (호스트만)
-  static Future<void> completeMeeting(String meetingId) async {
+  static Future<void> completeMeeting(String meetingId, {bool keepChatActive = false}) async {
     try {
+      // 모임 정보 먼저 조회
+      final meetingDoc = await _firestore.collection(_collection).doc(meetingId).get();
+      if (!meetingDoc.exists) {
+        throw Exception('Meeting not found');
+      }
+      
+      final meeting = Meeting.fromFirestore(meetingDoc);
+      
+      // 모임 상태를 'completed'로 업데이트
       await _firestore.collection(_collection).doc(meetingId).update({
         'status': 'completed',
+        'chatActive': keepChatActive, // 채팅방 활성 상태 설정
+        'completedAt': Timestamp.fromDate(DateTime.now()),
         'updatedAt': Timestamp.fromDate(DateTime.now()),
       });
       
       if (kDebugMode) {
-        print('✅ Meeting completed: $meetingId');
+        print('✅ Meeting status updated to completed: $meetingId, keepChatActive: $keepChatActive');
+      }
+
+      // 사용자 통계 업데이트 (배치 처리)
+      try {
+        await UserService.updateMeetingCompletionStats(
+          hostId: meeting.hostId,
+          participantIds: meeting.participantIds,
+        );
+        
+        if (kDebugMode) {
+          print('✅ User statistics updated for meeting completion');
+        }
+      } catch (statsError) {
+        if (kDebugMode) {
+          print('⚠️ User statistics update failed: $statsError');
+        }
+        // 통계 업데이트 실패해도 모임 완료는 계속 진행
+      }
+
+      // 평가 요청 알림 발송
+      try {
+        await NotificationService().notifyEvaluationRequest(
+          meeting: meeting,
+          participantIds: meeting.participantIds,
+        );
+        
+        if (kDebugMode) {
+          print('✅ Evaluation request notifications sent');
+        }
+      } catch (notificationError) {
+        if (kDebugMode) {
+          print('⚠️ Evaluation request notifications failed: $notificationError');
+        }
+        // 알림 실패해도 모임 완료는 계속 진행
+      }
+
+      // 자동 완료 알림 취소
+      try {
+        await MeetingAutoCompletionService.cancelMeetingAutoCompletion(meetingId);
+      } catch (autoCompleteError) {
+        if (kDebugMode) {
+          print('⚠️ 자동 완료 알림 취소 실패: $autoCompleteError');
+        }
+        // 알림 취소 실패해도 모임 완료는 계속 진행
+      }
+      
+      if (kDebugMode) {
+        print('✅ Meeting completion process finished: $meetingId');
       }
     } catch (e) {
       if (kDebugMode) {
@@ -147,6 +251,16 @@ class MeetingService {
           print('⚠️ 호스트 통계 감소 실패: $statsError');
         }
         // 통계 업데이트 실패는 모임 삭제를 방해하지 않음
+      }
+
+      // 자동 완료 알림 취소
+      try {
+        await MeetingAutoCompletionService.cancelMeetingAutoCompletion(id);
+      } catch (autoCompleteError) {
+        if (kDebugMode) {
+          print('⚠️ 자동 완료 알림 취소 실패: $autoCompleteError');
+        }
+        // 알림 취소 실패해도 모임 삭제는 계속 진행
       }
       
       if (kDebugMode) {
@@ -615,6 +729,267 @@ class MeetingService {
         print('❌ Error getting meetings by host: $e');
       }
       return [];
+    }
+  }
+
+  /// 즐겨찾기 식당 사용자들에게 새 모임 알림 발송
+  static Future<void> _notifyFavoriteRestaurantUsers(Meeting meeting) async {
+    try {
+      // restaurantId가 없으면 알림 발송 스킨
+      if (meeting.restaurantId == null || meeting.restaurantId!.isEmpty) {
+        if (kDebugMode) {
+          print('🍽️ 식당 ID가 없어 즐겨찾기 알림 스킨: ${meeting.restaurantName ?? meeting.location}');
+        }
+        return;
+      }
+      
+      // 해당 식당을 즐겨찾기한 사용자들의 FCM 토큰 조회
+      if (kDebugMode) {
+        print('🔍 즐겨찾기 사용자 조회 시작: restaurantId=${meeting.restaurantId}');
+      }
+      
+      final favoriteUserTokens = await UserService.getFavoriteRestaurantUserTokens(meeting.restaurantId!);
+      
+      if (kDebugMode) {
+        print('📊 즐겨찾기 사용자 조회 결과: ${favoriteUserTokens.length}명');
+        if (favoriteUserTokens.isNotEmpty) {
+          print('📱 FCM 토큰 목록:');
+          for (int i = 0; i < favoriteUserTokens.length; i++) {
+            print('  [$i] ${favoriteUserTokens[i].substring(0, 20)}...');
+          }
+        }
+      }
+      
+      if (favoriteUserTokens.isEmpty) {
+        if (kDebugMode) {
+          print('🍽️ 즐겨창기 사용자 없음: ${meeting.restaurantName ?? meeting.location}');
+        }
+        return;
+      }
+      
+      // 모임 호스트 정보 가져오기
+      final hostUser = await UserService.getUser(meeting.hostId);
+      final hostName = hostUser?.name ?? '누군가';
+      
+      // 알림 제목 및 내용 생성
+      final title = '❤️ 즐겨찾기 맛집에 새 모임!';
+      final body = '$hostName님이 ${meeting.restaurantName ?? meeting.location}에서 모임을 개설했어요';
+      
+      // 모든 즐겨찾기 사용자들에게 알림 발송
+      final notificationService = NotificationService();
+      int successCount = 0;
+      int failCount = 0;
+      
+      if (kDebugMode) {
+        print('🚀 FCM 알림 발송 시작: ${favoriteUserTokens.length}개 토큰');
+        print('📬 알림 내용:');
+        print('   제목: $title');
+        print('   내용: $body');
+      }
+      
+      for (int i = 0; i < favoriteUserTokens.length; i++) {
+        final token = favoriteUserTokens[i];
+        try {
+          if (kDebugMode) {
+            print('📤 FCM 발송 시도 [$i/${favoriteUserTokens.length}]: ${token.substring(0, 20)}...');
+          }
+          
+          await notificationService.sendRealFCMMessage(
+            targetToken: token,
+            title: title,
+            body: body,
+            type: 'favorite_restaurant_meeting',
+            meetingId: meeting.id,
+            channelId: 'favorite_restaurant',
+            customData: {
+              'restaurantId': meeting.restaurantId!,
+              'restaurantName': meeting.restaurantName ?? meeting.location,
+              'hostName': hostName,
+            },
+          );
+          
+          successCount++;
+          if (kDebugMode) {
+            print('✅ FCM 발송 성공 [$i]: ${token.substring(0, 20)}...');
+          }
+        } catch (e) {
+          failCount++;
+          if (kDebugMode) {
+            print('❌ FCM 발송 실패 [$i]: $e');
+            print('   토큰: ${token.substring(0, 20)}...');
+          }
+          // 개별 알림 실패는 전체 발송을 중단시키지 않음
+        }
+      }
+      
+      if (kDebugMode) {
+        print('🎉 즐겨찾기 식당 알림 발송 완료:');
+        print('   전체 대상: ${favoriteUserTokens.length}명');
+        print('   성공: $successCount개');
+        print('   실패: $failCount개');
+      }
+    } catch (e) {
+      if (kDebugMode) {
+        print('❌ 즐겨찾기 식당 알림 발송 실패: $e');
+      }
+      rethrow;
+    }
+  }
+
+  // 신청 승인
+  static Future<void> approveApplicant(String meetingId, String applicantId) async {
+    try {
+      // 모임 정보 조회
+      final meetingDoc = await _firestore.collection(_collection).doc(meetingId).get();
+      if (!meetingDoc.exists) {
+        throw Exception('Meeting not found');
+      }
+
+      final meeting = Meeting.fromFirestore(meetingDoc);
+
+      // 신청자가 pendingApplicantIds에 있는지 확인
+      if (!meeting.pendingApplicantIds.contains(applicantId)) {
+        throw Exception('신청자를 찾을 수 없습니다');
+      }
+
+      // 모임이 마감되었는지 확인
+      if (meeting.currentParticipants >= meeting.maxParticipants) {
+        throw Exception('모임이 마감되었습니다');
+      }
+
+      // 트랜잭션으로 처리
+      await _firestore.runTransaction((transaction) async {
+        // 신청자를 pendingApplicantIds에서 제거하고 participantIds에 추가
+        transaction.update(_firestore.collection(_collection).doc(meetingId), {
+          'pendingApplicantIds': FieldValue.arrayRemove([applicantId]),
+          'participantIds': FieldValue.arrayUnion([applicantId]),
+          'currentParticipants': FieldValue.increment(1),
+          'updatedAt': Timestamp.fromDate(DateTime.now()),
+        });
+
+        // 사용자의 참여한 모임 수 증가
+        transaction.update(_firestore.collection('users').doc(applicantId), {
+          'meetingsJoined': FieldValue.increment(1),
+          'updatedAt': Timestamp.fromDate(DateTime.now()),
+        });
+      });
+
+      // 승인 알림 발송
+      try {
+        final applicantUser = await UserService.getUser(applicantId);
+        final applicantName = applicantUser?.name ?? 'User-${applicantId.substring(0, 8)}';
+        
+        await NotificationService().notifyMeetingApproval(
+          meeting: meeting,
+          applicantUserId: applicantId,
+          applicantName: applicantName,
+        );
+        
+        if (kDebugMode) {
+          print('✅ 모임 승인 알림 발송 완료');
+        }
+      } catch (notificationError) {
+        if (kDebugMode) {
+          print('⚠️ 모임 승인 알림 발송 실패: $notificationError');
+        }
+        // 알림 실패는 승인을 방해하지 않음
+      }
+
+      if (kDebugMode) {
+        print('✅ 신청 승인 완료: $meetingId <- $applicantId');
+      }
+    } catch (e) {
+      if (kDebugMode) {
+        print('❌ 신청 승인 실패: $e');
+      }
+      rethrow;
+    }
+  }
+
+  // 신청 거절
+  static Future<void> rejectApplicant(String meetingId, String applicantId) async {
+    try {
+      // 모임 정보 조회
+      final meetingDoc = await _firestore.collection(_collection).doc(meetingId).get();
+      if (!meetingDoc.exists) {
+        throw Exception('Meeting not found');
+      }
+
+      final meeting = Meeting.fromFirestore(meetingDoc);
+
+      // 신청자가 pendingApplicantIds에 있는지 확인
+      if (!meeting.pendingApplicantIds.contains(applicantId)) {
+        throw Exception('신청자를 찾을 수 없습니다');
+      }
+
+      // 신청자를 pendingApplicantIds에서 제거
+      await _firestore.collection(_collection).doc(meetingId).update({
+        'pendingApplicantIds': FieldValue.arrayRemove([applicantId]),
+        'updatedAt': Timestamp.fromDate(DateTime.now()),
+      });
+
+      // 거절 알림 발송
+      try {
+        final applicantUser = await UserService.getUser(applicantId);
+        final applicantName = applicantUser?.name ?? 'User-${applicantId.substring(0, 8)}';
+        
+        await NotificationService().notifyMeetingRejection(
+          meeting: meeting,
+          applicantUserId: applicantId,
+          applicantName: applicantName,
+        );
+        
+        if (kDebugMode) {
+          print('✅ 모임 거절 알림 발송 완료');
+        }
+      } catch (notificationError) {
+        if (kDebugMode) {
+          print('⚠️ 모임 거절 알림 발송 실패: $notificationError');
+        }
+        // 알림 실패는 거절을 방해하지 않음
+      }
+
+      if (kDebugMode) {
+        print('✅ 신청 거절 완료: $meetingId <- $applicantId');
+      }
+    } catch (e) {
+      if (kDebugMode) {
+        print('❌ 신청 거절 실패: $e');
+      }
+      rethrow;
+    }
+  }
+
+  // 신청 취소 (신청자가 스스로 취소)
+  static Future<void> cancelApplication(String meetingId, String userId) async {
+    try {
+      // 모임 정보 조회
+      final meetingDoc = await _firestore.collection(_collection).doc(meetingId).get();
+      if (!meetingDoc.exists) {
+        throw Exception('Meeting not found');
+      }
+
+      final meeting = Meeting.fromFirestore(meetingDoc);
+
+      // 신청자가 pendingApplicantIds에 있는지 확인
+      if (!meeting.pendingApplicantIds.contains(userId)) {
+        throw Exception('신청 내역을 찾을 수 없습니다');
+      }
+
+      // 신청자를 pendingApplicantIds에서 제거
+      await _firestore.collection(_collection).doc(meetingId).update({
+        'pendingApplicantIds': FieldValue.arrayRemove([userId]),
+        'updatedAt': Timestamp.fromDate(DateTime.now()),
+      });
+
+      if (kDebugMode) {
+        print('✅ 신청 취소 완료: $meetingId <- $userId');
+      }
+    } catch (e) {
+      if (kDebugMode) {
+        print('❌ 신청 취소 실패: $e');
+      }
+      rethrow;
     }
   }
 }

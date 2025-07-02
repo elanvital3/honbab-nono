@@ -10,6 +10,8 @@ class KakaoWebViewMap extends StatefulWidget {
   final List<MapMarker>? markers;
   final Function(String)? onMarkerClicked;
   final VoidCallback? onMapLoaded;
+  final Function(double, double)? onMapMoved;
+  final Function(double, double, double, double)? onBoundsChanged;
 
   const KakaoWebViewMap({
     super.key,
@@ -19,6 +21,8 @@ class KakaoWebViewMap extends StatefulWidget {
     this.markers,
     this.onMarkerClicked,
     this.onMapLoaded,
+    this.onMapMoved,
+    this.onBoundsChanged,
   });
 
   @override
@@ -154,6 +158,32 @@ class KakaoWebViewMapState extends State<KakaoWebViewMap> {
           final meetingId = message.message;
           print('🗺️ 마커 클릭: $meetingId');
           widget.onMarkerClicked?.call(meetingId);
+        },
+      )
+      // 지도 이동 이벤트를 Flutter로 전달
+      ..addJavaScriptChannel(
+        'MapMove',
+        onMessageReceived: (JavaScriptMessage message) {
+          final coords = message.message.split(',');
+          if (coords.length == 2) {
+            final lat = double.tryParse(coords[0]) ?? 0.0;
+            final lng = double.tryParse(coords[1]) ?? 0.0;
+            widget.onMapMoved?.call(lat, lng);
+          }
+        },
+      )
+      // 지도 경계 변경 이벤트를 Flutter로 전달
+      ..addJavaScriptChannel(
+        'BoundsChange',
+        onMessageReceived: (JavaScriptMessage message) {
+          final bounds = message.message.split(',');
+          if (bounds.length == 4) {
+            final swLat = double.tryParse(bounds[0]) ?? 0.0;
+            final swLng = double.tryParse(bounds[1]) ?? 0.0;
+            final neLat = double.tryParse(bounds[2]) ?? 0.0;
+            final neLng = double.tryParse(bounds[3]) ?? 0.0;
+            widget.onBoundsChanged?.call(swLat, swLng, neLat, neLng);
+          }
         },
       )
       ..loadHtmlString(_generateMapHtml());
@@ -296,6 +326,27 @@ class KakaoWebViewMapState extends State<KakaoWebViewMap> {
                 window.mapInstance = map;
                 window.currentMarkers = [];
                 window.currentInfoWindows = [];
+                window.initialCenter = map.getCenter();
+                
+                // 지도 이동 이벤트 리스너
+                kakao.maps.event.addListener(map, 'dragend', function() {
+                    var center = map.getCenter();
+                    MapMove.postMessage(center.getLat() + ',' + center.getLng());
+                    
+                    // 경계 정보도 전달
+                    var bounds = map.getBounds();
+                    var sw = bounds.getSouthWest();
+                    var ne = bounds.getNorthEast();
+                    BoundsChange.postMessage(sw.getLat() + ',' + sw.getLng() + ',' + ne.getLat() + ',' + ne.getLng());
+                });
+                
+                // 줌 변경 시에도 경계 정보 전달
+                kakao.maps.event.addListener(map, 'zoom_changed', function() {
+                    var bounds = map.getBounds();
+                    var sw = bounds.getSouthWest();
+                    var ne = bounds.getNorthEast();
+                    BoundsChange.postMessage(sw.getLat() + ',' + sw.getLng() + ',' + ne.getLat() + ',' + ne.getLng());
+                });
                 
                 // 마커 업데이트 함수
                 window.updateMarkers = function(newMarkers) {

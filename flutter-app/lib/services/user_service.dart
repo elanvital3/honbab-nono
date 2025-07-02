@@ -579,4 +579,142 @@ class UserService {
   static double _degreesToRadians(double degrees) {
     return degrees * (math.pi / 180);
   }
+
+  /// 특정 식당을 즐겨찾기로 한 사용자들의 FCM 토큰 조회
+  static Future<List<String>> getFavoriteRestaurantUserTokens(String restaurantId) async {
+    try {
+      if (kDebugMode) {
+        print('🔍 즐겨찾기 사용자 조회 시작: restaurantId=$restaurantId');
+      }
+      
+      // 인덱스 문제 해결: 단일 쿼리로 모든 사용자 가져와서 클라이언트에서 필터링
+      if (kDebugMode) {
+        print('🔍 인덱스 문제 해결: 단일 쿼리로 전체 사용자 조회 후 필터링');
+      }
+      
+      // 전체 사용자 조회 (인덱스 불필요)
+      final allUsersQuery = await _firestore.collection(_collection).get();
+      
+      if (kDebugMode) {
+        print('📊 전체 사용자 수: ${allUsersQuery.docs.length}');
+      }
+      
+      final tokens = <String>[];
+      int totalUsersWithFavorites = 0;
+      int matchingUsers = 0;
+      
+      // 클라이언트에서 필터링
+      for (final doc in allUsersQuery.docs) {
+        final data = doc.data();
+        final userName = data['name'] as String? ?? '알 수 없음';
+        final favoriteRestaurants = List<String>.from(data['favoriteRestaurants'] ?? []);
+        final fcmToken = data['fcmToken'] as String?;
+        
+        if (favoriteRestaurants.isNotEmpty) {
+          totalUsersWithFavorites++;
+          
+          if (kDebugMode) {
+            print('👤 [$totalUsersWithFavorites] $userName:');
+            print('   - 즐겨찾기: $favoriteRestaurants');
+            print('   - FCM: ${fcmToken?.substring(0, 20) ?? '없음'}...');
+            print('   - 타겟 포함: ${favoriteRestaurants.contains(restaurantId)}');
+          }
+          
+          // 조건 체크: 타겟 식당을 즐겨찾기하고 FCM 토큰이 있는 사용자
+          if (favoriteRestaurants.contains(restaurantId) && 
+              fcmToken != null && 
+              fcmToken.isNotEmpty) {
+            tokens.add(fcmToken);
+            matchingUsers++;
+            
+            if (kDebugMode) {
+              print('   ✅ 조건 만족! FCM 토큰 추가');
+            }
+          }
+        }
+      }
+      
+      
+      if (kDebugMode) {
+        print('🍽️ 식당 $restaurantId를 즐겨찾기한 사용자: ${tokens.length}명');
+        print('📱 유효한 FCM 토큰: ${tokens.length}개');
+      }
+      
+      return tokens;
+    } catch (e) {
+      if (kDebugMode) {
+        print('❌ 즐겨찾기 사용자 토큰 조회 실패: $e');
+        print('❌ 에러 세부: ${e.toString()}');
+      }
+      return [];
+    }
+  }
+
+  /// 사용자가 특정 식당을 즐겨찾기했는지 확인
+  static Future<bool> isFavoriteRestaurant(String userId, String restaurantId) async {
+    try {
+      final user = await getUser(userId);
+      return user?.favoriteRestaurants.contains(restaurantId) ?? false;
+    } catch (e) {
+      if (kDebugMode) {
+        print('❌ 즐겨찾기 확인 실패: $e');
+      }
+      return false;
+    }
+  }
+
+  /// 사용자의 즐겨찾기 식당 목록 조회
+  static Future<List<String>> getUserFavoriteRestaurants(String userId) async {
+    try {
+      final user = await getUser(userId);
+      return user?.favoriteRestaurants ?? [];
+    } catch (e) {
+      if (kDebugMode) {
+        print('❌ 즐겨찾기 목록 조회 실패: $e');
+      }
+      return [];
+    }
+  }
+
+  /// 다중 사용자 통계 배치 업데이트 (모임 완료 시)
+  static Future<void> updateMeetingCompletionStats({
+    required String hostId,
+    required List<String> participantIds,
+  }) async {
+    try {
+      final batch = _firestore.batch();
+      final now = Timestamp.fromDate(DateTime.now());
+
+      // 호스트 통계 업데이트
+      final hostRef = _firestore.collection(_collection).doc(hostId);
+      batch.update(hostRef, {
+        'meetingsHosted': FieldValue.increment(1),
+        'updatedAt': now,
+      });
+
+      // 참여자들 통계 업데이트
+      for (final participantId in participantIds) {
+        if (participantId != hostId) { // 호스트는 이미 위에서 처리
+          final participantRef = _firestore.collection(_collection).doc(participantId);
+          batch.update(participantRef, {
+            'meetingsJoined': FieldValue.increment(1),
+            'updatedAt': now,
+          });
+        }
+      }
+
+      await batch.commit();
+      
+      if (kDebugMode) {
+        print('✅ 모임 완료 통계 배치 업데이트 완료');
+        print('  - 호스트: $hostId (호스트 수 +1)');
+        print('  - 참여자: ${participantIds.where((id) => id != hostId).length}명 (참여 수 +1)');
+      }
+    } catch (e) {
+      if (kDebugMode) {
+        print('❌ 모임 완료 통계 배치 업데이트 실패: $e');
+      }
+      rethrow;
+    }
+  }
 }

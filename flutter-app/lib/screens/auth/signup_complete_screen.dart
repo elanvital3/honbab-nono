@@ -3,6 +3,7 @@ import 'package:flutter/foundation.dart';
 import '../../services/user_service.dart';
 import '../../services/auth_service.dart';
 import '../home/home_screen.dart';
+import '../profile/badge_selection_screen.dart';
 
 class SignupCompleteScreen extends StatefulWidget {
   final String userId;
@@ -106,10 +107,12 @@ class _SignupCompleteScreenState extends State<SignupCompleteScreen> {
           print('✅ 회원가입 완료: ${user.name}');
         }
 
-        // 홈 화면으로 이동
+        // 뱃지 선택 화면으로 이동 (회원가입 모드)
         Navigator.pushAndRemoveUntil(
           context,
-          MaterialPageRoute(builder: (context) => const HomeScreen()),
+          MaterialPageRoute(
+            builder: (context) => const BadgeSelectionScreen(isOnboarding: true),
+          ),
           (route) => false,
         );
       }

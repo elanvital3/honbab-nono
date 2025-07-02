@@ -9,6 +9,7 @@ class AuthService {
 
   // 현재 사용자 가져오기
   static firebase_auth.User? get currentFirebaseUser => _auth.currentUser;
+  static firebase_auth.User? get currentUser => _auth.currentUser;
   
   // 현재 사용자 ID
   static String? get currentUserId => _auth.currentUser?.uid;

@@ -25,6 +25,13 @@ class AppTextStyles {
     fontFamily: 'NotoSansKR',
   );
 
+  static const TextStyle headlineSmall = TextStyle(
+    fontSize: AppDesignTokens.fontSizeBody,
+    fontWeight: AppDesignTokens.fontWeightSemiBold,
+    color: AppDesignTokens.onSurface,
+    fontFamily: 'NotoSansKR',
+  );
+
   // Title 스타일 (카드 제목, AppBar 제목)
   static const TextStyle titleLarge = TextStyle(
     fontSize: AppDesignTokens.fontSizeH3,

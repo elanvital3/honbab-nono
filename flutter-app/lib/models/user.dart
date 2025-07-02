@@ -17,6 +17,7 @@ class User {
   final int meetingsHosted;
   final int meetingsJoined;
   final List<String> favoriteRestaurants;
+  final List<String> badges; // 사용자 특성 뱃지 ID 목록
   final DateTime createdAt;
   final DateTime updatedAt;
 
@@ -37,6 +38,7 @@ class User {
     this.meetingsHosted = 0,
     this.meetingsJoined = 0,
     this.favoriteRestaurants = const [],
+    this.badges = const [],
     DateTime? createdAt,
     DateTime? updatedAt,
   }) : createdAt = createdAt ?? DateTime.now(),
@@ -61,6 +63,7 @@ class User {
       meetingsHosted: data['meetingsHosted'] ?? 0,
       meetingsJoined: data['meetingsJoined'] ?? 0,
       favoriteRestaurants: List<String>.from(data['favoriteRestaurants'] ?? []),
+      badges: List<String>.from(data['badges'] ?? []),
       createdAt: (data['createdAt'] as Timestamp?)?.toDate() ?? DateTime.now(),
       updatedAt: (data['updatedAt'] as Timestamp?)?.toDate() ?? DateTime.now(),
     );
@@ -83,6 +86,7 @@ class User {
       'meetingsHosted': meetingsHosted,
       'meetingsJoined': meetingsJoined,
       'favoriteRestaurants': favoriteRestaurants,
+      'badges': badges,
       'createdAt': Timestamp.fromDate(createdAt),
       'updatedAt': Timestamp.fromDate(updatedAt),
     };
@@ -105,6 +109,7 @@ class User {
     int? meetingsHosted,
     int? meetingsJoined,
     List<String>? favoriteRestaurants,
+    List<String>? badges,
     DateTime? createdAt,
     DateTime? updatedAt,
   }) {
@@ -125,6 +130,7 @@ class User {
       meetingsHosted: meetingsHosted ?? this.meetingsHosted,
       meetingsJoined: meetingsJoined ?? this.meetingsJoined,
       favoriteRestaurants: favoriteRestaurants ?? this.favoriteRestaurants,
+      badges: badges ?? this.badges,
       createdAt: createdAt ?? this.createdAt,
       updatedAt: updatedAt ?? this.updatedAt,
     );

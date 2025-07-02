@@ -31,6 +31,7 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
   bool _isLoading = true;
   List<app_user.User> _participants = [];
   bool _isLoadingParticipants = false;
+  Meeting? _currentMeeting; // 실시간 모임 정보 저장
 
   @override
   void initState() {
@@ -87,11 +88,37 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
     final content = _messageController.text.trim();
     if (content.isEmpty || _currentUser == null) return;
     
-    // 완료된 모임인 경우 메시지 전송 불가
-    if (widget.meeting.status == 'completed') {
+    // 실시간 모임 정보 사용 (없으면 초기 정보 사용)
+    final currentMeeting = _currentMeeting ?? widget.meeting;
+    
+    // 완료된 모임이면서 채팅이 비활성화된 경우 메시지 전송 불가
+    if (currentMeeting.status == 'completed' && !currentMeeting.chatActive) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
           content: Text('완료된 모임에서는 메시지를 보낼 수 없습니다'),
+          backgroundColor: Colors.orange,
+        ),
+      );
+      return;
+    }
+    
+    // 참여자 권한 확인 (호스트이거나 참여자인 경우에만 허용)
+    final isHost = _currentUserId == currentMeeting.hostId;
+    final isParticipant = currentMeeting.participantIds.contains(_currentUserId);
+    
+    if (kDebugMode) {
+      print('🔍 채팅 권한 검증:');
+      print('  - 현재 사용자 ID: $_currentUserId');
+      print('  - 모임 호스트 ID: ${currentMeeting.hostId}');
+      print('  - 참여자 ID 목록: ${currentMeeting.participantIds}');
+      print('  - 호스트 여부: $isHost');
+      print('  - 참여자 여부: $isParticipant');
+    }
+    
+    if (!isHost && !isParticipant) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('모임 참여자만 메시지를 보낼 수 있습니다'),
           backgroundColor: Colors.orange,
         ),
       );
@@ -161,6 +188,9 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
             currentMeeting = widget.meeting;
           }
         }
+        
+        // 실시간 모임 정보를 클래스 변수에 저장 (_sendMessage에서 사용)
+        _currentMeeting = currentMeeting;
 
         return Scaffold(
           appBar: AppBar(
@@ -386,7 +416,7 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
   }
 
   Widget _buildMessageInput(Meeting meeting) {
-    final isCompleted = meeting.status == 'completed';
+    final isChatDisabled = meeting.status == 'completed' && !meeting.chatActive;
     
     return Container(
       padding: const EdgeInsets.all(16),
@@ -399,7 +429,7 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
         ),
       ),
       child: SafeArea(
-        child: isCompleted
+        child: isChatDisabled
             ? Container(
                 padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
                 decoration: BoxDecoration(

@@ -15,6 +15,7 @@ import 'services/user_service.dart';
 import 'services/location_service.dart';
 import 'services/notification_service.dart';
 import 'services/meeting_service.dart';
+import 'services/meeting_auto_completion_service.dart';
 import 'screens/auth/auth_wrapper.dart';
 import 'screens/auth/login_screen.dart';
 import 'screens/auth/signup_complete_screen.dart';
@@ -81,6 +82,14 @@ void main() async {
     print('✅ 알림 서비스 초기화 성공');
   } catch (e) {
     print('❌ 알림 서비스 초기화 실패: $e');
+  }
+
+  // 모임 자동 완료 서비스 초기화
+  try {
+    await MeetingAutoCompletionService.initialize();
+    print('✅ 모임 자동 완료 서비스 초기화 성공');
+  } catch (e) {
+    print('❌ 모임 자동 완료 서비스 초기화 실패: $e');
   }
   
   // 마이그레이션 제거 - 이제 UID만 사용하므로 불필요

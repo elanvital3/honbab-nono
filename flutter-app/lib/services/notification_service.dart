@@ -1313,4 +1313,64 @@ class NotificationService {
     }
   }
 
+  /// 모임 완료 후 평가 요청 알림 (모든 참여자에게)
+  Future<void> notifyEvaluationRequest({
+    required Meeting meeting,
+    required List<String> participantIds,
+  }) async {
+    try {
+      if (kDebugMode) {
+        print('⭐ 평가 요청 알림 발송 시작: ${meeting.id}');
+        print('   대상자: ${participantIds.length}명');
+      }
+
+      // 각 참여자의 FCM 토큰 조회 및 알림 발송
+      for (final participantId in participantIds) {
+        try {
+          final user = await UserService.getUser(participantId);
+          if (user?.fcmToken == null) {
+            if (kDebugMode) {
+              print('⚠️ FCM 토큰 없음: $participantId');
+            }
+            continue;
+          }
+
+          final title = '⭐ 모임 평가 요청';
+          final body = '"${meeting.description}" 모임이 완료되었습니다. 함께한 멤버들을 평가해주세요!';
+
+          await sendRealFCMMessage(
+            targetToken: user!.fcmToken!,
+            title: title,
+            body: body,
+            type: 'evaluation_request',
+            meetingId: meeting.id,
+            channelId: _participantChannelId,
+            customData: {
+              'clickAction': 'EVALUATION_SCREEN',
+              'meetingId': meeting.id,
+              'restaurantName': meeting.restaurantName,
+            },
+          );
+
+          if (kDebugMode) {
+            print('✅ 평가 요청 알림 발송 완료: ${user.name}');
+          }
+        } catch (e) {
+          if (kDebugMode) {
+            print('❌ 개별 평가 요청 알림 발송 실패 ($participantId): $e');
+          }
+        }
+      }
+
+      if (kDebugMode) {
+        print('✅ 모든 평가 요청 알림 발송 완료');
+      }
+    } catch (e) {
+      if (kDebugMode) {
+        print('❌ 평가 요청 알림 발송 실패: $e');
+      }
+      rethrow;
+    }
+  }
+
 }
