@@ -257,25 +257,42 @@ class _RestaurantDetailScreenState extends State<RestaurantDetailScreen> {
     
     return Stack(
       children: [
-        // 사진 높이를 70%로 줄임
-        Container(
-          height: 210, // 300 * 0.7 = 210
-          child: PageView.builder(
-            controller: pageController,
-            itemCount: photos.length,
-            itemBuilder: (context, index) {
-              return Container(
-                margin: const EdgeInsets.symmetric(horizontal: 8),
-                child: ClipRRect(
-                  borderRadius: BorderRadius.circular(12),
-                  child: Image.network(
-                    photos[index],
-                    fit: BoxFit.cover,
-                    errorBuilder: (context, error, stackTrace) => _buildPlaceholderImage(),
-                  ),
+        // 전체 영역을 사용하되 내부에서 70% 높이 조정
+        Positioned.fill(
+          child: Column(
+            children: [
+              // 상단 15% 여백
+              Expanded(
+                flex: 15,
+                child: Container(),
+              ),
+              // 사진 영역 70%
+              Expanded(
+                flex: 70,
+                child: PageView.builder(
+                  controller: pageController,
+                  itemCount: photos.length,
+                  itemBuilder: (context, index) {
+                    return Container(
+                      margin: const EdgeInsets.symmetric(horizontal: 8),
+                      child: ClipRRect(
+                        borderRadius: BorderRadius.circular(12),
+                        child: Image.network(
+                          photos[index],
+                          fit: BoxFit.cover,
+                          errorBuilder: (context, error, stackTrace) => _buildPlaceholderImage(),
+                        ),
+                      ),
+                    );
+                  },
                 ),
-              );
-            },
+              ),
+              // 하단 15% 여백
+              Expanded(
+                flex: 15,
+                child: Container(),
+              ),
+            ],
           ),
         ),
         // 페이지 인디케이터
