@@ -53,6 +53,163 @@ honbab-nono/
 └── CLAUDE.md         # 프로젝트 가이드 (이 파일)
 ```
 
+## 🗄️ Firestore 데이터베이스 구조
+
+### 📊 핵심 컬렉션
+
+#### `users` - 사용자 정보
+```javascript
+{
+  id: string,                    // Firebase Auth UID
+  name: string,                  // 닉네임
+  email: string?,                // 이메일 (선택)
+  phoneNumber: string?,          // 전화번호 (선택)
+  profileImageUrl: string?,      // 프로필 이미지 URL
+  kakaoId: string?,              // 카카오 ID (로그인용)
+  gender: string?,               // 성별 (선택)
+  birthYear: number?,            // 출생연도 (선택)
+  badges: string[],              // 사용자 특성 뱃지
+  favoriteRestaurants: string[], // 즐겨찾기 식당 ID 목록
+  rating: number,                // 평균 평점 (기본값: 0.0)
+  meetingsHosted: number,        // 주최한 모임 수
+  meetingsJoined: number,        // 참여한 모임 수
+  lastLatitude: number?,         // 마지막 위치 (위도)
+  lastLongitude: number?,        // 마지막 위치 (경도)
+  lastLocationUpdated: Timestamp?, // 위치 업데이트 시간
+  currentChatRoom: string?,      // 현재 채팅방 ID
+  fcmToken: string?,             // FCM 푸시 토큰
+  createdAt: Timestamp,          // 가입일
+  updatedAt: Timestamp           // 수정일
+}
+```
+
+#### `meetings` - 모임 정보
+```javascript
+{
+  id: string,                    // 모임 고유 ID
+  title: string,                 // 모임 제목
+  description: string,           // 모임 설명
+  hostId: string,                // 호스트 사용자 ID
+  hostName: string,              // 호스트 닉네임
+  dateTime: Timestamp,           // 모임 일시
+  location: string,              // 모임 장소 (주소)
+  restaurantName: string?,       // 식당명
+  restaurantId: string?,         // 카카오 장소 ID
+  latitude: number,              // 위치 (위도)
+  longitude: number,             // 위치 (경도)
+  maxParticipants: number,       // 최대 참여인원
+  participantIds: string[],      // 참여자 ID 목록
+  tags: string[],                // 태그 목록
+  imageUrl: string?,             // 대표 이미지 URL
+  status: string,                // 모임 상태 (active, completed, cancelled)
+  chatRoomId: string?,           // 채팅방 ID
+  createdAt: Timestamp,          // 생성일
+  updatedAt: Timestamp           // 수정일
+}
+```
+
+#### `user_evaluations` - 사용자 평가
+```javascript
+{
+  id: string,                    // 평가 고유 ID
+  meetingId: string,             // 모임 ID
+  evaluatorId: string,           // 평가자 ID
+  evaluatedUserId: string,       // 평가받은 사용자 ID
+  punctualityRating: number,     // 시간 약속 평점 (1-5)
+  friendlinessRating: number,    // 친화력 평점 (1-5)
+  communicationRating: number,   // 소통능력 평점 (1-5)
+  averageRating: number,         // 평균 평점
+  comment: string?,              // 평가 코멘트 (선택)
+  createdAt: Timestamp           // 평가일
+}
+```
+
+#### `chat_rooms` - 채팅방
+```javascript
+{
+  id: string,                    // 채팅방 고유 ID
+  meetingId: string,             // 연결된 모임 ID
+  participantIds: string[],      // 참여자 ID 목록
+  lastMessage: string?,          // 마지막 메시지
+  lastMessageTime: Timestamp?,   // 마지막 메시지 시간
+  lastSenderId: string?,         // 마지막 발신자 ID
+  isActive: boolean,             // 활성 상태
+  createdAt: Timestamp,          // 생성일
+  updatedAt: Timestamp           // 수정일
+}
+```
+
+#### `messages` - 채팅 메시지
+```javascript
+{
+  id: string,                    // 메시지 고유 ID
+  chatRoomId: string,            // 채팅방 ID
+  senderId: string,              // 발신자 ID ('deleted_user'로 익명화 가능)
+  senderName: string,            // 발신자 닉네임 ('탈퇴한 사용자'로 익명화 가능)
+  message: string,               // 메시지 내용
+  messageType: string,           // 메시지 타입 (text, image, system)
+  timestamp: Timestamp,          // 발송 시간
+  readBy: string[],              // 읽은 사용자 ID 목록
+  isDeleted: boolean             // 삭제 여부
+}
+```
+
+### 🚫 보안 및 악용방지 컬렉션
+
+#### `user_blacklist` - 사용자 블랙리스트 (2025.01.03 추가)
+```javascript
+{
+  id: string,                    // 블랙리스트 항목 고유 ID
+  hashedKakaoId: string?,        // 해시된 카카오 ID (SHA-256 + Salt)
+  hashedPhoneNumber: string?,    // 해시된 전화번호 (SHA-256 + Salt)
+  blockReason: string,           // 차단 사유
+  blockType: string,             // 차단 유형
+  blockedAt: Timestamp,          // 차단 시작일
+  expiresAt: Timestamp?,         // 차단 만료일 (null이면 영구)
+  metadata: {                    // 추가 메타데이터
+    deletedAt: string?,          // 탈퇴 시간 (ISO 8601)
+    userName: string?,           // 탈퇴한 사용자명 (기록용)
+    userEmail: string?,          // 탈퇴한 사용자 이메일 (기록용)
+  }
+}
+```
+
+**차단 유형 (blockType):**
+- `first_deletion`: 첫 번째 탈퇴 (7일 제한)
+- `repeated_deletion`: 반복 탈퇴 (30일 제한)  
+- `reported`: 신고에 의한 차단 (영구)
+- `admin_action`: 관리자에 의한 차단 (영구)
+
+**보안 특징:**
+- **해시 기반 식별**: 카카오 ID, 전화번호를 SHA-256 + 고유 Salt로 해시
+- **개인정보 보호**: 원본 식별 정보는 저장하지 않음
+- **자동 만료**: 차단 유형별 자동 만료 시스템
+- **감사 추적**: 탈퇴 메타데이터 보관으로 패턴 분석 가능
+
+### 🛡️ 회원탈퇴 시 데이터 처리 전략
+
+#### Phase 1: 기본 사용자 데이터 삭제
+- `users` 컬렉션에서 해당 사용자 문서 완전 삭제
+- Firebase Auth 계정 삭제
+
+#### Phase 2: 평가 데이터 정리
+- `user_evaluations`에서 해당 사용자 관련 모든 평가 삭제
+- 영향받은 다른 사용자들의 평점 재계산
+
+#### Phase 3: 모임 데이터 처리
+- **미래 모임 (호스트)**: 완전 삭제
+- **과거 모임 (호스트)**: 호스트명 익명화 처리
+- **참여중인 모임**: 참여자 목록에서 제거
+
+#### Phase 4: 채팅 메시지 익명화
+- `senderId` → `'deleted_user'`로 변경
+- `senderName` → `'탈퇴한 사용자'`로 변경
+- **메시지 내용은 보존** (대화 맥락 유지)
+
+#### Phase 5: 블랙리스트 등록
+- 탈퇴 횟수에 따른 재가입 제한 설정
+- 해시된 식별자로 악용 방지
+
 ## 🚀 개발 명령어
 ### Flutter 앱
 - `flutter run` - Flutter 앱 실행 (개발 모드)
@@ -374,6 +531,29 @@ honbab-nono/
 3. **사용자 평가 시스템**: 모임 완료 후 상호 평가
 4. **푸시 알림**: 모임 알림, 채팅 메시지 알림
 
+### 🔄 **카카오 로그인 개인정보 수집 강화 (2025-01-15)**
+
+#### ✅ **개인정보 수집 항목 확장**
+**배경**: 카카오 비즈니스 앱 심사에서 개인정보 수집 항목에 대한 명확한 사유 요구
+- **기존**: 닉네임만 수집
+- **변경**: 닉네임 + 이메일 + 성별 + 출생연도 + 전화번호 수집
+
+**구현 완료 사항**:
+1. **User 모델 확장**: `gender`, `birthYear` 필드 추가
+2. **닉네임 입력 화면 개선**: 
+   - 개인정보 수집 안내 추가 (필요한 이유 명시)
+   - 성별 선택 UI (남성/여성 버튼)
+   - 출생연도 입력 필드 (만 14세 이상 유효성 검사)
+   - 전화번호 입력 필드 (010 형식 검증)
+3. **개인정보 처리방침 업데이트**: 
+   - 회사명 "구구랩" 및 사업자등록번호 추가
+   - 카카오 요구사항에 맞춘 필수 항목 재분류
+4. **UserService 확장**: `createUserWithNickname` 함수에 새 필드 지원
+
+**향후 계획**: 
+- 카카오 심사 승인 후 해당 정보를 카카오 API에서 직접 수집하도록 변경 예정
+- 현재는 앱 내 직접 입력 방식으로 임시 대응
+
 ### 📋 **Phase 2+ 개발 TODO 리스트** (상세)
 
 #### 1. **프로필 통계 개선** ⭐
@@ -539,15 +719,48 @@ honbab-nono/
 - 모임 생성 시 즐겨찾기 사용자들에게 알림 발송
 - 알림 설정 기반 필터링 로직
 
+### 🗺️ **Google Places API 상세 정보 시스템 완성** (2025-01-05)
+
+#### ✅ **완료된 주요 기능들**
+- **상세 영업시간 표시**: regularOpeningHours API 활용
+  - 요일별 영업시간 파싱 및 표시 (Monday: 09:00 - 21:00 형태)
+  - 오늘 요일 베이지 컬러 하이라이트
+  - 한국어 요일 표시 (월~일)
+  - 에러 처리 및 fallback UI 제공
+
+- **다중 사진 갤러리**: 최대 10장 사진 지원
+  - 갤러리 스타일 PageView 구현 (viewportFraction: 0.65)
+  - 사진 개수 인디케이터 ("10장" 표시)
+  - 카드 스타일 사진 뷰어 (borderRadius: 12px)
+  - 이미지 로딩 실패 시 fallback 처리
+
+- **API 필드 확장**: Field Mask 개선
+  - `regularOpeningHours` 필드 추가 (Enterprise SKU)
+  - 전체 사진 컬렉션 수집 (`photos` 배열 전체)
+  - GooglePlacesData 모델 업데이트 (Map<String, dynamic> 타입)
+
+#### 🎯 **Phase 2+ → Phase 3 진입 완료**
+- ✅ **Core MVP**: 100% 완성 (Phase 1)
+- ✅ **Enhanced Features**: 100% 완성 (Phase 2)
+- ✅ **Google Places Integration**: 100% 완성 (Phase 2+)
+- 🚀 **Ready for Phase 3**: 고급 기능 개발 준비
+
+### 📊 **Phase 3 계획** (다음 개발 단계)
+1. **AI 기반 맛집 추천 시스템**: 사용자 취향 학습 및 개인화 추천
+2. **소셜 피드 및 리뷰 시스템**: 사용자 생성 콘텐츠 플랫폼
+3. **고급 검색 및 필터**: 음식 종류, 가격대, 분위기별 필터링
+4. **사용자 행동 분석 및 개인화**: Firebase Analytics 기반 인사이트
+
 ### 📅 **개발 우선순위**
 1. **프로필 통계 개선** ✅ (완료)
-2. **모임 승인 시스템** 🔄 (진행중)
-3. **즐겨찾기 식당 시스템** (중요한 사용자 경험)
-4. **지도 재검색 기능** (UX 개선)  
-5. **모임 완료 시스템** (핵심 기능)
-6. **더치페이 시스템** (부가 기능)
-7. **상호 평가 시스템** (고도화 기능)
-8. **사용자 특성 뱃지 시스템** (개성화 기능)
+2. **Google Places API 통합** ✅ (완료)
+3. **모임 승인 시스템** 🔄 (진행중)
+4. **즐겨찾기 식당 시스템** (중요한 사용자 경험)
+5. **지도 재검색 기능** (UX 개선)  
+6. **모임 완료 시스템** (핵심 기능)
+7. **더치페이 시스템** (부가 기능)
+8. **상호 평가 시스템** (고도화 기능)
+9. **사용자 특성 뱃지 시스템** (개성화 기능)
 
 ### 🎉 **최종 완성된 주요 기능들 (2024-12-28)**
 - ✅ **완벽한 지도 시스템**: SVG 마커, 상태 유지, 검색 결과 동기화
