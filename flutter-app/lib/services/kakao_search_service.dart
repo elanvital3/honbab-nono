@@ -47,6 +47,43 @@ class KakaoSearchService {
     }
   }
 
+  /// 특정 ID로 식당 정보 조회 (카카오 Places API)
+  static Future<Restaurant?> getRestaurantById(String placeId) async {
+    try {
+      print('🔍 카카오 API 식당 조회: $placeId');
+      
+      final url = Uri.parse('https://dapi.kakao.com/v2/local/search/keyword.json');
+      final response = await http.get(
+        url.replace(queryParameters: {
+          'query': placeId, // ID로 검색 시도
+          'size': '1',
+        }),
+        headers: {
+          'Authorization': 'KakaoAK $_apiKey',
+        },
+      );
+
+      if (response.statusCode == 200) {
+        final data = json.decode(response.body);
+        final documents = data['documents'] as List;
+        
+        if (documents.isNotEmpty) {
+          final doc = documents.first;
+          // ID 매칭 확인
+          if (doc['id'] == placeId) {
+            return Restaurant.fromJson(doc);
+          }
+        }
+      }
+      
+      print('❌ 카카오 API 식당 조회 실패: $placeId');
+      return null;
+    } catch (e) {
+      print('❌ 카카오 API 에러: $e');
+      return null;
+    }
+  }
+
   // API 키 유효성 테스트 함수
   static Future<bool> testApiKey() async {
     try {
@@ -87,8 +124,11 @@ class KakaoSearchService {
     }
   }
 
-  static Future<List<Restaurant>> searchRestaurants({
+  // 특정 좌표에서 검색 (재검색용)
+  static Future<List<Restaurant>> searchRestaurantsAt({
     required String query,
+    required double latitude,
+    required double longitude,
     int page = 1,
     int size = 15,
     String? category,
@@ -107,13 +147,8 @@ class KakaoSearchService {
       // 사용자 현재 위치 가져오기 (거리 계산용)
       final userLocation = await LocationService.getCurrentLocation();
       
-      // 검색 위치 가져오기 (에뮬레이터는 해외 위치이므로 서울로 고정)
-      final searchLocation = await LocationService.getLocationForSearch(
-        selectedCity: _selectedCity ?? '서울시', // 기본값을 서울시로 설정
-      );
-      
-      final latitude = searchLocation['lat']!;
-      final longitude = searchLocation['lng']!;
+      // 전달받은 좌표 사용 (재검색의 경우 지도 중심점)
+      print('🗺️ 재검색 좌표 사용: $latitude, $longitude');
       
       // 카테고리가 지정된 경우 쿼리에 추가
       String searchQuery = query;
@@ -184,10 +219,321 @@ class KakaoSearchService {
 
         return restaurants;
       } else {
-        return _searchSampleData(query, category, _selectedCity);
+        return _searchSampleData(query, category, '현재위치');
       }
     } catch (e) {
+      return _searchSampleData(query, category, '현재위치');
+    }
+  }
+
+  static Future<List<Restaurant>> searchRestaurants({
+    required String query,
+    int page = 1,
+    int size = 15,
+    String? category,
+    bool nationwide = true, // 전국 검색 여부 (backward compatibility용)
+  }) async {
+    // size 파라미터 유효성 검사 (카카오 API 최대 15개 제한)
+    if (size > 15) {
+      print('⚠️ size 파라미터 $size는 15보다 클 수 없습니다. 15로 조정합니다.');
+      size = 15;
+    }
+    if (size < 1) {
+      print('⚠️ size 파라미터 $size는 1보다 작을 수 없습니다. 1로 조정합니다.');
+      size = 1;
+    }
+    
+    try {
+      print('🔍 식당 검색 시작: "$query" (지역 우선 → 전국 fallback)');
+      
+      // 1단계: 지역 검색 (20km 반경) 시도
+      final localResults = await _performSearch(
+        query: query,
+        page: page,
+        size: size,
+        category: category,
+        useRadiusLimit: true,
+      );
+      
+      // 지역 검색에서 충분한 결과가 나오면 바로 반환
+      if (localResults.isNotEmpty) {
+        print('✅ 지역 검색 성공: ${localResults.length}개 식당 (20km 반경)');
+        return localResults;
+      }
+      
+      print('🔄 지역 검색 결과 없음, 전국 검색으로 fallback...');
+      
+      // 2단계: 전국 검색 (radius 제한 없음)
+      final nationalResults = await _performSearch(
+        query: query,
+        page: page,
+        size: size,
+        category: category,
+        useRadiusLimit: false,
+      );
+      
+      if (nationalResults.isNotEmpty) {
+        print('✅ 전국 검색 성공: ${nationalResults.length}개 식당');
+      } else {
+        print('❌ 전국 검색에서도 결과 없음, 샘플 데이터 사용');
+      }
+      
+      return nationalResults.isNotEmpty 
+          ? nationalResults 
+          : _searchSampleData(query, category, _selectedCity);
+    } catch (e) {
+      print('❌ 식당 검색 에러: $e');
       return _searchSampleData(query, category, _selectedCity);
+    }
+  }
+  
+  // 지도 중심점 기준 식당 검색 (지도에서 검색할 때 사용)
+  static Future<List<Restaurant>> searchRestaurantsAtMapCenter({
+    required String query,
+    required double latitude,
+    required double longitude,
+    int page = 1,
+    int size = 15,
+    String? category,
+  }) async {
+    // size 파라미터 유효성 검사 (카카오 API 최대 15개 제한)
+    if (size > 15) {
+      print('⚠️ size 파라미터 $size는 15보다 클 수 없습니다. 15로 조정합니다.');
+      size = 15;
+    }
+    if (size < 1) {
+      print('⚠️ size 파라미터 $size는 1보다 작을 수 없습니다. 1로 조정합니다.');
+      size = 1;
+    }
+    
+    try {
+      print('🗺️ 지도 중심점 기준 식당 검색: "$query" at ($latitude, $longitude)');
+      
+      // 1단계: 지역 검색 (20km 반경) 시도
+      final localResults = await _performSearchAtLocation(
+        query: query,
+        latitude: latitude,
+        longitude: longitude,
+        page: page,
+        size: size,
+        category: category,
+        useRadiusLimit: true,
+      );
+      
+      // 지역 검색에서 충분한 결과가 나오면 바로 반환
+      if (localResults.isNotEmpty) {
+        print('✅ 지도 중심점 지역 검색 성공: ${localResults.length}개 식당 (20km 반경)');
+        return localResults;
+      }
+      
+      print('🔄 지도 중심점 지역 검색 결과 없음, 전국 검색으로 fallback...');
+      
+      // 2단계: 전국 검색 (radius 제한 없음)
+      final nationalResults = await _performSearchAtLocation(
+        query: query,
+        latitude: latitude,
+        longitude: longitude,
+        page: page,
+        size: size,
+        category: category,
+        useRadiusLimit: false,
+      );
+      
+      if (nationalResults.isNotEmpty) {
+        print('✅ 지도 중심점 전국 검색 성공: ${nationalResults.length}개 식당');
+      } else {
+        print('❌ 지도 중심점 전국 검색에서도 결과 없음');
+      }
+      
+      return nationalResults;
+    } catch (e) {
+      print('❌ 지도 중심점 식당 검색 에러: $e');
+      return [];
+    }
+  }
+  
+  // 지도 중심점 기준 실제 검색 수행
+  static Future<List<Restaurant>> _performSearchAtLocation({
+    required String query,
+    required double latitude,
+    required double longitude,
+    required int page,
+    required int size,
+    String? category,
+    required bool useRadiusLimit,
+  }) async {
+    try {
+      // 사용자 현재 위치 가져오기 (거리 계산용)
+      final userLocation = await LocationService.getCurrentLocation();
+      
+      // 지도 중심점 좌표 사용 (전달받은 파라미터)
+      print('🗺️ 지도 중심점 기준 검색: $latitude, $longitude');
+      
+      // 카테고리가 지정된 경우 쿼리에 추가
+      String searchQuery = query;
+      if (category != null && category.isNotEmpty) {
+        searchQuery = '$category $query';
+      }
+      
+      // 기본 파라미터 설정
+      final queryParams = <String, String>{
+        'query': searchQuery,
+        'x': longitude.toString(),
+        'y': latitude.toString(),
+        'page': page.toString(),
+        'size': size.toString(),
+        'sort': 'distance', // 거리순 정렬
+      };
+      
+      // 지역 제한 검색인 경우 radius 추가
+      if (useRadiusLimit) {
+        queryParams['radius'] = '20000'; // 20km 반경
+      }
+      
+      final uri = Uri.parse(_baseUrl).replace(queryParameters: queryParams);
+
+      final response = await http.get(
+        uri,
+        headers: {
+          'Authorization': 'KakaoAK $_apiKey',
+        },
+      );
+
+      if (response.statusCode != 200) {
+        print('❌ 카카오 API 에러: ${response.statusCode} - ${response.body}');
+        return [];
+      }
+
+      final data = json.decode(response.body);
+      final documents = data['documents'] as List;
+      
+      final allRestaurants = documents.map((doc) => Restaurant.fromJson(doc)).toList();
+      
+      final restaurants = allRestaurants
+          .where((restaurant) => _isRestaurant(restaurant.category))
+          .toList();
+
+      // 사용자 현재 위치가 있으면 실제 거리 계산 및 업데이트
+      if (userLocation != null) {
+        for (final restaurant in restaurants) {
+          final distance = LocationService.calculateDistance(
+            userLocation.latitude!,
+            userLocation.longitude!,
+            restaurant.latitude,
+            restaurant.longitude,
+          );
+          
+          // Restaurant 객체의 거리 정보 업데이트
+          restaurant.distance = distance.round().toString();
+          restaurant.displayDistance = LocationService.formatDistance(distance);
+        }
+        
+        // 실제 거리 기준으로 재정렬 (가까운 순)
+        restaurants.sort((a, b) {
+          final aDistance = double.tryParse(a.distance ?? '0') ?? 0;
+          final bDistance = double.tryParse(b.distance ?? '0') ?? 0;
+          return aDistance.compareTo(bDistance);
+        });
+      }
+
+      return restaurants;
+    } catch (e) {
+      print('❌ _performSearchAtLocation 에러: $e');
+      return [];
+    }
+  }
+
+  // 실제 검색 수행 (지역/전국 공통 로직)
+  static Future<List<Restaurant>> _performSearch({
+    required String query,
+    required int page,
+    required int size,
+    String? category,
+    required bool useRadiusLimit,
+  }) async {
+    try {
+      // 사용자 현재 위치 가져오기 (거리 계산용)
+      final userLocation = await LocationService.getCurrentLocation();
+      
+      // 검색 위치 가져오기 (에뮬레이터는 해외 위치이므로 서울로 고정)
+      final searchLocation = await LocationService.getLocationForSearch(
+        selectedCity: _selectedCity ?? '서울시', // 기본값을 서울시로 설정
+      );
+      
+      final latitude = searchLocation['lat']!;
+      final longitude = searchLocation['lng']!;
+      
+      // 카테고리가 지정된 경우 쿼리에 추가
+      String searchQuery = query;
+      if (category != null && category.isNotEmpty) {
+        searchQuery = '$category $query';
+      }
+      
+      // 기본 파라미터 설정
+      final queryParams = <String, String>{
+        'query': searchQuery,
+        'x': longitude.toString(),
+        'y': latitude.toString(),
+        'page': page.toString(),
+        'size': size.toString(),
+        'sort': 'distance', // 거리순 정렬
+      };
+      
+      // 지역 제한 검색인 경우 radius 추가
+      if (useRadiusLimit) {
+        queryParams['radius'] = '20000'; // 20km 반경
+      }
+      
+      final uri = Uri.parse(_baseUrl).replace(queryParameters: queryParams);
+
+      final response = await http.get(
+        uri,
+        headers: {
+          'Authorization': 'KakaoAK $_apiKey',
+        },
+      );
+
+      if (response.statusCode != 200) {
+        print('❌ 카카오 API 에러: ${response.statusCode} - ${response.body}');
+        return [];
+      }
+
+      final data = json.decode(response.body);
+      final documents = data['documents'] as List;
+      
+      final allRestaurants = documents.map((doc) => Restaurant.fromJson(doc)).toList();
+      
+      final restaurants = allRestaurants
+          .where((restaurant) => _isRestaurant(restaurant.category))
+          .toList();
+
+      // 사용자 현재 위치가 있으면 실제 거리 계산 및 업데이트
+      if (userLocation != null) {
+        for (final restaurant in restaurants) {
+          final distance = LocationService.calculateDistance(
+            userLocation.latitude!,
+            userLocation.longitude!,
+            restaurant.latitude,
+            restaurant.longitude,
+          );
+          
+          // Restaurant 객체의 거리 정보 업데이트
+          restaurant.distance = distance.round().toString();
+          restaurant.displayDistance = LocationService.formatDistance(distance);
+        }
+        
+        // 실제 거리 기준으로 재정렬 (가까운 순)
+        restaurants.sort((a, b) {
+          final aDistance = double.tryParse(a.distance ?? '0') ?? 0;
+          final bDistance = double.tryParse(b.distance ?? '0') ?? 0;
+          return aDistance.compareTo(bDistance);
+        });
+      }
+
+      return restaurants;
+    } catch (e) {
+      print('❌ _performSearch 에러: $e');
+      return [];
     }
   }
 

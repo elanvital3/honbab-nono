@@ -11,7 +11,6 @@ import '../../models/user.dart';
 import '../../components/meeting_card.dart';
 import '../../components/kakao_webview_map.dart';
 import '../../components/kakao_web_map.dart';
-import '../../components/webview_test.dart';
 import '../../components/hierarchical_location_picker.dart';
 import '../../services/meeting_service.dart';
 import '../../services/auth_service.dart';
@@ -19,9 +18,10 @@ import '../../services/user_service.dart';
 import '../../services/location_service.dart';
 import '../../services/kakao_auth_service.dart';
 import '../../services/chat_service.dart';
+import '../../services/restaurant_service.dart';
 import '../../services/kakao_search_service.dart';
 import '../../services/kakao_image_search_service.dart';
-import '../test/unified_notification_test_screen.dart';
+import '../../services/google_places_service.dart';
 import '../../models/message.dart';
 import '../../models/restaurant.dart';
 import '../chat/chat_screen.dart';
@@ -32,7 +32,11 @@ import '../../components/common/common_card.dart';
 import '../../components/common/common_button.dart';
 import '../profile/profile_edit_screen.dart';
 import '../settings/notification_settings_screen.dart';
+import '../settings/account_deletion_screen.dart';
 import '../../components/participant_profile_widget.dart';
+import '../../components/common/common_confirm_dialog.dart';
+import '../restaurant/restaurant_list_screen.dart';
+import '../../constants/app_design_tokens.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -205,22 +209,124 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
               },
             ),
             ListTile(
-              leading: const Icon(Icons.notifications),
-              title: const Text('알림 테스트'),
-              onTap: () {
+              leading: const Icon(Icons.delete_forever, color: Colors.red),
+              title: const Text('전체 테스트 데이터 삭제'),
+              subtitle: const Text('모든 컬렉션의 데이터를 삭제합니다'),
+              onTap: () async {
                 Navigator.pop(context);
-                Navigator.push(
-                  context,
-                  MaterialPageRoute(
-                    builder: (context) => const UnifiedNotificationTestScreen(),
-                  ),
-                );
+                await _showCleanupConfirmation(context);
               },
             ),
           ],
         ),
       ),
     );
+  }
+  
+  Future<void> _showCleanupConfirmation(BuildContext context) async {
+    final confirmed = await CommonConfirmDialog.showDelete(
+      context: context,
+      title: '전체 데이터 삭제',
+      content: '정말로 모든 테스트 데이터를 삭제하시겠습니까?\n\n삭제되는 데이터:\n• 사용자 정보 (users)\n• 모임 정보 (meetings)\n• 사용자 평가 (user_evaluations)\n• 채팅 메시지 (messages)\n• 개인정보 동의 (privacy_consent)\n\n이 작업은 되돌릴 수 없습니다.',
+      confirmText: '전체 삭제',
+    );
+    
+    if (confirmed) {
+      await _cleanupAllTestData();
+    }
+  }
+  
+  Future<void> _cleanupAllTestData() async {
+    try {
+      // 로딩 다이얼로그 표시
+      showDialog(
+        context: context,
+        barrierDismissible: false,
+        builder: (context) => const AlertDialog(
+          content: Row(
+            children: [
+              CircularProgressIndicator(),
+              SizedBox(width: 16),
+              Text('데이터 삭제 중...'),
+            ],
+          ),
+        ),
+      );
+      
+      await _cleanupTestDataCollections();
+      
+      if (mounted) {
+        Navigator.pop(context); // 로딩 다이얼로그 닫기
+        
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('✅ 모든 테스트 데이터가 삭제되었습니다'),
+            backgroundColor: Colors.green,
+            duration: Duration(seconds: 3),
+          ),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        Navigator.pop(context); // 로딩 다이얼로그 닫기
+        
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('❌ 데이터 삭제 실패: $e'),
+            backgroundColor: Colors.red,
+            duration: const Duration(seconds: 3),
+          ),
+        );
+      }
+    }
+  }
+  
+  Future<void> _cleanupTestDataCollections() async {
+    final firestore = FirebaseFirestore.instance;
+    
+    print('🧹 테스트 데이터 정리 시작...');
+    
+    // 1. Users 컬렉션 정리
+    await _cleanupCollection(firestore, 'users', '👤 사용자');
+    
+    // 2. Meetings 컬렉션 정리
+    await _cleanupCollection(firestore, 'meetings', '🍽️ 모임');
+    
+    // 3. User Evaluations 컬렉션 정리
+    await _cleanupCollection(firestore, 'user_evaluations', '⭐ 사용자 평가');
+    
+    // 4. Messages 컬렉션 정리
+    await _cleanupCollection(firestore, 'messages', '💬 채팅 메시지');
+    
+    // 5. Privacy Consent 컬렉션 정리
+    await _cleanupCollection(firestore, 'privacy_consent', '🔒 개인정보 동의');
+    
+    print('✅ 테스트 데이터 정리 완료');
+  }
+  
+  Future<void> _cleanupCollection(FirebaseFirestore firestore, String collectionName, String displayName) async {
+    try {
+      print('🔄 $displayName 컬렉션 정리 중...');
+      
+      final querySnapshot = await firestore.collection(collectionName).get();
+      
+      if (querySnapshot.docs.isEmpty) {
+        print('   ℹ️ $displayName: 삭제할 데이터 없음');
+        return;
+      }
+      
+      // 배치 삭제 (한 번에 최대 500개)
+      final batch = firestore.batch();
+      for (final doc in querySnapshot.docs) {
+        batch.delete(doc.reference);
+      }
+      
+      await batch.commit();
+      print('   ✅ $displayName: ${querySnapshot.docs.length}개 문서 삭제 완료');
+    } catch (e) {
+      print('   ❌ $displayName 정리 실패: $e');
+      rethrow;
+    }
   }
 
   Widget _buildChatIconWithBadge() {
@@ -525,11 +631,43 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     // _unreadCountDebounceTimer?.cancel(); 제거
     super.dispose();
   }
-
+  
+  // 뒤로가기 처리 함수
+  Future<bool> _handleBackPress() async {
+    // 홈 탭이 아닌 경우 홈 탭으로 이동
+    if (_selectedIndex != 0) {
+      setState(() {
+        _selectedIndex = 0;
+      });
+      return false; // 앱 종료하지 않음
+    }
+    
+    // 홈 탭에서 뒤로가기 시 종료 확인
+    final shouldExit = await CommonConfirmDialog.show(
+      context: context,
+      title: '앱 종료',
+      content: '혼밥노노를 종료하시겠습니까?',
+      cancelText: '취소',
+      confirmText: '종료',
+      confirmTextColor: Colors.red[400],
+    );
+    
+    return shouldExit;
+  }
 
   @override
   Widget build(BuildContext context) {
-    return StreamBuilder<List<Meeting>>(
+    return PopScope(
+      canPop: false, // 항상 뒤로가기 처리 함수를 통해 처리
+      onPopInvoked: (didPop) async {
+        if (!didPop) {
+          final shouldPop = await _handleBackPress();
+          if (shouldPop && context.mounted) {
+            Navigator.of(context).pop();
+          }
+        }
+      },
+      child: StreamBuilder<List<Meeting>>(
       stream: MeetingService.getMeetingsStream(),
       builder: (context, snapshot) {
         if (snapshot.connectionState == ConnectionState.waiting) {
@@ -616,7 +754,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                     ),
                   ))
             : Text(
-                _selectedIndex == 2 ? '채팅' : _selectedIndex == 3 ? '마이페이지' : '혼뱥노노',
+                _selectedIndex == 2 ? '맛집' : _selectedIndex == 3 ? '채팅' : _selectedIndex == 4 ? '마이페이지' : '혼뱁노노',
                 style: AppTextStyles.headlineMedium,
               ),
         actions: [
@@ -673,6 +811,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
             onStatusFilterChanged: _updateStatusFilter,
             onTimeFilterChanged: _updateTimeFilter,
           ),
+          const RestaurantListScreen(),
           _ChatListTab(
             key: _chatListKey,
             // ValueNotifier 방식으로 변경되어 onUnreadCountChanged 콜백 제거
@@ -689,6 +828,8 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
         unselectedItemColor: Colors.grey,
         selectedFontSize: 12, // 글씨 크기 고정
         unselectedFontSize: 12, // 글씨 크기 고정
+        elevation: 0, // 그림자 제거
+        backgroundColor: AppDesignTokens.surface, // 배경색 명시
         items: [
           const BottomNavigationBarItem(
             icon: Icon(Icons.home),
@@ -697,6 +838,10 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
           const BottomNavigationBarItem(
             icon: Icon(Icons.map),
             label: '지도',
+          ),
+          const BottomNavigationBarItem(
+            icon: Icon(Icons.restaurant_menu),
+            label: '맛집',
           ),
           BottomNavigationBarItem(
             icon: _buildChatIconWithBadge(),
@@ -729,6 +874,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
           : null,
         );
       },
+    ),
     );
   }
 }
@@ -994,6 +1140,9 @@ class _MapTabState extends State<_MapTab> with AutomaticKeepAliveClientMixin {
   String _localStatusFilter = '전체';
   String _localTimeFilter = '일주일';
   
+  // 즐겨찾기 상태 관리
+  final Set<String> _favoriteRestaurants = <String>{};
+  
   // 지도 탭 전용 필터링 함수
   List<Meeting> _filterMapMeetings(List<Meeting> meetings) {
     var filtered = List<Meeting>.from(meetings);
@@ -1062,7 +1211,14 @@ class _MapTabState extends State<_MapTab> with AutomaticKeepAliveClientMixin {
   void initState() {
     super.initState();
     _restoreMapState(); // 저장된 지도 상태 복원
-    _initializeCurrentLocationSync(); // 동기 방식으로 즉시 위치 설정
+    _loadFavorites(); // 즐겨찾기 상태 로드
+    
+    // 저장된 지도 상태가 없을 때만 위치 초기화
+    if (_HomeScreenState._savedMapLatitude == null || _HomeScreenState._savedMapLongitude == null) {
+      _initializeCurrentLocationSync(); // 동기 방식으로 즉시 위치 설정
+    } else {
+      print('🗺️ 저장된 지도 상태가 있어 GPS 위치 초기화 건너뜀');
+    }
   }
   
   void _restoreMapState() {
@@ -1070,6 +1226,8 @@ class _MapTabState extends State<_MapTab> with AutomaticKeepAliveClientMixin {
     if (_HomeScreenState._savedMapLatitude != null && _HomeScreenState._savedMapLongitude != null) {
       _centerLatitude = _HomeScreenState._savedMapLatitude!;
       _centerLongitude = _HomeScreenState._savedMapLongitude!;
+      _initialLat = _centerLatitude; // 초기 위치도 복원된 위치로 설정
+      _initialLng = _centerLongitude;
       print('🗺️ 지도 위치 복원: $_centerLatitude, $_centerLongitude');
     }
     
@@ -1135,24 +1293,88 @@ class _MapTabState extends State<_MapTab> with AutomaticKeepAliveClientMixin {
   }
   
   // 이 지역 재검색
-  void _reSearchInArea() {
+  Future<void> _reSearchInArea() async {
+    final query = _searchController.text.trim();
+    if (query.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('검색어를 입력해주세요'),
+          backgroundColor: Colors.orange,
+          behavior: SnackBarBehavior.floating,
+          duration: Duration(seconds: 2),
+        ),
+      );
+      return;
+    }
+    
     setState(() {
       _showReSearchButton = false;
       _initialLat = _centerLatitude;
       _initialLng = _centerLongitude;
+      _isSearching = true;
+      _showBottomCard = false; // 모임 카드 숨기기
+      _selectedMeeting = null;
     });
     
-    // 현재 보이는 영역의 모임 개수 계산
-    final visibleMeetings = _getVisibleMeetings();
-    
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text('현재 지역에서 ${visibleMeetings.length}개의 모임을 찾았습니다'),
-        backgroundColor: Theme.of(context).colorScheme.primary,
-        behavior: SnackBarBehavior.floating,
-        duration: const Duration(seconds: 2),
-      ),
-    );
+    try {
+      print('🔍 지역 재검색 시작: "$query" (위치: $_centerLatitude, $_centerLongitude)');
+      
+      // 현재 지도 중심점에서 식당 재검색
+      final results = await KakaoSearchService.searchRestaurantsAtMapCenter(
+        query: query,
+        latitude: _centerLatitude,
+        longitude: _centerLongitude,
+        size: 10,
+      );
+      
+      print('🔍 재검색 API 응답: ${results.length}개 결과');
+      
+      setState(() {
+        _searchResults = results;
+        _showSearchResults = results.isNotEmpty;
+      });
+      
+      // 검색 완료 후 상태 저장
+      _saveMapState();
+      
+      // 결과 피드백
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(results.isNotEmpty 
+            ? '이 지역에서 ${results.length}개의 식당을 찾았습니다'
+            : '이 지역에서 "$query" 검색 결과가 없습니다'),
+          backgroundColor: results.isNotEmpty 
+            ? Theme.of(context).colorScheme.primary 
+            : Colors.orange,
+          behavior: SnackBarBehavior.floating,
+          duration: const Duration(seconds: 2),
+        ),
+      );
+      
+      if (kDebugMode) {
+        print('✅ 재검색 완료: ${results.length}개 결과');
+        for (final restaurant in results) {
+          print('   - ${restaurant.name} (${restaurant.latitude}, ${restaurant.longitude})');
+        }
+      }
+    } catch (e) {
+      if (kDebugMode) {
+        print('❌ 재검색 실패: $e');
+      }
+      
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('재검색 중 오류가 발생했습니다'),
+          backgroundColor: Colors.red,
+          behavior: SnackBarBehavior.floating,
+          duration: Duration(seconds: 2),
+        ),
+      );
+    } finally {
+      setState(() {
+        _isSearching = false;
+      });
+    }
   }
   
   // 현재 보이는 영역의 모임 필터링
@@ -1208,6 +1430,12 @@ class _MapTabState extends State<_MapTab> with AutomaticKeepAliveClientMixin {
   }
   
   Future<void> _initializeCurrentLocation() async {
+    // 저장된 지도 상태가 있으면 GPS 업데이트 건너뜀
+    if (_HomeScreenState._savedMapLatitude != null && _HomeScreenState._savedMapLongitude != null) {
+      print('📍 저장된 지도 상태가 있어 GPS 업데이트 건너뜀');
+      return;
+    }
+    
     // 백그라운드에서 새로운 GPS 위치 가져오기
     try {
       print('📍 새로운 GPS 위치 가져오는 중...');
@@ -1387,10 +1615,11 @@ class _MapTabState extends State<_MapTab> with AutomaticKeepAliveClientMixin {
     
     try {
       print('🔍 검색 시작: "$query"');
-      final results = await KakaoSearchService.searchRestaurants(
+      final results = await KakaoSearchService.searchRestaurantsAtMapCenter(
         query: query,
+        latitude: _centerLatitude,
+        longitude: _centerLongitude,
         size: 10,
-        nationwide: true, // 전국 검색으로 변경
       );
       print('🔍 검색 API 응답: ${results.length}개 결과');
       
@@ -1546,12 +1775,27 @@ class _MapTabState extends State<_MapTab> with AutomaticKeepAliveClientMixin {
       onPointerDown: (PointerDownEvent event) {
         // 터치 시작 시 하단 카드 닫기 (WebView 터치도 감지)
         if (_showBottomCard) {
-          // 하단 카드 영역이 아닌 경우에만 닫기
-          final bottomCardTop = MediaQuery.of(context).size.height - 200;
-          if (event.position.dy < bottomCardTop) {
+          // 화면 크기 및 카드 위치 계산
+          final screenHeight = MediaQuery.of(context).size.height;
+          final screenWidth = MediaQuery.of(context).size.width;
+          
+          // 카드는 하단에서 16px 여백으로 positioned되어 있고, 실제 높이는 약 250px
+          final cardBottom = screenHeight - 16;
+          final cardTop = cardBottom - 250; // 카드 실제 높이
+          final cardLeft = 16;
+          final cardRight = screenWidth - 16;
+          
+          // 카드 영역 밖을 터치했을 때만 닫기
+          final isOutsideCard = event.position.dy < cardTop || 
+                               event.position.dy > cardBottom ||
+                               event.position.dx < cardLeft || 
+                               event.position.dx > cardRight;
+          
+          if (isOutsideCard) {
             setState(() {
               _showBottomCard = false;
               _selectedMeeting = null;
+              _selectedRestaurant = null;
             });
           }
         }
@@ -2240,12 +2484,7 @@ class _MapTabState extends State<_MapTab> with AutomaticKeepAliveClientMixin {
   }
   
   Widget _buildRestaurantCard(Restaurant restaurant) {
-    return GestureDetector(
-      onTap: () {
-        // 카드 클릭 시 외부 GestureDetector로 이벤트 전파 방지
-      },
-      behavior: HitTestBehavior.opaque,
-      child: Container(
+    return Container(
         decoration: BoxDecoration(
           color: Colors.white,
           borderRadius: BorderRadius.circular(16),
@@ -2278,16 +2517,24 @@ class _MapTabState extends State<_MapTab> with AutomaticKeepAliveClientMixin {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  // 식당명
-                  Text(
-                    restaurant.name,
-                    style: const TextStyle(
-                      fontSize: 18,
-                      fontWeight: FontWeight.bold,
-                      color: Colors.black87,
-                    ),
-                    maxLines: 2,
-                    overflow: TextOverflow.ellipsis,
+                  // 식당명과 즐겨찾기 버튼
+                  Row(
+                    children: [
+                      Expanded(
+                        child: Text(
+                          restaurant.name,
+                          style: const TextStyle(
+                            fontSize: 18,
+                            fontWeight: FontWeight.bold,
+                            color: Colors.black87,
+                          ),
+                          maxLines: 2,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      _buildFavoriteButton(restaurant),
+                    ],
                   ),
                   
                   const SizedBox(height: 8),
@@ -2384,7 +2631,6 @@ class _MapTabState extends State<_MapTab> with AutomaticKeepAliveClientMixin {
             ),
           ],
         ),
-      ),
     );
   }
   
@@ -2784,6 +3030,117 @@ class _MapTabState extends State<_MapTab> with AutomaticKeepAliveClientMixin {
                 ),
               ),
             ),
+          ),
+        ),
+      ),
+    );
+  }
+  
+  // 즐겨찾기 상태 로드
+  Future<void> _loadFavorites() async {
+    try {
+      final currentUserId = AuthService.currentUserId;
+      if (currentUserId == null) return;
+      
+      final user = await UserService.getUser(currentUserId);
+      if (user != null) {
+        setState(() {
+          _favoriteRestaurants.clear();
+          _favoriteRestaurants.addAll(user.favoriteRestaurants);
+        });
+        if (kDebugMode) {
+          print('💕 즐겨찾기 로드됨: ${_favoriteRestaurants.length}개');
+        }
+      }
+    } catch (e) {
+      if (kDebugMode) {
+        print('❌ 즐겨찾기 로드 실패: $e');
+      }
+    }
+  }
+  
+  // 즐겨찾기 토글
+  Future<void> _toggleFavorite(Restaurant restaurant) async {
+    try {
+      final currentUserId = AuthService.currentUserId;
+      if (currentUserId == null) {
+        if (kDebugMode) {
+          print('❌ 즐겨찾기 실패: 로그인되지 않음');
+        }
+        return;
+      }
+      
+      if (kDebugMode) {
+        print('💕 즐겨찾기 토글 시작: ${restaurant.name} (${restaurant.id})');
+        print('💕 사용자 ID: $currentUserId');
+      }
+      
+      // 새로운 방식: 식당 정보 전체를 저장
+      final isFavorite = await RestaurantService.toggleFavoriteWithData(restaurant);
+      
+      if (kDebugMode) {
+        print('💕 즐겨찾기 토글 결과: ${isFavorite ? "추가됨" : "제거됨"}');
+      }
+      
+      setState(() {
+        if (isFavorite) {
+          _favoriteRestaurants.add(restaurant.id);
+        } else {
+          _favoriteRestaurants.remove(restaurant.id);
+        }
+      });
+      
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            isFavorite ? '즐겨찾기에 추가되었습니다' : '즐겨찾기에서 제거되었습니다',
+          ),
+          backgroundColor: isFavorite ? Colors.green : Colors.grey,
+          duration: const Duration(seconds: 1),
+        ),
+      );
+      
+      if (kDebugMode) {
+        print('${isFavorite ? '💕' : '💔'} ${restaurant.name} 즐겨찾기 ${isFavorite ? '추가' : '제거'}');
+      }
+    } catch (e) {
+      if (kDebugMode) {
+        print('❌ 즐겨찾기 토글 실패: $e');
+      }
+      
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('오류가 발생했습니다: $e'),
+          backgroundColor: Colors.red,
+        ),
+      );
+    }
+  }
+  
+  // 즐겨찾기 버튼 위젯
+  Widget _buildFavoriteButton(Restaurant restaurant) {
+    final isFavorite = _favoriteRestaurants.contains(restaurant.id);
+    
+    return AbsorbPointer(
+      absorbing: false,
+      child: GestureDetector(
+        onTap: () {
+          if (kDebugMode) {
+            print('💕 하트 버튼 클릭됨: ${restaurant.name}');
+          }
+          _toggleFavorite(restaurant);
+        },
+        behavior: HitTestBehavior.opaque,
+        child: Container(
+          padding: const EdgeInsets.all(8),
+          decoration: BoxDecoration(
+            color: isFavorite ? Colors.red.withOpacity(0.1) : Colors.grey.withOpacity(0.1),
+            shape: BoxShape.circle,
+          ),
+          child: Icon(
+            isFavorite ? Icons.favorite : Icons.favorite_border,
+            color: isFavorite ? Colors.red : Colors.grey[600],
+            size: 20,
           ),
         ),
       ),
@@ -4109,6 +4466,12 @@ class _ProfileTabState extends State<_ProfileTab> with AutomaticKeepAliveClientM
             () => _showNotificationSettings(),
           ),
           _buildSettingItem(
+            Icons.science,
+            '🧪 Google Places 테스트',
+            '별점/리뷰수 필터링 테스트',
+            () => _runGooglePlacesTest(),
+          ),
+          _buildSettingItem(
             Icons.help,
             '고객센터',
             '문의하기 및 도움말',
@@ -4258,6 +4621,73 @@ class _ProfileTabState extends State<_ProfileTab> with AutomaticKeepAliveClientM
         builder: (context) => const NotificationSettingsScreen(),
       ),
     );
+  }
+
+  /// 🧪 Google Places API 테스트 (데이터 확인만, 저장 안함)
+  Future<void> _runGooglePlacesTest() async {
+    if (kDebugMode) {
+      print('\n🚀 Google Places 테스트 시작...');
+      
+      // 사용자에게 테스트 시작 알림
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('🧪 Google Places 테스트 시작 (콘솔 확인)'),
+          backgroundColor: Colors.blue,
+        ),
+      );
+
+      try {
+        // 1. API 키 테스트
+        print('\n--- 1. API 키 테스트 ---');
+        final isApiValid = await GooglePlacesService.testApiKey();
+        
+        if (isApiValid) {
+          // 2. 지역별 샘플링 테스트
+          print('\n--- 2. 지역별 샘플링 테스트 ---');
+          await GooglePlacesService.testRegionSampling();
+          
+          // 3. 서울 상세 테스트
+          print('\n--- 3. 서울 상세 테스트 ---');
+          await GooglePlacesService.testSingleRegionDetail('서울');
+          
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(
+                content: Text('✅ 테스트 완료! 콘솔에서 결과 확인'),
+                backgroundColor: Colors.green,
+              ),
+            );
+          }
+        } else {
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(
+                content: Text('❌ API 키 테스트 실패'),
+                backgroundColor: Colors.red,
+              ),
+            );
+          }
+        }
+      } catch (e) {
+        print('❌ 테스트 중 오류: $e');
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('❌ 테스트 오류: $e'),
+              backgroundColor: Colors.red,
+            ),
+          );
+        }
+      }
+    } else {
+      // 릴리즈 모드에서는 테스트 비활성화
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('⚠️ 테스트는 개발 모드에서만 가능합니다'),
+          backgroundColor: Colors.orange,
+        ),
+      );
+    }
   }
 
   void _showPrivacySettings() {
@@ -4440,96 +4870,15 @@ class _ProfileTabState extends State<_ProfileTab> with AutomaticKeepAliveClientM
   }
 
   void _showDeleteAccountDialog() {
-    showDialog(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: Text('회원탈퇴', style: AppTextStyles.titleLarge),
-        content: Text(
-          '정말 탈퇴하시겠습니까?\n모든 데이터가 삭제되며 복구할 수 없습니다.',
-          style: AppTextStyles.bodyLarge,
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: Text('취소', style: AppTextStyles.labelLarge),
-          ),
-          TextButton(
-            onPressed: () async {
-              Navigator.pop(context);
-              await _handleDeleteAccount();
-            },
-            child: Text(
-              '탈퇴',
-              style: AppTextStyles.labelLarge.copyWith(color: Colors.red[700]),
-            ),
-          ),
-        ],
+    // 새로운 계정 삭제 화면으로 이동
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (context) => const AccountDeletionScreen(),
       ),
     );
   }
 
-  Future<void> _handleDeleteAccount() async {
-    try {
-      // 로딩 표시
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Row(
-              children: [
-                SizedBox(
-                  width: 20,
-                  height: 20,
-                  child: CircularProgressIndicator(
-                    strokeWidth: 2,
-                    valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
-                  ),
-                ),
-                SizedBox(width: 16),
-                Text('회원탈퇴 처리 중...'),
-              ],
-            ),
-            duration: Duration(seconds: 3),
-          ),
-        );
-      }
-
-      // 카카오 연결 끊기 + Firebase 계정 삭제
-      await KakaoAuthService.unlink();
-
-      if (kDebugMode) {
-        print('✅ 회원탈퇴 완료');
-      }
-
-      // 로그인 화면으로 이동
-      if (mounted) {
-        Navigator.pushNamedAndRemoveUntil(
-          context,
-          '/login',
-          (route) => false,
-        );
-        
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('회원탈퇴가 완료되었습니다.'),
-            backgroundColor: Colors.green,
-          ),
-        );
-      }
-    } catch (e) {
-      if (kDebugMode) {
-        print('❌ 회원탈퇴 실패: $e');
-      }
-      
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('회원탈퇴 중 오류가 발생했습니다: $e'),
-            backgroundColor: Colors.red,
-          ),
-        );
-      }
-    }
-  }
 }
 
 // 사용자 프로필 데이터 모델
@@ -4634,6 +4983,7 @@ class _HomeTabWithSubTabsState extends State<_HomeTabWithSubTabs> with SingleTic
     _tabController.dispose();
     super.dispose();
   }
+  
 
   @override
   Widget build(BuildContext context) {

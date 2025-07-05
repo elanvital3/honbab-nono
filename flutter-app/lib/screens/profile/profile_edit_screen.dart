@@ -1,8 +1,5 @@
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
-import 'package:image_picker/image_picker.dart';
-import 'package:firebase_storage/firebase_storage.dart';
-import 'dart:io';
 import '../../models/user.dart' as app_user;
 import '../../services/auth_service.dart';
 import '../../services/user_service.dart';
@@ -27,45 +24,34 @@ class ProfileEditScreen extends StatefulWidget {
 
 class _ProfileEditScreenState extends State<ProfileEditScreen> {
   final TextEditingController _nameController = TextEditingController();
-  final TextEditingController _bioController = TextEditingController();
   final FocusNode _nameFocus = FocusNode();
-  final FocusNode _bioFocus = FocusNode();
-  final ImagePicker _picker = ImagePicker();
+  // 이미지 업로드 기능 제거됨
   
   bool _isLoading = false;
   bool _hasChanges = false;
-  bool _isUploadingImage = false;
   String? _nameError;
-  String? _selectedImagePath;
-  String? _uploadedImageUrl;
   List<String> _selectedBadges = [];
 
   @override
   void initState() {
     super.initState();
     _nameController.text = widget.user.name;
-    _bioController.text = widget.user.bio ?? '';
     _selectedBadges = List<String>.from(widget.user.badges ?? []);
     
     _nameController.addListener(_onTextChanged);
-    _bioController.addListener(_onTextChanged);
   }
 
   @override
   void dispose() {
     _nameController.dispose();
-    _bioController.dispose();
     _nameFocus.dispose();
-    _bioFocus.dispose();
     super.dispose();
   }
 
   void _onTextChanged() {
-    final hasTextChanges = _nameController.text != widget.user.name ||
-                          _bioController.text != (widget.user.bio ?? '');
-    final hasImageChanges = _selectedImagePath != null || _uploadedImageUrl != null;
+    final hasTextChanges = _nameController.text != widget.user.name;
     final hasBadgeChanges = !_listsEqual(_selectedBadges, widget.user.badges ?? []);
-    final hasChanges = hasTextChanges || hasImageChanges || hasBadgeChanges;
+    final hasChanges = hasTextChanges || hasBadgeChanges;
     
     if (hasChanges != _hasChanges) {
       setState(() {
@@ -82,97 +68,7 @@ class _ProfileEditScreenState extends State<ProfileEditScreen> {
     return true;
   }
 
-  Future<void> _pickAndUploadImage() async {
-    try {
-      final ImageSource? source = await _showImageSourceDialog();
-      if (source == null) return;
-
-      final XFile? image = await _picker.pickImage(
-        source: source,
-        maxWidth: 1024,
-        maxHeight: 1024,
-        imageQuality: 80,
-      );
-
-      if (image == null) return;
-
-      setState(() {
-        _selectedImagePath = image.path;
-        _isUploadingImage = true;
-      });
-
-      // Firebase Storage에 업로드
-      final String fileName = 'profile_${widget.user.id}_${DateTime.now().millisecondsSinceEpoch}.jpg';
-      final Reference storageRef = FirebaseStorage.instance
-          .ref()
-          .child('profile_images')
-          .child(fileName);
-
-      final UploadTask uploadTask = storageRef.putFile(File(image.path));
-      final TaskSnapshot snapshot = await uploadTask;
-      final String downloadUrl = await snapshot.ref.getDownloadURL();
-
-      if (kDebugMode) {
-        print('✅ 프로필 이미지 업로드 완료: $downloadUrl');
-      }
-
-      setState(() {
-        _uploadedImageUrl = downloadUrl;
-        _isUploadingImage = false;
-      });
-
-      _onTextChanged(); // 변경사항 감지
-
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: const Text('프로필 사진이 업로드되었습니다'),
-          backgroundColor: AppDesignTokens.primary,
-        ),
-      );
-    } catch (e) {
-      if (kDebugMode) {
-        print('❌ 이미지 업로드 실패: $e');
-      }
-
-      setState(() {
-        _isUploadingImage = false;
-        _selectedImagePath = null;
-      });
-
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('이미지 업로드에 실패했습니다: $e'),
-            backgroundColor: Colors.red,
-          ),
-        );
-      }
-    }
-  }
-
-  Future<ImageSource?> _showImageSourceDialog() async {
-    return showDialog<ImageSource>(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('프로필 사진 선택'),
-        content: const Text('사진을 어떻게 선택하시겠습니까?'),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context, ImageSource.camera),
-            child: const Text('카메라'),
-          ),
-          TextButton(
-            onPressed: () => Navigator.pop(context, ImageSource.gallery),
-            child: const Text('갤러리'),
-          ),
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('취소'),
-          ),
-        ],
-      ),
-    );
-  }
+  // 이미지 업로드 기능 제거됨 - Phase 2에서 구현 예정
 
   Future<void> _editBadges() async {
     final result = await Navigator.push<List<String>>(
@@ -240,11 +136,8 @@ class _ProfileEditScreenState extends State<ProfileEditScreen> {
       }
 
       // 사용자 정보 업데이트
-      final profileImageUrl = _uploadedImageUrl ?? widget.user.profileImageUrl;
       final updatedUser = widget.user.copyWith(
         name: name,
-        bio: _bioController.text.trim().isEmpty ? null : _bioController.text.trim(),
-        profileImageUrl: profileImageUrl,
         badges: _selectedBadges,
         updatedAt: DateTime.now(),
       );
@@ -357,20 +250,15 @@ class _ProfileEditScreenState extends State<ProfileEditScreen> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            // 프로필 사진 섹션
-            _buildProfileImageSection(),
+            // 프로필 사진 섹션 (가운데 정렬 및 편집 가능)
+            _buildCenteredProfileImageSection(),
             
-            const SizedBox(height: AppDesignTokens.spacing3),
+            const SizedBox(height: 16),
             
             // 기본 정보 섹션
             _buildBasicInfoSection(),
             
-            const SizedBox(height: AppDesignTokens.spacing3),
-            
-            // 소개 섹션
-            _buildBioSection(),
-            
-            const SizedBox(height: AppDesignTokens.spacing3),
+            const SizedBox(height: 16),
             
             // 뱃지 섹션
             _buildBadgeSection(),
@@ -382,33 +270,22 @@ class _ProfileEditScreenState extends State<ProfileEditScreen> {
     );
   }
 
-  Widget _buildProfileImageSection() {
-    // 표시할 이미지 결정 (로컬 -> 업로드된 URL -> 기존 URL)
+  Widget _buildCenteredProfileImageSection() {
+    // 가운데 정렬된 프로필 사진 섹션 (편집 가능)
     ImageProvider? imageProvider;
-    if (_selectedImagePath != null) {
-      imageProvider = FileImage(File(_selectedImagePath!));
-    } else if (_uploadedImageUrl != null) {
-      imageProvider = NetworkImage(_uploadedImageUrl!);
-    } else if (widget.user.profileImageUrl != null && widget.user.profileImageUrl!.isNotEmpty) {
+    if (widget.user.profileImageUrl != null && widget.user.profileImageUrl!.isNotEmpty) {
       imageProvider = NetworkImage(widget.user.profileImageUrl!);
     }
 
     return CommonCard(
-      margin: AppPadding.all16,
+      margin: AppPadding.horizontal16,
       padding: AppPadding.all20,
       child: Column(
         children: [
-          Text(
-            '프로필 사진',
-            style: AppTextStyles.titleMedium.copyWith(
-              fontWeight: AppDesignTokens.fontWeightBold,
-            ),
-          ),
-          const SizedBox(height: AppDesignTokens.spacing3),
           Stack(
             children: [
               CircleAvatar(
-                radius: 50,
+                radius: 60,
                 backgroundColor: AppDesignTokens.primary.withOpacity(0.1),
                 backgroundImage: imageProvider,
                 child: imageProvider == null
@@ -416,56 +293,52 @@ class _ProfileEditScreenState extends State<ProfileEditScreen> {
                         widget.user.name.isNotEmpty ? widget.user.name[0] : '?',
                         style: AppTextStyles.headlineLarge.copyWith(
                           color: AppDesignTokens.primary,
+                          fontSize: 32,
                         ),
                       )
                     : null,
               ),
-              if (_isUploadingImage)
-                Positioned.fill(
-                  child: Container(
-                    decoration: BoxDecoration(
-                      color: Colors.black.withOpacity(0.5),
-                      shape: BoxShape.circle,
-                    ),
-                    child: const Center(
-                      child: CircularProgressIndicator(
-                        valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
-                      ),
-                    ),
-                  ),
-                ),
               Positioned(
                 bottom: 0,
                 right: 0,
                 child: Container(
-                  width: 32,
-                  height: 32,
+                  width: 36,
+                  height: 36,
                   decoration: BoxDecoration(
                     color: AppDesignTokens.primary,
                     shape: BoxShape.circle,
                     border: Border.all(
                       color: AppDesignTokens.background,
-                      width: 2,
+                      width: 3,
                     ),
                   ),
                   child: IconButton(
                     padding: EdgeInsets.zero,
                     icon: const Icon(
                       Icons.camera_alt,
-                      size: 16,
+                      size: 18,
                       color: Colors.white,
                     ),
-                    onPressed: _isUploadingImage ? null : _pickAndUploadImage,
+                    onPressed: () {
+                      // TODO: 이미지 선택 기능 구현
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        const SnackBar(
+                          content: Text('프로필 사진 편집 기능은 추후 추가 예정입니다'),
+                          duration: Duration(seconds: 2),
+                        ),
+                      );
+                    },
                   ),
                 ),
               ),
             ],
           ),
-          const SizedBox(height: AppDesignTokens.spacing2),
+          const SizedBox(height: 16),
           Text(
-            _isUploadingImage ? '업로드 중...' : '탭해서 프로필 사진 변경',
-            style: AppTextStyles.bodySmall.copyWith(
-              color: Theme.of(context).colorScheme.outline,
+            '프로필 사진 변경',
+            style: AppTextStyles.bodyMedium.copyWith(
+              color: AppDesignTokens.primary,
+              fontWeight: FontWeight.w500,
             ),
           ),
         ],
@@ -529,12 +402,13 @@ class _ProfileEditScreenState extends State<ProfileEditScreen> {
               ),
               contentPadding: AppPadding.all16,
               counterText: '',
+              helperText: '',
+              isDense: true,
             ),
             maxLength: 20,
-            textInputAction: TextInputAction.next,
-            onSubmitted: (_) => _bioFocus.requestFocus(),
+            textInputAction: TextInputAction.done,
           ),
-          const SizedBox(height: AppDesignTokens.spacing1),
+          const SizedBox(height: 8),
           Text(
             '다른 사용자에게 표시되는 이름입니다',
             style: AppTextStyles.bodySmall.copyWith(
@@ -546,62 +420,6 @@ class _ProfileEditScreenState extends State<ProfileEditScreen> {
     );
   }
 
-  Widget _buildBioSection() {
-    return CommonCard(
-      margin: AppPadding.horizontal16,
-      padding: AppPadding.all20,
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(
-            '소개',
-            style: AppTextStyles.titleMedium.copyWith(
-              fontWeight: AppDesignTokens.fontWeightBold,
-            ),
-          ),
-          const SizedBox(height: AppDesignTokens.spacing3),
-          TextField(
-            controller: _bioController,
-            focusNode: _bioFocus,
-            decoration: InputDecoration(
-              hintText: '자신을 소개해보세요 (선택사항)',
-              border: OutlineInputBorder(
-                borderRadius: AppBorderRadius.medium,
-                borderSide: BorderSide(
-                  color: Theme.of(context).colorScheme.outline,
-                ),
-              ),
-              enabledBorder: OutlineInputBorder(
-                borderRadius: AppBorderRadius.medium,
-                borderSide: BorderSide(
-                  color: Theme.of(context).colorScheme.outline.withOpacity(0.5),
-                ),
-              ),
-              focusedBorder: OutlineInputBorder(
-                borderRadius: AppBorderRadius.medium,
-                borderSide: BorderSide(
-                  color: AppDesignTokens.primary,
-                  width: 2,
-                ),
-              ),
-              contentPadding: AppPadding.all16,
-              counterText: '',
-            ),
-            maxLines: 4,
-            maxLength: 150,
-            textInputAction: TextInputAction.done,
-          ),
-          const SizedBox(height: AppDesignTokens.spacing1),
-          Text(
-            '취미, 관심사, 좋아하는 음식 등을 자유롭게 작성해주세요',
-            style: AppTextStyles.bodySmall.copyWith(
-              color: Theme.of(context).colorScheme.outline,
-            ),
-          ),
-        ],
-      ),
-    );
-  }
 
   Widget _buildBadgeSection() {
     return CommonCard(
@@ -614,7 +432,7 @@ class _ProfileEditScreenState extends State<ProfileEditScreen> {
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
               Text(
-                '특성 뱃지',
+                '뱃지',
                 style: AppTextStyles.titleMedium.copyWith(
                   fontWeight: AppDesignTokens.fontWeightBold,
                 ),
@@ -641,7 +459,7 @@ class _ProfileEditScreenState extends State<ProfileEditScreen> {
                 border: Border.all(color: Colors.grey[200]!),
               ),
               child: Text(
-                '아직 선택된 특성 뱃지가 없습니다.\n편집 버튼을 눌러 나만의 특성을 선택해보세요!',
+                '아직 선택된 뱃지가 없습니다.\n편집 버튼을 눌러 나만의 특성을 선택해보세요!',
                 style: AppTextStyles.bodyMedium.copyWith(
                   color: Colors.grey[600],
                 ),

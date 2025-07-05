@@ -3,6 +3,10 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart' as firebase_auth;
 import 'package:flutter/foundation.dart';
 import '../models/user.dart';
+import 'evaluation_service.dart';
+import 'meeting_service.dart';
+import 'chat_service.dart';
+import 'blacklist_service.dart';
 
 class UserService {
   static final FirebaseFirestore _firestore = FirebaseFirestore.instance;
@@ -290,6 +294,7 @@ class UserService {
     int? birthYear,
     String? profileImageUrl,
     String? kakaoId,
+    List<String>? badges,
   }) async {
     try {
       final user = User(
@@ -301,6 +306,7 @@ class UserService {
         birthYear: birthYear,
         profileImageUrl: profileImageUrl,
         kakaoId: kakaoId,
+        badges: badges ?? [],
       );
       
       await _firestore.collection(_collection).doc(id).set(user.toFirestore());
@@ -432,6 +438,48 @@ class UserService {
         print('❌ Error removing favorite restaurant: $e');
       }
       rethrow;
+    }
+  }
+
+  // 즐겨찾기 토글 (추가/제거)
+  static Future<bool> toggleFavoriteRestaurant(String userId, String restaurantId) async {
+    try {
+      final user = await getUser(userId);
+      if (user == null) return false;
+      
+      final isFavorite = user.favoriteRestaurants.contains(restaurantId);
+      
+      if (isFavorite) {
+        await removeFavoriteRestaurant(userId, restaurantId);
+        if (kDebugMode) {
+          print('💔 즐겨찾기 제거: $restaurantId');
+        }
+        return false;
+      } else {
+        await addFavoriteRestaurant(userId, restaurantId);
+        if (kDebugMode) {
+          print('💕 즐겨찾기 추가: $restaurantId');
+        }
+        return true;
+      }
+    } catch (e) {
+      if (kDebugMode) {
+        print('❌ Error toggling favorite restaurant: $e');
+      }
+      rethrow;
+    }
+  }
+
+  // 특정 식당이 즐겨찾기인지 확인
+  static Future<bool> isFavoriteRestaurant(String userId, String restaurantId) async {
+    try {
+      final user = await getUser(userId);
+      return user?.favoriteRestaurants.contains(restaurantId) ?? false;
+    } catch (e) {
+      if (kDebugMode) {
+        print('❌ Error checking favorite restaurant: $e');
+      }
+      return false;
     }
   }
 
@@ -659,18 +707,6 @@ class UserService {
     }
   }
 
-  /// 사용자가 특정 식당을 즐겨찾기했는지 확인
-  static Future<bool> isFavoriteRestaurant(String userId, String restaurantId) async {
-    try {
-      final user = await getUser(userId);
-      return user?.favoriteRestaurants.contains(restaurantId) ?? false;
-    } catch (e) {
-      if (kDebugMode) {
-        print('❌ 즐겨찾기 확인 실패: $e');
-      }
-      return false;
-    }
-  }
 
   /// 사용자의 즐겨찾기 식당 목록 조회
   static Future<List<String>> getUserFavoriteRestaurants(String userId) async {
@@ -722,6 +758,151 @@ class UserService {
     } catch (e) {
       if (kDebugMode) {
         print('❌ 모임 완료 통계 배치 업데이트 실패: $e');
+      }
+      rethrow;
+    }
+  }
+
+  // 사용자 생성 (User 객체로) - 마이그레이션용
+  static Future<void> createUserFromObject(User user) async {
+    try {
+      await _firestore.collection(_collection).doc(user.id).set(user.toFirestore());
+      
+      if (kDebugMode) {
+        print('✅ User created from object: ${user.id}');
+      }
+    } catch (e) {
+      if (kDebugMode) {
+        print('❌ User creation from object failed: $e');
+      }
+      rethrow;
+    }
+  }
+
+  /// 회원탈퇴 - 사용자 계정 및 관련 데이터 완전 삭제
+  static Future<void> deleteUserAccount(String userId, {String? reason}) async {
+    try {
+      if (kDebugMode) {
+        print('🗑️ 회원탈퇴 시작: $userId');
+        if (reason != null) print('   탈퇴 사유: $reason');
+      }
+
+      // 1. 사용자 데이터 백업 (로그용)
+      final user = await getUser(userId);
+      if (user == null) {
+        throw Exception('삭제할 사용자를 찾을 수 없습니다: $userId');
+      }
+
+      if (kDebugMode) {
+        print('🔍 삭제 대상 사용자: ${user.name} (${user.email})');
+      }
+
+      // 2. Firestore 배치 작업으로 일관성 보장
+      final batch = _firestore.batch();
+      final now = Timestamp.fromDate(DateTime.now());
+
+      // 3. 사용자 기본 정보 삭제
+      final userRef = _firestore.collection(_collection).doc(userId);
+      batch.delete(userRef);
+
+      // 4. Phase 2 - 평가 데이터 삭제 및 평점 재계산
+      if (kDebugMode) {
+        print('🔄 Phase 2: 평가 데이터 삭제 시작');
+      }
+      
+      try {
+        // EvaluationService import 추가 필요
+        final affectedUsers = await EvaluationService.deleteUserEvaluations(userId);
+        if (kDebugMode) {
+          print('✅ Phase 2 완료: ${affectedUsers.length}명의 평점 재계산');
+        }
+      } catch (e) {
+        if (kDebugMode) {
+          print('⚠️ Phase 2 실패: $e (계속 진행)');
+        }
+        // 평가 데이터 삭제 실패는 전체 탈퇴를 방해하지 않음
+      }
+
+      // 5. Phase 3 - 모임 데이터 처리 (호스트/참여자)
+      if (kDebugMode) {
+        print('🔄 Phase 3: 모임 데이터 처리 시작');
+      }
+      
+      try {
+        final meetingStats = await MeetingService.handleUserDeletionInMeetings(userId);
+        if (kDebugMode) {
+          print('✅ Phase 3 완료: 삭제 ${meetingStats['deleted']}개, 익명화 ${meetingStats['anonymized']}개, 업데이트 ${meetingStats['updated']}개');
+        }
+      } catch (e) {
+        if (kDebugMode) {
+          print('⚠️ Phase 3 실패: $e (계속 진행)');
+        }
+        // 모임 데이터 처리 실패는 전체 탈퇴를 방해하지 않음
+      }
+
+      // 6. Phase 4 - 채팅 메시지 익명화 (옵션 A)
+      if (kDebugMode) {
+        print('🔄 Phase 4: 채팅 메시지 익명화 시작');
+      }
+      
+      try {
+        final anonymizedCount = await ChatService.anonymizeUserMessages(userId);
+        if (kDebugMode) {
+          print('✅ Phase 4 완료: ${anonymizedCount}개 메시지 익명화 (대화 맥락 보존)');
+        }
+      } catch (e) {
+        if (kDebugMode) {
+          print('⚠️ Phase 4 실패: $e (계속 진행)');
+        }
+        // 채팅 메시지 익명화 실패는 전체 탈퇴를 방해하지 않음
+      }
+
+      // 7. Phase 5 - 블랙리스트 등록 (악용방지)
+      if (kDebugMode) {
+        print('🔄 Phase 5: 블랙리스트 등록 시작');
+      }
+      
+      try {
+        // 차단 유형 결정 (탈퇴 횟수 기반)
+        final blockType = await BlacklistService.determineBlockType(
+          kakaoId: user.kakaoId,
+          phoneNumber: user.phoneNumber,
+        );
+        
+        // 블랙리스트에 추가
+        await BlacklistService.addToBlacklist(
+          kakaoId: user.kakaoId,
+          phoneNumber: user.phoneNumber,
+          blockReason: reason ?? '사용자 요청에 의한 회원탈퇴',
+          blockType: blockType,
+          metadata: {
+            'deletedAt': DateTime.now().toIso8601String(),
+            'userName': user.name,
+            'userEmail': user.email,
+          },
+        );
+        
+        if (kDebugMode) {
+          print('✅ Phase 5 완료: 블랙리스트 등록 ($blockType)');
+        }
+      } catch (e) {
+        if (kDebugMode) {
+          print('⚠️ Phase 5 실패: $e (계속 진행)');
+        }
+        // 블랙리스트 등록 실패는 전체 탈퇴를 방해하지 않음
+      }
+
+      // 배치 실행
+      await batch.commit();
+
+      if (kDebugMode) {
+        print('✅ 회원탈퇴 1단계 완료: 기본 정보 삭제');
+        print('   삭제된 사용자: ${user.name}');
+      }
+
+    } catch (e) {
+      if (kDebugMode) {
+        print('❌ 회원탈퇴 실패: $e');
       }
       rethrow;
     }

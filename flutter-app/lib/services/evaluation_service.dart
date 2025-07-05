@@ -233,4 +233,69 @@ class EvaluationService {
       return {'totalRequired': 0, 'completed': 0, 'percentage': 0.0};
     }
   }
+
+  /// 회원탈퇴 시 평가 데이터 삭제 및 관련 사용자 평점 재계산
+  static Future<Set<String>> deleteUserEvaluations(String userId) async {
+    try {
+      if (kDebugMode) {
+        print('🗑️ 평가 데이터 삭제 시작: $userId');
+      }
+
+      final batch = _firestore.batch();
+      final affectedUsers = <String>{};
+
+      // 1. 해당 사용자가 평가한 모든 기록 조회 및 삭제
+      final evaluationsGiven = await _firestore
+          .collection(_collection)
+          .where('evaluatorId', isEqualTo: userId)
+          .get();
+
+      for (final doc in evaluationsGiven.docs) {
+        final evaluation = UserEvaluation.fromFirestore(doc);
+        affectedUsers.add(evaluation.evaluatedUserId); // 평점 재계산이 필요한 사용자
+        batch.delete(doc.reference);
+      }
+
+      // 2. 해당 사용자가 평가받은 모든 기록 조회 및 삭제
+      final evaluationsReceived = await _firestore
+          .collection(_collection)
+          .where('evaluatedUserId', isEqualTo: userId)
+          .get();
+
+      for (final doc in evaluationsReceived.docs) {
+        batch.delete(doc.reference);
+      }
+
+      // 3. 배치 삭제 실행
+      await batch.commit();
+
+      if (kDebugMode) {
+        print('✅ 평가 데이터 삭제 완료:');
+        print('   - 삭제한 평가 수: ${evaluationsGiven.docs.length + evaluationsReceived.docs.length}개');
+        print('   - 재계산 필요한 사용자: ${affectedUsers.length}명');
+      }
+
+      // 4. 영향받은 사용자들의 평점 재계산
+      for (final affectedUserId in affectedUsers) {
+        try {
+          await _updateUserRating(affectedUserId);
+          if (kDebugMode) {
+            print('✅ 평점 재계산 완료: $affectedUserId');
+          }
+        } catch (e) {
+          if (kDebugMode) {
+            print('⚠️ 평점 재계산 실패: $affectedUserId - $e');
+          }
+          // 개별 재계산 실패는 전체 탈퇴를 방해하지 않음
+        }
+      }
+
+      return affectedUsers;
+    } catch (e) {
+      if (kDebugMode) {
+        print('❌ 평가 데이터 삭제 실패: $e');
+      }
+      rethrow;
+    }
+  }
 }

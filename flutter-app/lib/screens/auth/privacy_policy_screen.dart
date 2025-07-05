@@ -74,12 +74,6 @@ class _PrivacyPolicyScreenState extends State<PrivacyPolicyScreen> {
       padding: const EdgeInsets.all(24),
       decoration: const BoxDecoration(
         color: Color(0xFFF8F9FA),
-        border: Border(
-          bottom: BorderSide(
-            color: Color(0xFFE0E0E0),
-            width: 1,
-          ),
-        ),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -335,9 +329,6 @@ class _PrivacyPolicyScreenState extends State<PrivacyPolicyScreen> {
       padding: const EdgeInsets.all(24),
       decoration: const BoxDecoration(
         color: Colors.white,
-        border: Border(
-          top: BorderSide(color: Color(0xFFE0E0E0), width: 2),
-        ),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -522,9 +513,6 @@ class _PrivacyPolicyScreenState extends State<PrivacyPolicyScreen> {
       padding: const EdgeInsets.all(20),
       decoration: const BoxDecoration(
         color: Colors.white,
-        border: Border(
-          top: BorderSide(color: Color(0xFFE0E0E0)),
-        ),
       ),
       child: SizedBox(
         width: double.infinity,

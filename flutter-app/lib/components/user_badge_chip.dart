@@ -39,7 +39,10 @@ class UserBadgeChip extends StatelessWidget {
         children: [
           Text(
             badge.emoji,
-            style: TextStyle(fontSize: compact ? 12 : 14),
+            style: TextStyle(
+              fontSize: compact ? 12 : 14,
+              fontFamily: null, // Use system font for emojis
+            ),
           ),
           SizedBox(width: compact ? 4 : 6),
           Text(

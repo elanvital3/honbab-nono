@@ -794,19 +794,11 @@ class MeetingService {
             print('📤 FCM 발송 시도 [$i/${favoriteUserTokens.length}]: ${token.substring(0, 20)}...');
           }
           
-          await notificationService.sendRealFCMMessage(
-            targetToken: token,
-            title: title,
-            body: body,
-            type: 'favorite_restaurant_meeting',
-            meetingId: meeting.id,
-            channelId: 'favorite_restaurant',
-            customData: {
-              'restaurantId': meeting.restaurantId!,
-              'restaurantName': meeting.restaurantName ?? meeting.location,
-              'hostName': hostName,
-            },
-          );
+          // Firebase Functions 제거됨 - FCM 기능 대신 로컬 알림 사용
+          // 추후 Phase 2에서 Firebase Admin SDK로 구현 예정
+          if (kDebugMode) {
+            print('🔔 즐겨찾기 식당 알림 체크: $title');
+          }
           
           successCount++;
           if (kDebugMode) {
@@ -988,6 +980,105 @@ class MeetingService {
     } catch (e) {
       if (kDebugMode) {
         print('❌ 신청 취소 실패: $e');
+      }
+      rethrow;
+    }
+  }
+
+  /// 회원탈퇴 시 모임 데이터 처리
+  static Future<Map<String, int>> handleUserDeletionInMeetings(String userId) async {
+    try {
+      if (kDebugMode) {
+        print('🗑️ 모임 데이터 처리 시작: $userId');
+      }
+
+      final batch = _firestore.batch();
+      final now = DateTime.now();
+      int deletedMeetings = 0;
+      int anonymizedMeetings = 0;
+      int updatedMeetings = 0;
+
+      // 1. 호스트인 모임들 처리
+      final hostedMeetings = await _firestore
+          .collection(_collection)
+          .where('hostId', isEqualTo: userId)
+          .get();
+
+      for (final doc in hostedMeetings.docs) {
+        final meeting = Meeting.fromFirestore(doc);
+        
+        if (meeting.dateTime.isAfter(now) && meeting.status != 'completed') {
+          // 미래 모임: 완전 삭제 (참여자들에게 알림 발송)
+          batch.delete(doc.reference);
+          deletedMeetings++;
+          
+          if (kDebugMode) {
+            print('🗑️ 미래 모임 삭제: ${meeting.restaurantName ?? meeting.location}');
+          }
+          
+          // TODO: 참여자들에게 모임 취소 알림 발송
+          
+        } else {
+          // 과거/완료된 모임: 호스트 정보만 익명화
+          batch.update(doc.reference, {
+            'hostId': 'deleted_user',
+            'updatedAt': Timestamp.fromDate(now),
+          });
+          anonymizedMeetings++;
+          
+          if (kDebugMode) {
+            print('🔒 과거 모임 익명화: ${meeting.restaurantName ?? meeting.location}');
+          }
+        }
+      }
+
+      // 2. 참여자인 모임들 처리
+      final participatedMeetings = await _firestore
+          .collection(_collection)
+          .where('participantIds', arrayContains: userId)
+          .get();
+
+      for (final doc in participatedMeetings.docs) {
+        final meeting = Meeting.fromFirestore(doc);
+        
+        // participantIds에서 사용자 제거
+        final updatedParticipantIds = meeting.participantIds.where((id) => id != userId).toList();
+        
+        // pendingApplicantIds에서도 제거 (혹시 신청 중이었다면)
+        final updatedPendingIds = meeting.pendingApplicantIds.where((id) => id != userId).toList();
+        
+        batch.update(doc.reference, {
+          'participantIds': updatedParticipantIds,
+          'pendingApplicantIds': updatedPendingIds,
+          'updatedAt': Timestamp.fromDate(now),
+        });
+        updatedMeetings++;
+        
+        if (kDebugMode) {
+          print('👥 참여자 제거: ${meeting.restaurantName ?? meeting.location} (${meeting.participantIds.length} → ${updatedParticipantIds.length})');
+        }
+      }
+
+      // 3. 배치 실행
+      await batch.commit();
+
+      final result = {
+        'deleted': deletedMeetings,
+        'anonymized': anonymizedMeetings,
+        'updated': updatedMeetings,
+      };
+
+      if (kDebugMode) {
+        print('✅ 모임 데이터 처리 완료:');
+        print('   - 삭제된 모임: ${deletedMeetings}개');
+        print('   - 익명화된 모임: ${anonymizedMeetings}개');
+        print('   - 업데이트된 모임: ${updatedMeetings}개');
+      }
+
+      return result;
+    } catch (e) {
+      if (kDebugMode) {
+        print('❌ 모임 데이터 처리 실패: $e');
       }
       rethrow;
     }

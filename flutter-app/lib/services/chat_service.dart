@@ -282,4 +282,55 @@ class ChatService {
       }
     }
   }
+
+  /// 회원탈퇴 시 채팅 메시지 익명화 처리 (옵션 A)
+  static Future<int> anonymizeUserMessages(String userId) async {
+    try {
+      if (kDebugMode) {
+        print('🗑️ 채팅 메시지 익명화 시작: $userId');
+      }
+
+      // 해당 사용자가 보낸 모든 메시지 조회
+      final snapshot = await _firestore
+          .collection(_messagesCollection)
+          .where('senderId', isEqualTo: userId)
+          .get();
+
+      if (snapshot.docs.isEmpty) {
+        if (kDebugMode) {
+          print('📭 익명화할 메시지가 없습니다');
+        }
+        return 0;
+      }
+
+      final batch = _firestore.batch();
+      final now = DateTime.now();
+
+      // 각 메시지를 익명화 처리
+      for (final doc in snapshot.docs) {
+        batch.update(doc.reference, {
+          'senderId': 'deleted_user',
+          'senderName': '탈퇴한 사용자',
+          'senderProfileImage': null,
+          'updatedAt': Timestamp.fromDate(now),
+          // 메시지 내용(content)과 타입(type)은 유지하여 대화 맥락 보존
+        });
+      }
+
+      // 배치 실행
+      await batch.commit();
+
+      if (kDebugMode) {
+        print('✅ 채팅 메시지 익명화 완료: ${snapshot.docs.length}개');
+        print('   - 대화 맥락은 보존됨 (내용 유지)');
+      }
+
+      return snapshot.docs.length;
+    } catch (e) {
+      if (kDebugMode) {
+        print('❌ 채팅 메시지 익명화 실패: $e');
+      }
+      rethrow;
+    }
+  }
 }

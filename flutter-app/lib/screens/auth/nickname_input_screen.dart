@@ -4,6 +4,9 @@ import 'package:flutter/services.dart';
 import '../../services/user_service.dart';
 import '../../services/notification_service.dart';
 import '../home/home_screen.dart';
+import '../../models/user_badge.dart';
+import '../../components/user_badge_chip.dart';
+import '../../constants/app_design_tokens.dart';
 
 class NicknameInputScreen extends StatefulWidget {
   final String userId;
@@ -34,6 +37,8 @@ class _NicknameInputScreenState extends State<NicknameInputScreen> {
   String? _phoneError;
   String? _birthYearError;
   int _selectedBirthYear = 1990; // 기본값
+  final Set<String> _selectedBadgeIds = <String>{}; // 뱃지 선택
+  static const int _maxBadges = 3; // 최대 선택 가능한 뱃지 수
 
   @override
   void initState() {
@@ -156,6 +161,7 @@ class _NicknameInputScreenState extends State<NicknameInputScreen> {
         birthYear: _selectedBirthYear,
         profileImageUrl: widget.profileImageUrl,
         kakaoId: widget.kakaoId,
+        badges: _selectedBadgeIds.toList(), // 선택된 뱃지 포함
       );
 
       if (user != null && mounted) {
@@ -191,6 +197,28 @@ class _NicknameInputScreenState extends State<NicknameInputScreen> {
       } catch (e) {
         if (kDebugMode) {
           print('❌ 회원가입 FCM 토큰 저장 실패: $e');
+        }
+      }
+    });
+  }
+
+  void _toggleBadge(String badgeId) {
+    setState(() {
+      if (_selectedBadgeIds.contains(badgeId)) {
+        _selectedBadgeIds.remove(badgeId);
+      } else {
+        if (_selectedBadgeIds.length < _maxBadges) {
+          _selectedBadgeIds.add(badgeId);
+        } else {
+          // 최대 개수 초과 시 알림
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('최대 $_maxBadges개까지만 선택할 수 있습니다'),
+              backgroundColor: Colors.orange,
+              behavior: SnackBarBehavior.floating,
+              duration: const Duration(seconds: 2),
+            ),
+          );
         }
       }
     });
@@ -503,6 +531,11 @@ class _NicknameInputScreenState extends State<NicknameInputScreen> {
                     
                     const SizedBox(height: 24),
                     
+                    // 뱃지 선택 섹션
+                    _buildBadgeSelection(),
+                    
+                    const SizedBox(height: 24),
+                    
                     // 완료 버튼
                     SizedBox(
                       width: double.infinity,
@@ -587,7 +620,7 @@ class _NicknameInputScreenState extends State<NicknameInputScreen> {
         });
       },
       child: Container(
-        padding: const EdgeInsets.symmetric(vertical: 16),
+        padding: const EdgeInsets.symmetric(vertical: 12),
         decoration: BoxDecoration(
           color: isSelected ? const Color(0xFFD2B48C) : Colors.white,
           borderRadius: BorderRadius.circular(12),
@@ -624,6 +657,134 @@ class _NicknameInputScreenState extends State<NicknameInputScreen> {
           child: Text('$year년'),
         );
       },
+    );
+  }
+
+  Widget _buildBadgeSelection() {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          children: [
+            const Text(
+              '나의 특성 (선택)',
+              style: TextStyle(
+                fontSize: 16,
+                fontWeight: FontWeight.w500,
+                color: Color(0xFF333333),
+              ),
+            ),
+            const SizedBox(width: 8),
+            Text(
+              '${_selectedBadgeIds.length}/$_maxBadges',
+              style: TextStyle(
+                fontSize: 14,
+                color: AppDesignTokens.primary,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 8),
+        Text(
+          '나를 잘 나타내는 특성을 선택해주세요 (최대 $_maxBadges개)',
+          style: const TextStyle(
+            fontSize: 12,
+            color: Color(0xFF666666),
+          ),
+        ),
+        const SizedBox(height: 12),
+        
+        // 선택된 뱃지 표시
+        if (_selectedBadgeIds.isNotEmpty) ...[
+          Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            children: _selectedBadgeIds.map((badgeId) {
+              return UserBadgeChip(badgeId: badgeId, compact: true);
+            }).toList(),
+          ),
+          const SizedBox(height: 12),
+        ],
+        
+        // 뱃지 선택 - 스크롤 없이 전체 표시
+        ...UserBadge.allCategories.map((category) {
+          final badges = UserBadge.getBadgesByCategory(category);
+          return Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const SizedBox(height: 12),
+              Text(
+                category,
+                style: const TextStyle(
+                  fontSize: 14,
+                  fontWeight: FontWeight.w600,
+                  color: Color(0xFF333333),
+                ),
+              ),
+              const SizedBox(height: 8),
+              Wrap(
+                spacing: 8,
+                runSpacing: 8,
+                children: badges.map((badge) {
+                  final isSelected = _selectedBadgeIds.contains(badge.id);
+                  return GestureDetector(
+                    onTap: () => _toggleBadge(badge.id),
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                      decoration: BoxDecoration(
+                        color: isSelected
+                            ? AppDesignTokens.primary.withOpacity(0.1)
+                            : Colors.grey[50],
+                        borderRadius: BorderRadius.circular(20),
+                        border: Border.all(
+                          color: isSelected
+                              ? AppDesignTokens.primary
+                              : Colors.grey[300]!,
+                          width: isSelected ? 2 : 1,
+                        ),
+                      ),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Text(
+                            badge.emoji,
+                            style: const TextStyle(
+                              fontSize: 14,
+                              fontFamily: null,
+                            ),
+                          ),
+                          const SizedBox(width: 6),
+                          Text(
+                            badge.name,
+                            style: TextStyle(
+                              fontSize: 14,
+                              color: isSelected
+                                  ? AppDesignTokens.primary
+                                  : Colors.black87,
+                              fontWeight: isSelected
+                                  ? FontWeight.w600
+                                  : FontWeight.normal,
+                            ),
+                          ),
+                          if (isSelected) ...[ 
+                            const SizedBox(width: 6),
+                            Icon(
+                              Icons.check_circle,
+                              color: AppDesignTokens.primary,
+                              size: 16,
+                            ),
+                          ],
+                        ],
+                      ),
+                    ),
+                  );
+                }).toList(),
+              ),
+            ],
+          );
+        }).toList(),
+      ],
     );
   }
 }

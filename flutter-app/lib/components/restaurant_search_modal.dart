@@ -7,7 +7,6 @@ import '../services/location_service.dart';
 import '../services/user_service.dart';
 import '../services/auth_service.dart';
 import 'hierarchical_location_picker.dart';
-import 'external_rating_widget.dart';
 
 class RestaurantSearchModal extends StatefulWidget {
   final Function(Restaurant) onRestaurantSelected;
@@ -427,12 +426,13 @@ class _RestaurantSearchModalState extends State<RestaurantSearchModal> {
                         overflow: TextOverflow.ellipsis,
                       ),
                       const SizedBox(height: 6),
-                      // 평점 정보 표시
-                      ExternalRatingWidget(
-                        restaurant: restaurant,
-                        showLoadingIndicator: true, // 로딩 활성화로 변경
-                        padding: EdgeInsets.zero,
-                        iconSize: 14,
+                      // 기본 정보 표시
+                      Text(
+                        (restaurant.phone?.isNotEmpty == true) ? restaurant.phone! : '전화번호 정보 없음',
+                        style: const TextStyle(
+                          fontSize: 12,
+                          color: Colors.grey,
+                        ),
                       ),
                     ],
                   ),

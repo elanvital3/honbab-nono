@@ -22,10 +22,9 @@ import 'screens/auth/signup_complete_screen.dart';
 import 'screens/home/home_screen.dart';
 import 'screens/meeting/create_meeting_screen.dart';
 import 'screens/meeting/meeting_detail_screen.dart';
+import 'screens/test/badge_test_screen.dart';
 import 'models/meeting.dart';
 import 'models/user.dart' as app_user;
-import 'scripts/add_test_ratings.dart';
-import 'scripts/add_crawled_data.dart';
 
 /// 백그라운드 메시지 핸들러
 /// 앱이 백그라운드나 종료된 상태에서 FCM 메시지를 받을 때 실행
@@ -114,12 +113,8 @@ void main() async {
     print('📍 앱 시작 시 위치 가져오기 에러: $e');
   });
   
-  // 테스트 평점 데이터 추가 (한 번만 실행)
-  try {
-    await TestRatingsAdder.addTestRatings();
-  } catch (e) {
-    print('⚠️ 테스트 데이터 추가 중 오류 (이미 존재할 수 있음): $e');
-  }
+  // 테스트 데이터 추가 제거 - 프로덕션에서 불필요
+  print('🚀 앱 초기화 완료');
   
   // 크롤링한 실제 데이터 추가 (임시 비활성화 - 네트워크 문제)
   // try {
@@ -214,6 +209,10 @@ class HonbabNoNoApp extends StatelessWidget {
             final meeting = settings.arguments as Meeting;
             return MaterialPageRoute(
               builder: (context) => MeetingDetailScreen(meeting: meeting),
+            );
+          case '/badge-test':
+            return MaterialPageRoute(
+              builder: (context) => const BadgeTestScreen(),
             );
           default:
             return MaterialPageRoute(builder: (context) => const LoginScreen());

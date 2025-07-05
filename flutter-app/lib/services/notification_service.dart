@@ -9,7 +9,6 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:timezone/timezone.dart' as tz;
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart' as firebase_auth;
-import 'package:cloud_functions/cloud_functions.dart';
 import '../models/meeting.dart';
 import 'user_service.dart';
 
@@ -317,15 +316,12 @@ class NotificationService {
         return;
       }
 
-      // Firebase Functions를 통해 실제 FCM 알림 발송
-      await sendRealFCMMulticast(
-        tokens: nearbyTokens,
-        title: '🍽️ 근처에 새로운 모임이 생성되었어요!',
-        body: '${meeting.restaurantName ?? meeting.location}에서 함께 식사하실래요?',
-        type: 'new_meeting',
-        meetingId: meeting.id,
-        channelId: _newMeetingChannelId,
-      );
+      // Firebase Functions 제거됨 - 크로스 디바이스 FCM 기능 비활성화
+      // Phase 2에서 Firebase Admin SDK로 재구현 예정
+      if (kDebugMode) {
+        print('🔔 주변 사용자 FCM 알림: ${nearbyTokens.length}개 토큰');
+        print('   제목: 🍽️ 근처에 새로운 모임이 생성되었어요!');
+      }
 
       if (kDebugMode) {
         print('✅ 근처 사용자 ${nearbyTokens.length}명에게 새 모임 알림 발송 완료');
@@ -636,26 +632,11 @@ class NotificationService {
       final body = '$applicantName님이 "${meeting.description}" 모임에 참여 신청했습니다';
 
       // 임시로 로컬 알림으로 대체 (FCM Functions 문제 해결용)
-      try {
-        await sendRealFCMMessage(
-          targetToken: hostUser!.fcmToken!,
-          title: title,
-          body: body,
-          type: 'meeting_application',
-          meetingId: meeting.id,
-          channelId: _participantChannelId,
-          customData: {
-            'applicantId': applicantUserId,
-            'clickAction': 'MEETING_DETAIL',
-          },
-        );
-      } catch (fcmError) {
-        if (kDebugMode) {
-          print('⚠️ FCM 발송 실패, 로컬 알림으로 대체: $fcmError');
-        }
-        // 로컬 알림으로 대체
-        await showTestNotification(title, body);
+      // Firebase Functions 제거됨 - 로컬 알림만 사용
+      if (kDebugMode) {
+        print('🔔 로컬 알림으로 대체: $title');
       }
+      await showTestNotification(title, body);
 
       if (kDebugMode) {
         print('✅ 모임 신청 알림 발송 완료');
@@ -691,17 +672,8 @@ class NotificationService {
       final title = '🎉 참여 승인 완료!';
       final body = '"${meeting.description}" 모임 참여가 승인되었습니다. 채팅방에 입장하세요!';
 
-      await sendRealFCMMessage(
-        targetToken: applicantUser!.fcmToken!,
-        title: title,
-        body: body,
-        type: 'meeting_approval',
-        meetingId: meeting.id,
-        channelId: _participantChannelId,
-        customData: {
-          'clickAction': 'MEETING_DETAIL',
-        },
-      );
+      // Firebase Functions 제거됨 - 로컬 알림만 사용
+      await showTestNotification(title, body);
 
       if (kDebugMode) {
         print('✅ 모임 승인 알림 발송 완료');
@@ -737,17 +709,8 @@ class NotificationService {
       final title = '😔 참여 신청이 거절되었습니다';
       final body = '"${meeting.description}" 모임 참여 신청이 거절되었습니다. 다른 모임을 찾아보세요!';
 
-      await sendRealFCMMessage(
-        targetToken: applicantUser!.fcmToken!,
-        title: title,
-        body: body,
-        type: 'meeting_rejection',
-        meetingId: meeting.id,
-        channelId: _participantChannelId,
-        customData: {
-          'clickAction': 'HOME',
-        },
-      );
+      // Firebase Functions 제거됨 - 로컬 알림만 사용
+      await showTestNotification(title, body);
 
       if (kDebugMode) {
         print('✅ 모임 거절 알림 발송 완료');
@@ -809,19 +772,12 @@ class NotificationService {
         return;
       }
 
-      print('🧪 실제 모임 알림 테스트 시작');
+      print('🧪 로컬 알림 테스트 시작 (Firebase Functions 제거됨)');
       
-      await sendRealFCMMessage(
-        targetToken: _fcmToken!,
-        title: '🧪 모임 신청 테스트',
-        body: '테스트님이 "맛집 탐방" 모임에 참여 신청했습니다',
-        type: 'meeting_application',
-        meetingId: 'test_meeting_id',
-        channelId: _participantChannelId,
-        customData: {
-          'applicantId': 'test_user_id',
-          'clickAction': 'MEETING_DETAIL',
-        },
+      // Firebase Functions 제거됨 - 로컬 알림으로 테스트
+      await showTestNotification(
+        '🧪 모임 신청 테스트',
+        '테스트님이 "맛집 탐방" 모임에 참여 신청했습니다',
       );
       
       print('✅ 실제 모임 알림 테스트 완료');
@@ -972,20 +928,11 @@ class NotificationService {
         print('📨 실제 Firebase Functions FCM 메시지 발송 시도: $title -> ${token.substring(0, 20)}...');
       }
       
-      // Firebase Functions를 통한 실제 크로스 디바이스 FCM 발송
-      await sendRealFCMMessage(
-        targetToken: token,
-        title: title,
-        body: body,
-        type: data['type'] ?? 'general',
-        meetingId: data['meetingId'],
-        clickAction: data['clickAction'],
-        channelId: data['channelId'] ?? 'default',
-        customData: Map<String, dynamic>.from(data),
-      );
+      // Firebase Functions 제거됨 - 로컬 알림으로 대체
+      await showTestNotification(title, body);
       
       if (kDebugMode) {
-        print('✅ Firebase Functions 통한 실제 FCM 발송 완료');
+        print('✅ 로컬 알림 발송 완료 (Firebase Functions 대체)');
       }
       
     } catch (e) {
@@ -1181,137 +1128,7 @@ class NotificationService {
     await showNewMeetingNotification(meeting);
   }
 
-  // ============================================
-  // Firebase Functions 기반 실제 크로스 디바이스 FCM
-  // ============================================
-
-  /// 실제 크로스 디바이스 FCM 메시지 발송 (Firebase Functions 사용)
-  Future<Map<String, dynamic>?> sendRealFCMMessage({
-    required String targetToken,
-    required String title,
-    required String body,
-    String? type,
-    String? meetingId,
-    String? clickAction,
-    String? channelId,
-    Map<String, dynamic>? customData,
-  }) async {
-    try {
-      if (kDebugMode) {
-        print('🚀 실제 FCM 발송 시작: $title');
-        print('   대상 토큰: ${targetToken.substring(0, 20)}...');
-      }
-
-      final functions = FirebaseFunctions.instance;
-      final callable = functions.httpsCallable('sendFCMMessage');
-      
-      final result = await callable.call({
-        'targetToken': targetToken,
-        'title': title,
-        'body': body,
-        'type': type ?? 'general',
-        'meetingId': meetingId ?? '',
-        'clickAction': clickAction ?? '',
-        'channelId': channelId ?? 'default',
-        'customData': customData ?? {},
-      });
-
-      if (kDebugMode) {
-        print('✅ 실제 FCM 발송 성공: ${result.data}');
-      }
-
-      return result.data as Map<String, dynamic>?;
-    } catch (e) {
-      if (kDebugMode) {
-        print('❌ 실제 FCM 발송 실패: $e');
-      }
-      rethrow;
-    }
-  }
-
-  /// 여러 기기에 실제 FCM 멀티캐스트 발송
-  Future<Map<String, dynamic>?> sendRealFCMMulticast({
-    required List<String> tokens,
-    required String title,
-    required String body,
-    String? type,
-    String? meetingId,
-    String? clickAction,
-    String? channelId,
-    Map<String, dynamic>? customData,
-  }) async {
-    try {
-      if (kDebugMode) {
-        print('🚀 실제 FCM 멀티캐스트 발송 시작: $title');
-        print('   대상 토큰 수: ${tokens.length}개');
-      }
-
-      final functions = FirebaseFunctions.instance;
-      final callable = functions.httpsCallable('sendFCMMulticast');
-      
-      final result = await callable.call({
-        'tokens': tokens,
-        'title': title,
-        'body': body,
-        'type': type ?? 'general',
-        'meetingId': meetingId ?? '',
-        'clickAction': clickAction ?? '',
-        'channelId': channelId ?? 'default',
-        'customData': customData ?? {},
-      });
-
-      if (kDebugMode) {
-        final data = result.data as Map<String, dynamic>;
-        print('✅ 실제 FCM 멀티캐스트 성공: ${data['successCount']}/${tokens.length}');
-      }
-
-      return result.data as Map<String, dynamic>?;
-    } catch (e) {
-      if (kDebugMode) {
-        print('❌ 실제 FCM 멀티캐스트 실패: $e');
-      }
-      rethrow;
-    }
-  }
-
-  /// 모임 관련 실제 FCM 알림 발송 (Firebase Functions 사용)
-  Future<Map<String, dynamic>?> sendRealMeetingNotification({
-    required String meetingId,
-    required String notificationType,
-    String? excludeUserId,
-    String? senderName,
-    String? message,
-  }) async {
-    try {
-      if (kDebugMode) {
-        print('🚀 실제 모임 알림 발송 시작: $notificationType');
-        print('   모임 ID: $meetingId');
-      }
-
-      final functions = FirebaseFunctions.instance;
-      final callable = functions.httpsCallable('sendMeetingNotification');
-      
-      final result = await callable.call({
-        'meetingId': meetingId,
-        'notificationType': notificationType,
-        'excludeUserId': excludeUserId ?? '',
-        'senderName': senderName ?? '',
-        'message': message ?? '',
-      });
-
-      if (kDebugMode) {
-        final data = result.data as Map<String, dynamic>;
-        print('✅ 실제 모임 알림 발송 성공: ${data['successCount']}명에게 전송');
-      }
-
-      return result.data as Map<String, dynamic>?;
-    } catch (e) {
-      if (kDebugMode) {
-        print('❌ 실제 모임 알림 발송 실패: $e');
-      }
-      rethrow;
-    }
-  }
+  // Firebase Functions는 제거됨 - 현재 로컬 알림만 사용
 
   /// 모임 완료 후 평가 요청 알림 (모든 참여자에게)
   Future<void> notifyEvaluationRequest({
@@ -1338,22 +1155,11 @@ class NotificationService {
           final title = '⭐ 모임 평가 요청';
           final body = '"${meeting.description}" 모임이 완료되었습니다. 함께한 멤버들을 평가해주세요!';
 
-          await sendRealFCMMessage(
-            targetToken: user!.fcmToken!,
-            title: title,
-            body: body,
-            type: 'evaluation_request',
-            meetingId: meeting.id,
-            channelId: _participantChannelId,
-            customData: {
-              'clickAction': 'EVALUATION_SCREEN',
-              'meetingId': meeting.id,
-              'restaurantName': meeting.restaurantName,
-            },
-          );
+          // Firebase Functions 제거됨 - 로컬 알림으로 대체
+          await showTestNotification(title, body, channelId: _participantChannelId);
 
           if (kDebugMode) {
-            print('✅ 평가 요청 알림 발송 완료: ${user.name}');
+            print('✅ 평가 요청 알림 발송 완료: ${user?.name ?? "Unknown"}');
           }
         } catch (e) {
           if (kDebugMode) {

@@ -83,17 +83,61 @@ class KakaoAuthService {
           print('✅ 기존 사용자 발견: ${existingUser.id}');
         }
         
-        // 기존 사용자 - 이메일로 Firebase 로그인
-        await _signInWithEmail(email, kakaoId);
+        // 기존 사용자 - Firebase 인증 후 Firestore 데이터 유지
+        firebase_auth.User? firebaseUser;
+        try {
+          await _signInWithEmail(email, kakaoId);
+          firebaseUser = firebase_auth.FirebaseAuth.instance.currentUser;
+        } catch (e) {
+          if (kDebugMode) {
+            print('🔄 기존 사용자 Firebase 로그인 실패, 새 계정 생성 시도: $e');
+          }
+          // Firebase 계정이 없거나 문제가 있으면 새로 생성
+          firebaseUser = await _createOrSignInWithEmail(email, kakaoId);
+        }
         
-        final updatedUser = existingUser.copyWith(
-          profileImageUrl: profileImage,
-          email: email, // 이메일도 업데이트
-          updatedAt: DateTime.now(),
-        );
+        if (firebaseUser != null) {
+          // Firebase ID와 Firestore ID가 다르면 Firestore 데이터를 Firebase ID로 마이그레이션
+          if (existingUser.id != firebaseUser.uid) {
+            if (kDebugMode) {
+              print('🔄 사용자 ID 마이그레이션: ${existingUser.id} → ${firebaseUser.uid}');
+            }
+            
+            // 새로운 ID로 사용자 데이터 복사
+            final migratedUser = existingUser.copyWith(
+              id: firebaseUser.uid,
+              profileImageUrl: profileImage,
+              email: email,
+              updatedAt: DateTime.now(),
+            );
+            
+            // 새 ID로 데이터 저장
+            await UserService.createUserFromObject(migratedUser);
+            
+            // 기존 데이터 삭제 (선택적)
+            try {
+              await UserService.deleteUser(existingUser.id);
+            } catch (e) {
+              if (kDebugMode) {
+                print('⚠️ 기존 사용자 데이터 삭제 실패 (무시): $e');
+              }
+            }
+            
+            return migratedUser;
+          } else {
+            // ID가 같으면 기존 로직
+            final updatedUser = existingUser.copyWith(
+              profileImageUrl: profileImage,
+              email: email,
+              updatedAt: DateTime.now(),
+            );
+            
+            await UserService.updateUserFromObject(updatedUser);
+            return updatedUser;
+          }
+        }
         
-        await UserService.updateUserFromObject(updatedUser);
-        return updatedUser;
+        return existingUser; // fallback
       }
       
       // 2. 신규 사용자 - Firebase 이메일 인증
@@ -193,31 +237,31 @@ class KakaoAuthService {
       final password = _generatePasswordFromKakaoId(kakaoId);
       
       try {
-        // 먼저 계정 생성 시도
-        final credential = await firebase_auth.FirebaseAuth.instance.createUserWithEmailAndPassword(
+        // 먼저 기존 계정 로그인 시도 (UID 재사용 우선)
+        final credential = await firebase_auth.FirebaseAuth.instance.signInWithEmailAndPassword(
           email: email,
           password: password,
         );
         
         if (kDebugMode) {
-          print('✅ Firebase 이메일 계정 생성 성공');
+          print('✅ Firebase 이메일 로그인 성공 (기존 UID 재사용)');
         }
         
         return credential.user;
       } on firebase_auth.FirebaseAuthException catch (e) {
-        if (e.code == 'email-already-in-use') {
-          // 이미 존재하는 이메일이면 로그인 시도
+        if (e.code == 'user-not-found' || e.code == 'wrong-password' || e.code == 'invalid-credential') {
+          // 계정이 없거나 비밀번호가 틀리면 새 계정 생성
           if (kDebugMode) {
-            print('📧 이미 존재하는 이메일, 로그인 시도...');
+            print('🔄 기존 계정 없음, 새 계정 생성 시도: ${e.code}');
           }
           
-          final credential = await firebase_auth.FirebaseAuth.instance.signInWithEmailAndPassword(
+          final credential = await firebase_auth.FirebaseAuth.instance.createUserWithEmailAndPassword(
             email: email,
             password: password,
           );
           
           if (kDebugMode) {
-            print('✅ Firebase 이메일 로그인 성공');
+            print('✅ Firebase 이메일 계정 생성 성공 (새 UID)');
           }
           
           return credential.user;

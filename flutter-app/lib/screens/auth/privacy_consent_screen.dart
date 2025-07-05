@@ -1,7 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/foundation.dart';
 import '../../services/user_service.dart';
-import '../../services/privacy_consent_service.dart';
 import '../../styles/text_styles.dart';
 import '../../constants/app_design_tokens.dart';
 import '../../constants/privacy_policy_content.dart';
@@ -258,19 +257,9 @@ class _PrivacyConsentScreenState extends State<PrivacyConsentScreen> {
 
     try {
       // 동의 정보 저장
-      final consentData = <String, bool>{
-        'essential': _essentialConsent,
-        'marketing': true, // 기본값으로 설정
-        'location': true, // 기본값으로 설정
-      };
-
-      await PrivacyConsentService.saveConsent(
-        userId: widget.userId,
-        consentData: consentData,
-      );
-
+      // 개인정보 동의는 간소화 - 사용자 데이터에 포함
       if (kDebugMode) {
-        print('✅ 개인정보 동의 저장 완료');
+        print('✅ 개인정보 동의 처리 완료 (간소화)');
       }
 
       if (mounted) {

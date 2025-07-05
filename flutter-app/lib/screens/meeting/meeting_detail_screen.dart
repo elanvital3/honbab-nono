@@ -535,117 +535,98 @@ class _MeetingDetailScreenState extends State<MeetingDetailScreen> with WidgetsB
 
 
   Widget _buildParticipants(Meeting meeting) {
-    return StreamBuilder<List<Meeting>>(
-      stream: MeetingService.getMeetingsStream(),
-      builder: (context, snapshot) {
-        List<String> pendingApplicantIds = [];
-        if (snapshot.hasData) {
-          try {
-            final currentMeeting = snapshot.data!.firstWhere(
-              (m) => m.id == meeting.id,
-            );
-            pendingApplicantIds = currentMeeting.pendingApplicantIds;
-          } catch (e) {
-            pendingApplicantIds = meeting.pendingApplicantIds;
-          }
-        } else {
-          pendingApplicantIds = meeting.pendingApplicantIds;
-        }
-
-        return CommonCard(
-          padding: const EdgeInsets.all(20),
-          margin: AppPadding.vertical8.add(AppPadding.horizontal16),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              // 탭 바
-              Container(
-                decoration: BoxDecoration(
-                  color: AppDesignTokens.surfaceContainer.withOpacity(0.5),
-                  borderRadius: BorderRadius.circular(8),
-                ),
-                child: TabBar(
-                  controller: _tabController,
-                  labelColor: AppDesignTokens.primary,
-                  unselectedLabelColor: AppDesignTokens.outline,
-                  indicator: BoxDecoration(
-                    color: AppDesignTokens.primary.withOpacity(0.1),
-                    borderRadius: BorderRadius.circular(8),
+    return CommonCard(
+      padding: const EdgeInsets.all(20),
+      margin: AppPadding.vertical8.add(AppPadding.horizontal16),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          // 탭 바
+          Container(
+            decoration: BoxDecoration(
+              color: AppDesignTokens.surfaceContainer.withOpacity(0.5),
+              borderRadius: BorderRadius.circular(8),
+            ),
+            child: TabBar(
+              controller: _tabController,
+              labelColor: AppDesignTokens.primary,
+              unselectedLabelColor: AppDesignTokens.outline,
+              indicator: BoxDecoration(
+                color: AppDesignTokens.primary.withOpacity(0.1),
+                borderRadius: BorderRadius.circular(8),
+              ),
+              indicatorSize: TabBarIndicatorSize.tab,
+              dividerColor: Colors.transparent,
+              labelStyle: AppTextStyles.bodyMedium.semiBold,
+              unselectedLabelStyle: AppTextStyles.bodyMedium,
+              tabs: [
+                Tab(
+                  child: Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      const Icon(Icons.group, size: 18),
+                      const SizedBox(width: 8),
+                      Text('참여자 (${meeting.currentParticipants})'),
+                    ],
                   ),
-                  indicatorSize: TabBarIndicatorSize.tab,
-                  dividerColor: Colors.transparent,
-                  labelStyle: AppTextStyles.bodyMedium.semiBold,
-                  unselectedLabelStyle: AppTextStyles.bodyMedium,
-                  tabs: [
-                    Tab(
-                      child: Row(
-                        mainAxisAlignment: MainAxisAlignment.center,
-                        children: [
-                          const Icon(Icons.group, size: 18),
-                          const SizedBox(width: 8),
-                          Text('참여자 (${meeting.currentParticipants})'),
-                        ],
-                      ),
-                    ),
-                    Tab(
-                      child: Row(
-                        mainAxisAlignment: MainAxisAlignment.center,
-                        children: [
-                          const Icon(Icons.people_outline, size: 18),
-                          const SizedBox(width: 8),
-                          Text('신청자 (${pendingApplicantIds.length})'),
-                          if (pendingApplicantIds.isNotEmpty && _isHost)
-                            Container(
-                              margin: const EdgeInsets.only(left: 4),
-                              padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
-                              decoration: BoxDecoration(
-                                color: Colors.red,
-                                borderRadius: BorderRadius.circular(8),
-                              ),
-                              child: Text(
-                                '${pendingApplicantIds.length}',
-                                style: const TextStyle(
-                                  color: Colors.white,
-                                  fontSize: 10,
-                                  fontWeight: FontWeight.bold,
-                                ),
-                              ),
+                ),
+                Tab(
+                  child: Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      const Icon(Icons.people_outline, size: 18),
+                      const SizedBox(width: 8),
+                      Text('신청자 (${meeting.pendingApplicantIds.length})'),
+                      if (meeting.pendingApplicantIds.isNotEmpty && _isHost)
+                        Container(
+                          margin: const EdgeInsets.only(left: 4),
+                          padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
+                          decoration: BoxDecoration(
+                            color: Colors.red,
+                            borderRadius: BorderRadius.circular(8),
+                          ),
+                          child: Text(
+                            '${meeting.pendingApplicantIds.length}',
+                            style: const TextStyle(
+                              color: Colors.white,
+                              fontSize: 10,
+                              fontWeight: FontWeight.bold,
                             ),
-                        ],
-                      ),
-                    ),
+                          ),
+                        ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: AppDesignTokens.spacing4),
+          
+          // 탭 컨텐츠 (동적 높이)
+          AnimatedBuilder(
+            animation: _tabController,
+            builder: (context, child) {
+              final int currentTabIndex = _tabController.index;
+              final int userCount = currentTabIndex == 0 
+                ? meeting.participantIds.length 
+                : meeting.pendingApplicantIds.length;
+              
+              return SizedBox(
+                height: _calculateTabHeight(userCount),
+                child: TabBarView(
+                  controller: _tabController,
+                  children: [
+                    // 참여자 탭
+                    _buildParticipantList(meeting),
+                    // 신청자 탭
+                    _buildApplicantList(meeting, meeting.pendingApplicantIds),
                   ],
                 ),
-              ),
-              const SizedBox(height: AppDesignTokens.spacing4),
-              
-              // 탭 컨텐츠 (동적 높이)
-              AnimatedBuilder(
-                animation: _tabController,
-                builder: (context, child) {
-                  final int currentTabIndex = _tabController.index;
-                  final int userCount = currentTabIndex == 0 
-                    ? meeting.participantIds.length 
-                    : pendingApplicantIds.length;
-                  
-                  return SizedBox(
-                    height: _calculateTabHeight(userCount),
-                    child: TabBarView(
-                      controller: _tabController,
-                      children: [
-                        // 참여자 탭
-                        _buildParticipantList(meeting),
-                        // 신청자 탭
-                        _buildApplicantList(meeting, pendingApplicantIds),
-                      ],
-                    ),
-                  );
-                },
-              ),
-            ],
+              );
+            },
           ),
-        );
-      },
+        ],
+      ),
     );
   }
   
@@ -1303,6 +1284,16 @@ class _MeetingDetailScreenState extends State<MeetingDetailScreen> with WidgetsB
       return;
     }
     
+    // 최신 모임 데이터로 다시 확인
+    await _refreshMeetingData();
+    final currentMeeting = _currentMeeting ?? widget.meeting;
+    
+    // 모집 종료 체크
+    if (!currentMeeting.isAvailable) {
+      _showErrorMessage('모집이 종료된 모임입니다');
+      return;
+    }
+    
     setState(() {
       _isLoading = true;
     });
@@ -1310,43 +1301,58 @@ class _MeetingDetailScreenState extends State<MeetingDetailScreen> with WidgetsB
     try {
       await MeetingService.applyToMeeting(widget.meeting.id, _currentUserId!);
       
-      setState(() {
-        _isPending = true;
-      });
+      // 신청 성공 후 즉시 데이터 새로고침
+      await _refreshMeetingData();
       
       if (kDebugMode) {
         print('✅ 모임 신청 성공: ${widget.meeting.id}');
       }
       
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: const Text('모임 신청이 완료되었습니다! 호스트의 승인을 기다려주세요.\n(호스트에게 알림이 전송되었습니다)'),
-          backgroundColor: Colors.green,
-          behavior: SnackBarBehavior.floating,
-          duration: const Duration(seconds: 4),
-        ),
-      );
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: const Text('모임 신청이 완료되었습니다! 🎉\n호스트의 승인을 기다려주세요.\n(호스트에게 알림이 전송되었습니다)'),
+            backgroundColor: Colors.green,
+            behavior: SnackBarBehavior.floating,
+            duration: const Duration(seconds: 4),
+          ),
+        );
+      }
     } catch (e) {
       if (kDebugMode) {
         print('❌ 모임 신청 실패: $e');
       }
       
       String errorMessage = '모임 신청에 실패했습니다';
+      IconData errorIcon = Icons.error;
+      
       if (e.toString().contains('Already applied')) {
         errorMessage = '이미 신청한 모임입니다';
+        errorIcon = Icons.info;
       } else if (e.toString().contains('Already joined')) {
         errorMessage = '이미 참여한 모임입니다';
+        errorIcon = Icons.info;
       } else if (e.toString().contains('Meeting is full')) {
         errorMessage = '모임이 찬습니다';
+        errorIcon = Icons.group;
       } else if (e.toString().contains('Cannot apply to your own meeting')) {
         errorMessage = '본인이 주최한 모임에는 신청할 수 없습니다';
+        errorIcon = Icons.person;
+      } else if (e.toString().contains('permission-denied')) {
+        errorMessage = '권한이 없습니다. 다시 로그인해주세요';
+        errorIcon = Icons.lock;
+      } else if (e.toString().contains('network')) {
+        errorMessage = '네트워크 연결을 확인해주세요';
+        errorIcon = Icons.wifi_off;
       }
       
-      _showErrorMessage(errorMessage);
+      _showEnhancedErrorMessage(errorMessage, errorIcon);
     } finally {
-      setState(() {
-        _isLoading = false;
-      });
+      if (mounted) {
+        setState(() {
+          _isLoading = false;
+        });
+      }
     }
   }
   
@@ -1477,64 +1483,160 @@ class _MeetingDetailScreenState extends State<MeetingDetailScreen> with WidgetsB
 
   Future<void> _approveApplicant(String meetingId, String applicantId) async {
     try {
+      // 로딩 상태 표시
+      showDialog(
+        context: context,
+        barrierDismissible: false,
+        builder: (context) => const Center(
+          child: CircularProgressIndicator(
+            color: AppDesignTokens.primary,
+          ),
+        ),
+      );
+      
       await MeetingService.approveMeetingApplication(meetingId, applicantId);
       
       if (kDebugMode) {
         print('✅ 신청자 승인 성공: $applicantId');
       }
       
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('신청자를 승인했습니다'),
-          backgroundColor: Colors.green,
-          behavior: SnackBarBehavior.floating,
-        ),
-      );
-      
       // 모임 데이터 새로고침
       await _refreshMeetingData();
+      
+      // 로딩 다이얼로그 닫기
+      if (mounted) Navigator.pop(context);
+      
+      _showSuccessMessage('신청자를 승인했습니다! 🎉', icon: Icons.check_circle);
     } catch (e) {
       if (kDebugMode) {
         print('❌ 신청자 승인 실패: $e');
       }
       
-      _showErrorMessage('신청자 승인에 실패했습니다');
+      // 로딩 다이얼로그 닫기
+      if (mounted) Navigator.pop(context);
+      
+      String errorMessage = '신청자 승인에 실패했습니다';
+      if (e.toString().contains('Meeting is full')) {
+        errorMessage = '모임이 이미 가득 찼습니다';
+      } else if (e.toString().contains('permission-denied')) {
+        errorMessage = '승인 권한이 없습니다';
+      }
+      
+      _showEnhancedErrorMessage(errorMessage, Icons.error);
     }
   }
 
   Future<void> _rejectApplicant(String meetingId, String applicantId) async {
     try {
+      // 로딩 상태 표시
+      showDialog(
+        context: context,
+        barrierDismissible: false,
+        builder: (context) => const Center(
+          child: CircularProgressIndicator(
+            color: AppDesignTokens.primary,
+          ),
+        ),
+      );
+      
       await MeetingService.rejectMeetingApplication(meetingId, applicantId);
       
       if (kDebugMode) {
         print('✅ 신청자 거절 성공: $applicantId');
       }
       
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('신청자를 거절했습니다'),
-          backgroundColor: AppDesignTokens.primary,
-          behavior: SnackBarBehavior.floating,
-        ),
-      );
-      
       // 모임 데이터 새로고침
       await _refreshMeetingData();
+      
+      // 로딩 다이얼로그 닫기
+      if (mounted) Navigator.pop(context);
+      
+      _showSuccessMessage('신청자를 거절했습니다', icon: Icons.block);
     } catch (e) {
       if (kDebugMode) {
         print('❌ 신청자 거절 실패: $e');
       }
       
-      _showErrorMessage('신청자 거절에 실패했습니다');
+      // 로딩 다이얼로그 닫기
+      if (mounted) Navigator.pop(context);
+      
+      String errorMessage = '신청자 거절에 실패했습니다';
+      if (e.toString().contains('permission-denied')) {
+        errorMessage = '거절 권한이 없습니다';
+      }
+      
+      _showEnhancedErrorMessage(errorMessage, Icons.error);
     }
   }
 
   void _showErrorMessage(String message) {
+    if (!mounted) return;
+    
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
         content: Text(message),
         backgroundColor: Colors.red,
         behavior: SnackBarBehavior.floating,
+      ),
+    );
+  }
+  
+  void _showEnhancedErrorMessage(String message, IconData icon) {
+    if (!mounted) return;
+    
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Row(
+          children: [
+            Icon(icon, color: Colors.white, size: 20),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Text(
+                message,
+                style: const TextStyle(
+                  fontWeight: FontWeight.w500,
+                ),
+              ),
+            ),
+          ],
+        ),
+        backgroundColor: Colors.red.shade600,
+        behavior: SnackBarBehavior.floating,
+        duration: const Duration(seconds: 3),
+        margin: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(12),
+        ),
+      ),
+    );
+  }
+  
+  void _showSuccessMessage(String message, {IconData? icon}) {
+    if (!mounted) return;
+    
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Row(
+          children: [
+            Icon(icon ?? Icons.check_circle, color: Colors.white, size: 20),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Text(
+                message,
+                style: const TextStyle(
+                  fontWeight: FontWeight.w500,
+                ),
+              ),
+            ),
+          ],
+        ),
+        backgroundColor: Colors.green.shade600,
+        behavior: SnackBarBehavior.floating,
+        duration: const Duration(seconds: 3),
+        margin: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(12),
+        ),
       ),
     );
   }
