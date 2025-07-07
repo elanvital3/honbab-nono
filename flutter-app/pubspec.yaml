@@ -111,6 +111,7 @@ flutter:
   assets:
     - assets/images/
     - assets/images/regions/
+    - assets/images/map_icons/
     - .env
 
   # An image asset can refer to one or more resolution-specific "variants", see

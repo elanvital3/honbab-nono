@@ -3,6 +3,8 @@ import 'package:flutter/foundation.dart';
 import '../models/restaurant.dart';
 import 'user_service.dart';
 import 'auth_service.dart';
+import 'naver_blog_service.dart';
+import 'youtube_service.dart';
 
 class RestaurantService {
   static final FirebaseFirestore _firestore = FirebaseFirestore.instance;
@@ -109,6 +111,28 @@ class RestaurantService {
         }
         return true;
       }).toList();
+
+      if (kDebugMode) {
+        print('🔍 필터링 과정:');
+        print('   전체 레스토랑: ${allRestaurants.length}개');
+        print('   필터 조건: city=$city, province=$province');
+        print('   필터링 후: ${filteredRestaurants.length}개');
+        
+        if (allRestaurants.isNotEmpty) {
+          print('📋 전체 레스토랑 샘플 (처음 5개):');
+          for (var restaurant in allRestaurants.take(5)) {
+            print('   - ${restaurant.name} (province: "${restaurant.province}", city: "${restaurant.city}")');
+          }
+        }
+        
+        if (province != null && filteredRestaurants.isEmpty && allRestaurants.isNotEmpty) {
+          print('⚠️ 도 필터링에서 매칭 실패! 실제 province 값들:');
+          final provinceValues = allRestaurants.map((r) => r.province).toSet();
+          for (var prov in provinceValues) {
+            print('   - "${prov}"');
+          }
+        }
+      }
 
       // 앱에서 정렬 (최신순)
       filteredRestaurants.sort((a, b) {
@@ -316,12 +340,14 @@ class RestaurantService {
       // 지역명에 따른 필터링 설정
       if (region == '제주도') {
         province = '제주특별자치도';
+        // 제주도는 province만으로 필터링 (city는 제주시, 서귀포시 등 다양함)
       } else if (region == '서울') {
         province = '서울특별시';
       } else if (region == '부산') {
         province = '부산광역시';
       } else if (region == '경주') {
         city = '경주시';
+        province = '경상북도';
       }
 
       // 기존 getPopularRestaurants 메서드 활용
@@ -333,6 +359,13 @@ class RestaurantService {
 
       if (kDebugMode) {
         print('✅ 지역별 맛집 조회 완료: ${restaurants.length}개');
+        print('🔍 필터 조건: city=$city, province=$province');
+        if (restaurants.isNotEmpty) {
+          print('📋 조회된 맛집들:');
+          for (var restaurant in restaurants.take(5)) {
+            print('   - ${restaurant.name} (province: ${restaurant.province}, city: ${restaurant.city})');
+          }
+        }
       }
 
       return restaurants;
@@ -563,6 +596,304 @@ class RestaurantService {
         print('❌ 즐겨찾기 토글 실패: $e');
       }
       return false;
+    }
+  }
+
+  /// 모든 식당에 네이버 블로그 데이터 추가
+  static Future<Map<String, dynamic>> addNaverBlogDataToAllRestaurants() async {
+    try {
+      print('🔍 모든 식당에 네이버 블로그 데이터 추가 시작');
+      
+      // Firestore에서 모든 식당 가져오기
+      final querySnapshot = await _firestore.collection(_collection).get();
+      final totalRestaurants = querySnapshot.docs.length;
+      
+      print('📊 총 ${totalRestaurants}개 식당 발견');
+      
+      int successCount = 0;
+      int failCount = 0;
+      int alreadyHasCount = 0;
+      
+      for (final doc in querySnapshot.docs) {
+        try {
+          final data = doc.data();
+          final restaurant = Restaurant.fromFirestore(data, doc.id);
+          
+          // 이미 네이버 블로그 데이터가 있는지 확인
+          if (data.containsKey('naverBlog') && data['naverBlog'] != null) {
+            alreadyHasCount++;
+            print('⏭️ ${restaurant.name}: 이미 블로그 데이터 존재');
+            continue;
+          }
+          
+          print('🔍 ${restaurant.name}: 블로그 검색 중...');
+          
+          // 네이버 블로그 검색 (주소 정보 포함)
+          final blogData = await NaverBlogService.searchRestaurantBlogsWithAddress(
+            restaurant.name, 
+            restaurant.address
+          );
+          
+          if (blogData != null) {
+            // Firestore에 블로그 데이터 업데이트
+            await _firestore.collection(_collection).doc(doc.id).update({
+              'naverBlog': blogData.toMap(),
+              'naverBlogUpdatedAt': FieldValue.serverTimestamp(),
+            });
+            
+            successCount++;
+            print('✅ ${restaurant.name}: 블로그 ${blogData.totalCount}개 추가 완료');
+          } else {
+            failCount++;
+            print('❌ ${restaurant.name}: 블로그 검색 실패');
+          }
+          
+          // API 호출 간격 (Rate Limiting 방지)
+          await Future.delayed(const Duration(milliseconds: 500));
+          
+        } catch (e) {
+          failCount++;
+          print('❌ ${doc.id} 처리 중 오류: $e');
+        }
+      }
+      
+      final result = {
+        'total': totalRestaurants,
+        'success': successCount,
+        'failed': failCount,
+        'alreadyHas': alreadyHasCount,
+        'message': '네이버 블로그 데이터 추가 완료',
+      };
+      
+      print('🎯 결과 요약: 총 $totalRestaurants개 중 성공 $successCount개, 실패 $failCount개, 기존보유 $alreadyHasCount개');
+      
+      return result;
+    } catch (e) {
+      print('❌ 네이버 블로그 데이터 추가 중 오류: $e');
+      return {
+        'total': 0,
+        'success': 0,
+        'failed': 0,
+        'alreadyHas': 0,
+        'error': e.toString(),
+      };
+    }
+  }
+
+  /// 특정 식당에 네이버 블로그 데이터 추가
+  static Future<bool> addNaverBlogDataToRestaurant(String restaurantId) async {
+    try {
+      print('🔍 식당($restaurantId)에 네이버 블로그 데이터 추가 시작');
+      
+      // 식당 정보 가져오기
+      final doc = await _firestore.collection(_collection).doc(restaurantId).get();
+      
+      if (!doc.exists) {
+        print('❌ 식당을 찾을 수 없음: $restaurantId');
+        return false;
+      }
+      
+      final data = doc.data()!;
+      final restaurant = Restaurant.fromFirestore(data, doc.id);
+      
+      print('🔍 ${restaurant.name}: 블로그 검색 중...');
+      
+      // 네이버 블로그 검색 (주소 정보 포함)
+      final blogData = await NaverBlogService.searchRestaurantBlogsWithAddress(
+        restaurant.name, 
+        restaurant.address
+      );
+      
+      if (blogData != null) {
+        // Firestore에 블로그 데이터 업데이트
+        await _firestore.collection(_collection).doc(restaurantId).update({
+          'naverBlog': blogData.toMap(),
+          'naverBlogUpdatedAt': FieldValue.serverTimestamp(),
+        });
+        
+        print('✅ ${restaurant.name}: 블로그 ${blogData.totalCount}개 추가 완료');
+        return true;
+      } else {
+        print('❌ ${restaurant.name}: 블로그 검색 실패');
+        return false;
+      }
+    } catch (e) {
+      print('❌ 네이버 블로그 데이터 추가 중 오류: $e');
+      return false;
+    }
+  }
+
+  /// 네이버 블로그 데이터가 있는 식당들 조회
+  static Future<List<Restaurant>> getRestaurantsWithNaverBlog({int limit = 20}) async {
+    try {
+      print('🔍 네이버 블로그 데이터가 있는 식당들 조회');
+      
+      final querySnapshot = await _firestore
+          .collection(_collection)
+          .where('naverBlog', isNotEqualTo: null)
+          .orderBy('naverBlogUpdatedAt', descending: true)
+          .limit(limit)
+          .get();
+      
+      final restaurants = querySnapshot.docs.map((doc) {
+        return Restaurant.fromFirestore(doc.data(), doc.id);
+      }).toList();
+      
+      print('✅ 네이버 블로그 데이터가 있는 식당 ${restaurants.length}개 조회 완료');
+      
+      return restaurants;
+    } catch (e) {
+      print('❌ 네이버 블로그 데이터 식당 조회 실패: $e');
+      return [];
+    }
+  }
+
+  /// 모든 식당에 유튜브 데이터 추가
+  static Future<Map<String, dynamic>> addYoutubeDataToAllRestaurants() async {
+    try {
+      print('🎥 모든 식당에 유튜브 데이터 추가 시작');
+      
+      // Firestore에서 모든 식당 가져오기
+      final querySnapshot = await _firestore.collection(_collection).get();
+      final totalRestaurants = querySnapshot.docs.length;
+      
+      print('📊 총 ${totalRestaurants}개 식당 발견');
+      
+      int successCount = 0;
+      int failCount = 0;
+      int alreadyHasCount = 0;
+      
+      for (final doc in querySnapshot.docs) {
+        try {
+          final data = doc.data();
+          final restaurant = Restaurant.fromFirestore(data, doc.id);
+          
+          // 이미 유튜브 데이터가 있는지 확인
+          if (data.containsKey('youtubeStats') && data['youtubeStats'] != null) {
+            alreadyHasCount++;
+            print('⏭️ ${restaurant.name}: 이미 유튜브 데이터 존재');
+            continue;
+          }
+          
+          print('🎥 ${restaurant.name}: 유튜브 검색 중...');
+          
+          // 유튜브 검색
+          final youtubeStats = await YoutubeService.searchRestaurantVideos(
+            restaurant.name, 
+            restaurant.address
+          );
+          
+          if (youtubeStats != null) {
+            // Firestore에 유튜브 데이터 업데이트
+            await _firestore.collection(_collection).doc(doc.id).update({
+              'youtubeStats': youtubeStats.toMap(),
+              'youtubeUpdatedAt': FieldValue.serverTimestamp(),
+            });
+            
+            successCount++;
+            print('✅ ${restaurant.name}: 유튜브 영상 ${youtubeStats.mentionCount}개 추가 완료');
+          } else {
+            failCount++;
+            print('❌ ${restaurant.name}: 유튜브 검색 실패');
+          }
+          
+          // API 호출 간격 (Rate Limiting 방지)
+          await Future.delayed(const Duration(milliseconds: 1000)); // 유튜브 API는 더 긴 간격 필요
+          
+        } catch (e) {
+          failCount++;
+          print('❌ ${doc.id} 처리 중 오류: $e');
+        }
+      }
+      
+      final result = {
+        'total': totalRestaurants,
+        'success': successCount,
+        'failed': failCount,
+        'alreadyHas': alreadyHasCount,
+        'message': '유튜브 데이터 추가 완료',
+      };
+      
+      print('🎯 결과 요약: 총 $totalRestaurants개 중 성공 $successCount개, 실패 $failCount개, 기존보유 $alreadyHasCount개');
+      
+      return result;
+    } catch (e) {
+      print('❌ 유튜브 데이터 추가 중 오류: $e');
+      return {
+        'total': 0,
+        'success': 0,
+        'failed': 0,
+        'alreadyHas': 0,
+        'error': e.toString(),
+      };
+    }
+  }
+
+  /// 특정 식당에 유튜브 데이터 추가
+  static Future<bool> addYoutubeDataToRestaurant(String restaurantId) async {
+    try {
+      print('🎥 식당($restaurantId)에 유튜브 데이터 추가 시작');
+      
+      // 식당 정보 가져오기
+      final doc = await _firestore.collection(_collection).doc(restaurantId).get();
+      
+      if (!doc.exists) {
+        print('❌ 식당을 찾을 수 없음: $restaurantId');
+        return false;
+      }
+      
+      final data = doc.data()!;
+      final restaurant = Restaurant.fromFirestore(data, doc.id);
+      
+      print('🎥 ${restaurant.name}: 유튜브 검색 중...');
+      
+      // 유튜브 검색
+      final youtubeStats = await YoutubeService.searchRestaurantVideos(
+        restaurant.name, 
+        restaurant.address
+      );
+      
+      if (youtubeStats != null) {
+        // Firestore에 유튜브 데이터 업데이트
+        await _firestore.collection(_collection).doc(restaurantId).update({
+          'youtubeStats': youtubeStats.toMap(),
+          'youtubeUpdatedAt': FieldValue.serverTimestamp(),
+        });
+        
+        print('✅ ${restaurant.name}: 유튜브 영상 ${youtubeStats.mentionCount}개 추가 완료');
+        return true;
+      } else {
+        print('❌ ${restaurant.name}: 유튜브 검색 실패');
+        return false;
+      }
+    } catch (e) {
+      print('❌ 유튜브 데이터 추가 중 오류: $e');
+      return false;
+    }
+  }
+
+  /// 유튜브 데이터가 있는 식당들 조회
+  static Future<List<Restaurant>> getRestaurantsWithYoutube({int limit = 20}) async {
+    try {
+      print('🎥 유튜브 데이터가 있는 식당들 조회');
+      
+      final querySnapshot = await _firestore
+          .collection(_collection)
+          .where('youtubeStats', isNotEqualTo: null)
+          .orderBy('youtubeUpdatedAt', descending: true)
+          .limit(limit)
+          .get();
+      
+      final restaurants = querySnapshot.docs.map((doc) {
+        return Restaurant.fromFirestore(doc.data(), doc.id);
+      }).toList();
+      
+      print('✅ 유튜브 데이터가 있는 식당 ${restaurants.length}개 조회 완료');
+      
+      return restaurants;
+    } catch (e) {
+      print('❌ 유튜브 데이터 식당 조회 실패: $e');
+      return [];
     }
   }
 }

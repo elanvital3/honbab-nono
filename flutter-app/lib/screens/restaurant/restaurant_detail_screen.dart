@@ -20,6 +20,7 @@ class RestaurantDetailScreen extends StatefulWidget {
 class _RestaurantDetailScreenState extends State<RestaurantDetailScreen> {
   bool _isFavorite = false;
   bool _isLoading = false;
+  int _currentPhotoIndex = 0;
 
   @override
   void initState() {
@@ -76,613 +77,83 @@ class _RestaurantDetailScreenState extends State<RestaurantDetailScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      body: CustomScrollView(
-        slivers: [
-          // 대형 이미지와 앱바
-          SliverAppBar(
-            expandedHeight: 300,
-            pinned: true,
-            backgroundColor: AppDesignTokens.surface,
-            flexibleSpace: FlexibleSpaceBar(
-              background: _buildHeroImage(),
+      backgroundColor: AppDesignTokens.background,
+      appBar: AppBar(
+        backgroundColor: Colors.transparent,
+        elevation: 0,
+        scrolledUnderElevation: 0,
+        leading: IconButton(
+          icon: const Icon(Icons.arrow_back),
+          onPressed: () => Navigator.pop(context),
+        ),
+        actions: [
+          IconButton(
+            icon: Icon(
+              _isFavorite ? Icons.favorite : Icons.favorite_border,
+              color: _isFavorite ? Colors.red : null,
             ),
-            leading: Container(
-              margin: const EdgeInsets.all(8),
-              decoration: BoxDecoration(
-                color: Colors.black.withOpacity(0.5),
-                borderRadius: BorderRadius.circular(20),
-              ),
-              child: IconButton(
-                icon: const Icon(Icons.arrow_back, color: Colors.white),
-                onPressed: () => Navigator.pop(context),
-              ),
-            ),
-            actions: [
-              Container(
-                margin: const EdgeInsets.all(8),
-                decoration: BoxDecoration(
-                  color: Colors.black.withOpacity(0.5),
-                  borderRadius: BorderRadius.circular(20),
-                ),
-                child: IconButton(
-                  icon: Icon(
-                    _isFavorite ? Icons.favorite : Icons.favorite_border, 
-                    color: _isFavorite ? Colors.red : Colors.white,
-                  ),
-                  onPressed: _isLoading ? null : _toggleFavorite,
-                ),
-              ),
-            ],
-          ),
-          
-          // 메인 컨텐츠
-          SliverToBoxAdapter(
-            child: Padding(
-              padding: const EdgeInsets.all(20),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  // 제목과 기본 정보
-                  _buildHeaderSection(),
-                  
-                  const SizedBox(height: 24),
-                  
-                  // 통계 정보
-                  _buildStatsSection(),
-                  
-                  const SizedBox(height: 24),
-                  
-                  // 추가 정보 섹션
-                  if (widget.restaurant.googlePlaces?.priceLevel != null || 
-                      widget.restaurant.featureTags?.isNotEmpty == true ||
-                      widget.restaurant.trendScore != null) ...[
-                    _buildAdditionalInfoSection(),
-                    const SizedBox(height: 24),
-                  ],
-                  
-                  // Google 리뷰 섹션
-                  if (widget.restaurant.googlePlaces?.reviews.isNotEmpty == true) ...[
-                    _buildReviewsSection(),
-                    const SizedBox(height: 24),
-                  ],
-                  
-                  // 위치 정보
-                  _buildLocationSection(),
-                  
-                  const SizedBox(height: 100), // 하단 여백
-                ],
-              ),
-            ),
+            onPressed: _isLoading ? null : _toggleFavorite,
           ),
         ],
       ),
-      
-      // 하단 액션 버튼들
-      bottomNavigationBar: Container(
+      body: SingleChildScrollView(
         padding: const EdgeInsets.all(16),
-        decoration: BoxDecoration(
-          color: AppDesignTokens.surface,
-          border: Border(
-            top: BorderSide(
-              color: AppDesignTokens.outline.withOpacity(0.2),
-            ),
-          ),
-        ),
-        child: Row(
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Expanded(
-              child: ElevatedButton.icon(
-                onPressed: () => _openKakaoMap(),
-                icon: Container(
-                  width: 20,
-                  height: 20,
-                  decoration: const BoxDecoration(
-                    color: Colors.white,
-                    shape: BoxShape.circle,
-                  ),
-                  child: const Icon(
-                    Icons.location_on,
-                    color: Color(0xFFFFEB00), // 카카오 노란색
-                    size: 16,
-                  ),
-                ),
-                label: const Text('카카오맵'),
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: const Color(0xFFFFEB00), // 카카오 브랜드 컬러
-                  foregroundColor: Colors.black,
-                  padding: const EdgeInsets.symmetric(vertical: 12),
-                ),
-              ),
-            ),
-            const SizedBox(width: 12),
-            Expanded(
-              child: ElevatedButton.icon(
-                onPressed: () => _openNaverMap(),
-                icon: Container(
-                  width: 20,
-                  height: 20,
-                  decoration: const BoxDecoration(
-                    color: Colors.white,
-                    shape: BoxShape.circle,
-                  ),
-                  child: const Icon(
-                    Icons.navigation,
-                    color: Color(0xFF03C75A), // 네이버 초록색
-                    size: 16,
-                  ),
-                ),
-                label: const Text('네이버지도'),
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: const Color(0xFF03C75A), // 네이버 브랜드 컬러
-                  foregroundColor: Colors.white,
-                  padding: const EdgeInsets.symmetric(vertical: 12),
-                ),
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _buildHeroImage() {
-    // Google Places 사진들이 있으면 갤러리로 표시
-    if (widget.restaurant.googlePlaces?.photos.isNotEmpty == true) {
-      final photos = widget.restaurant.googlePlaces!.photos;
-      if (photos.length > 1) {
-        return _buildImageGallery(photos);
-      } else {
-        return Image.network(
-          photos.first,
-          fit: BoxFit.cover,
-          errorBuilder: (context, error, stackTrace) => _buildFallbackImage(),
-        );
-      }
-    }
-    
-    // 기존 이미지URL
-    if (widget.restaurant.imageUrl != null) {
-      return Image.network(
-        widget.restaurant.imageUrl!,
-        fit: BoxFit.cover,
-        errorBuilder: (context, error, stackTrace) => _buildPlaceholderImage(),
-      );
-    }
-    
-    return _buildPlaceholderImage();
-  }
-
-  Widget _buildImageGallery(List<String> photos) {
-    final PageController pageController = PageController(viewportFraction: 0.65);
-    
-    return Stack(
-      children: [
-        // 전체 영역을 사용하되 내부에서 70% 높이 조정
-        Positioned.fill(
-          child: Column(
-            children: [
-              // 상단 15% 여백
-              Expanded(
-                flex: 15,
-                child: Container(),
-              ),
-              // 사진 영역 70%
-              Expanded(
-                flex: 70,
-                child: PageView.builder(
-                  controller: pageController,
-                  itemCount: photos.length,
-                  itemBuilder: (context, index) {
-                    return Container(
-                      margin: const EdgeInsets.symmetric(horizontal: 8),
-                      child: ClipRRect(
-                        borderRadius: BorderRadius.circular(12),
-                        child: Image.network(
-                          photos[index],
-                          fit: BoxFit.cover,
-                          errorBuilder: (context, error, stackTrace) => _buildPlaceholderImage(),
-                        ),
-                      ),
-                    );
-                  },
-                ),
-              ),
-              // 하단 15% 여백
-              Expanded(
-                flex: 15,
-                child: Container(),
-              ),
-            ],
-          ),
-        ),
-        // 페이지 인디케이터
-        Positioned(
-          bottom: 16,
-          right: 16,
-          child: Container(
-            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-            decoration: BoxDecoration(
-              color: Colors.black.withOpacity(0.6),
-              borderRadius: BorderRadius.circular(12),
-            ),
-            child: Text(
-              '${photos.length}장',
-              style: const TextStyle(
-                color: Colors.white,
-                fontSize: 12,
-                fontWeight: FontWeight.w500,
-              ),
-            ),
-          ),
-        ),
-      ],
-    );
-  }
-  
-  Widget _buildFallbackImage() {
-    if (widget.restaurant.imageUrl != null) {
-      return Image.network(
-        widget.restaurant.imageUrl!,
-        fit: BoxFit.cover,
-        errorBuilder: (context, error, stackTrace) => _buildPlaceholderImage(),
-      );
-    }
-    return _buildPlaceholderImage();
-  }
-  
-  Widget _buildPlaceholderImage() {
-    return Container(
-      color: AppDesignTokens.surfaceContainer,
-      child: Center(
-        child: Icon(
-          Icons.restaurant,
-          size: 80,
-          color: AppDesignTokens.onSurfaceVariant,
-        ),
-      ),
-    );
-  }
-
-  Widget _buildHeaderSection() {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Text(
-          widget.restaurant.name,
-          style: AppTextStyles.headlineMedium.copyWith(
-            fontWeight: FontWeight.w700,
-          ),
-        ),
-        
-        const SizedBox(height: 8),
-        
-        Text(
-          widget.restaurant.address,
-          style: AppTextStyles.bodyLarge.copyWith(
-            color: AppDesignTokens.onSurfaceVariant,
-          ),
-        ),
-        
-        const SizedBox(height: 12),
-        
-        // 카테고리 태그
-        Container(
-          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-          decoration: BoxDecoration(
-            color: AppDesignTokens.primary.withOpacity(0.1),
-            borderRadius: BorderRadius.circular(16),
-          ),
-          child: Text(
-            widget.restaurant.shortCategory,
-            style: AppTextStyles.bodyMedium.copyWith(
-              color: AppDesignTokens.primary,
-              fontWeight: FontWeight.w500,
-            ),
-          ),
-        ),
-      ],
-    );
-  }
-
-  Widget _buildStatsSection() {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Text(
-          '맛집 정보',
-          style: AppTextStyles.titleLarge.copyWith(
-            fontWeight: FontWeight.w600,
-          ),
-        ),
-        
-        const SizedBox(height: 16),
-        
-        Row(
-          children: [
-            // YouTube 정보
-            if (widget.restaurant.youtubeStats != null)
-              Expanded(
-                child: _buildStatCard(
-                  icon: Icons.play_circle_filled,
-                  iconColor: Colors.red,
-                  title: 'YouTube 언급',
-                  value: '${widget.restaurant.youtubeStats!.mentionCount}회',
-                  subtitle: widget.restaurant.youtubeStats!.channels.isNotEmpty 
-                      ? widget.restaurant.youtubeStats!.channels.first
-                      : null,
-                ),
-              ),
+            // 가게이름 (큰 글씨)
+            _buildRestaurantName(),
             
-            if (widget.restaurant.youtubeStats != null && widget.restaurant.googlePlaces?.rating != null)
-              const SizedBox(width: 12),
+            const SizedBox(height: 6),
             
-            // Google 평점
-            if (widget.restaurant.googlePlaces?.rating != null)
-              Expanded(
-                child: _buildStatCard(
-                  icon: Icons.star,
-                  iconColor: Colors.orange,
-                  title: 'Google 평점',
-                  value: '${widget.restaurant.googlePlaces!.rating!.toStringAsFixed(1)}/5',
-                  subtitle: widget.restaurant.googlePlaces!.userRatingsTotal > 0 
-                      ? '${widget.restaurant.googlePlaces!.userRatingsTotal}개 리뷰'
-                      : null,
-                ),
-              ),
-          ],
-        ),
-      ],
-    );
-  }
-
-  Widget _buildStatCard({
-    required IconData icon,
-    required Color iconColor,
-    required String title,
-    required String value,
-    String? subtitle,
-  }) {
-    return Container(
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: AppDesignTokens.surfaceContainer,
-        borderRadius: BorderRadius.circular(12),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: [
-              Icon(icon, color: iconColor, size: 20),
-              const SizedBox(width: 8),
-              Text(
-                title,
-                style: AppTextStyles.bodyMedium.copyWith(
-                  color: AppDesignTokens.onSurfaceVariant,
-                ),
-              ),
+            // 평점 + 리뷰수 + YouTube 언급수 (한 줄)
+            _buildCompactRatingInfo(),
+            
+            const SizedBox(height: 12),
+            
+            // 주소 + 바로가기 버튼들
+            _buildAddressWithNavigation(),
+            
+            const SizedBox(height: 16),
+            
+            // 사진 갤러리
+            _buildPhotoGallery(),
+            
+            const SizedBox(height: 16),
+            
+            // 특징 태그
+            if (widget.restaurant.featureTags?.isNotEmpty == true)
+              _buildFeatureTags(),
+            
+            const SizedBox(height: 24),
+            
+            // 영업시간 정보
+            if (widget.restaurant.googlePlaces?.isOpen != null ||
+                widget.restaurant.googlePlaces?.regularOpeningHours != null)
+              _buildOpeningHoursSection(),
+            
+            const SizedBox(height: 16),
+            
+            // Google 리뷰 섹션 (리뷰가 있으면 표시)
+            if (widget.restaurant.googlePlaces?.reviews.isNotEmpty == true) ...[
+              _buildReviewsSection(),
+              const SizedBox(height: 16),
             ],
-          ),
-          const SizedBox(height: 8),
-          Text(
-            value,
-            style: AppTextStyles.titleMedium.copyWith(
-              fontWeight: FontWeight.w600,
-            ),
-          ),
-          if (subtitle != null) ...[
-            const SizedBox(height: 4),
-            Text(
-              subtitle,
-              style: AppTextStyles.bodySmall.copyWith(
-                color: AppDesignTokens.onSurfaceVariant,
-              ),
-            ),
+            
+            // 네이버 블로그 섹션 (블로그가 있으면 표시)
+            if (widget.restaurant.naverBlog?.posts.isNotEmpty == true) ...[
+              _buildNaverBlogSection(),
+              const SizedBox(height: 16),
+            ],
+            
+            const SizedBox(height: 32), // 하단 여백
           ],
-        ],
+        ),
       ),
     );
   }
 
-  Widget _buildAdditionalInfoSection() {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Text(
-          '추가 정보',
-          style: AppTextStyles.titleLarge.copyWith(
-            fontWeight: FontWeight.w600,
-          ),
-        ),
-        
-        const SizedBox(height: 16),
-        
-        // 가격대 정보
-        if (widget.restaurant.googlePlaces?.priceLevel != null)
-          Container(
-            margin: const EdgeInsets.only(bottom: 12),
-            padding: const EdgeInsets.all(16),
-            decoration: BoxDecoration(
-              color: AppDesignTokens.surfaceContainer,
-              borderRadius: BorderRadius.circular(12),
-            ),
-            child: Row(
-              children: [
-                const Icon(Icons.attach_money, color: Colors.green, size: 20),
-                const SizedBox(width: 8),
-                Text(
-                  '가격대',
-                  style: AppTextStyles.bodyMedium.copyWith(
-                    color: AppDesignTokens.onSurfaceVariant,
-                  ),
-                ),
-                const Spacer(),
-                Text(
-                  _getPriceLevelText(widget.restaurant.googlePlaces!.priceLevel!),
-                  style: AppTextStyles.bodyMedium.copyWith(
-                    fontWeight: FontWeight.w600,
-                  ),
-                ),
-              ],
-            ),
-          ),
-        
-        // 특징 태그
-        if (widget.restaurant.featureTags?.isNotEmpty == true)
-          Container(
-            margin: const EdgeInsets.only(bottom: 12),
-            padding: const EdgeInsets.all(16),
-            decoration: BoxDecoration(
-              color: AppDesignTokens.surfaceContainer,
-              borderRadius: BorderRadius.circular(12),
-            ),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Row(
-                  children: [
-                    const Icon(Icons.local_offer, color: Colors.blue, size: 20),
-                    const SizedBox(width: 8),
-                    Text(
-                      '특징',
-                      style: AppTextStyles.bodyMedium.copyWith(
-                        color: AppDesignTokens.onSurfaceVariant,
-                      ),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 8),
-                Wrap(
-                  spacing: 8,
-                  runSpacing: 4,
-                  children: widget.restaurant.featureTags!.map((tag) => 
-                    Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                      decoration: BoxDecoration(
-                        color: AppDesignTokens.primary.withOpacity(0.1),
-                        borderRadius: BorderRadius.circular(8),
-                      ),
-                      child: Text(
-                        tag,
-                        style: AppTextStyles.bodySmall.copyWith(
-                          color: AppDesignTokens.primary,
-                          fontWeight: FontWeight.w500,
-                        ),
-                      ),
-                    )
-                  ).toList(),
-                ),
-              ],
-            ),
-          ),
-        
-        // 트렌드 정보
-        if (widget.restaurant.trendScore != null)
-          Container(
-            padding: const EdgeInsets.all(16),
-            decoration: BoxDecoration(
-              color: AppDesignTokens.surfaceContainer,
-              borderRadius: BorderRadius.circular(12),
-            ),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Row(
-                  children: [
-                    const Icon(Icons.trending_up, color: Colors.orange, size: 20),
-                    const SizedBox(width: 8),
-                    Text(
-                      '트렌드 점수',
-                      style: AppTextStyles.bodyMedium.copyWith(
-                        color: AppDesignTokens.onSurfaceVariant,
-                      ),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 12),
-                Row(
-                  children: [
-                    Expanded(
-                      child: Column(
-                        children: [
-                          Text(
-                            '${widget.restaurant.trendScore!.hotness}',
-                            style: AppTextStyles.titleMedium.copyWith(
-                              fontWeight: FontWeight.w600,
-                              color: Colors.red,
-                            ),
-                          ),
-                          Text(
-                            '핫함 지수',
-                            style: AppTextStyles.bodySmall.copyWith(
-                              color: AppDesignTokens.onSurfaceVariant,
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                    Expanded(
-                      child: Column(
-                        children: [
-                          Text(
-                            '${widget.restaurant.trendScore!.consistency}',
-                            style: AppTextStyles.titleMedium.copyWith(
-                              fontWeight: FontWeight.w600,
-                              color: Colors.blue,
-                            ),
-                          ),
-                          Text(
-                            '일관성',
-                            style: AppTextStyles.bodySmall.copyWith(
-                              color: AppDesignTokens.onSurfaceVariant,
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                    Expanded(
-                      child: Column(
-                        children: [
-                          Icon(
-                            widget.restaurant.trendScore!.isRising 
-                                ? Icons.trending_up 
-                                : Icons.trending_down,
-                            color: widget.restaurant.trendScore!.isRising 
-                                ? Colors.green 
-                                : Colors.red,
-                          ),
-                          Text(
-                            widget.restaurant.trendScore!.isRising ? '상승중' : '하락중',
-                            style: AppTextStyles.bodySmall.copyWith(
-                              color: AppDesignTokens.onSurfaceVariant,
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                  ],
-                ),
-              ],
-            ),
-          ),
-      ],
-    );
-  }
 
-  String _getPriceLevelText(int priceLevel) {
-    switch (priceLevel) {
-      case 1:
-        return '저렴함 (\$)';
-      case 2:
-        return '보통 (\$\$)';
-      case 3:
-        return '비쌈 (\$\$\$)';
-      case 4:
-        return '매우 비쌈 (\$\$\$\$)';
-      default:
-        return '정보 없음';
-    }
-  }
 
   Widget _buildReviewsSection() {
     final reviews = widget.restaurant.googlePlaces!.reviews;
@@ -690,45 +161,11 @@ class _RestaurantDetailScreenState extends State<RestaurantDetailScreen> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Row(
-          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-          children: [
-            Text(
-              'Google 리뷰',
-              style: AppTextStyles.titleLarge.copyWith(
-                fontWeight: FontWeight.w600,
-              ),
-            ),
-            Column(
-              crossAxisAlignment: CrossAxisAlignment.end,
-              children: [
-                Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                  decoration: BoxDecoration(
-                    color: AppDesignTokens.primary.withOpacity(0.1),
-                    borderRadius: BorderRadius.circular(12),
-                  ),
-                  child: Text(
-                    '${reviews.length}개 표시',
-                    style: AppTextStyles.bodySmall.copyWith(
-                      color: AppDesignTokens.primary,
-                      fontWeight: FontWeight.w600,
-                    ),
-                  ),
-                ),
-                if (widget.restaurant.googlePlaces!.userRatingsTotal > 5) ...[
-                  const SizedBox(height: 4),
-                  Text(
-                    '전체 ${widget.restaurant.googlePlaces!.userRatingsTotal}개',
-                    style: AppTextStyles.bodySmall.copyWith(
-                      color: AppDesignTokens.onSurfaceVariant,
-                      fontSize: 11,
-                    ),
-                  ),
-                ],
-              ],
-            ),
-          ],
+        Text(
+          'Google 리뷰',
+          style: AppTextStyles.titleLarge.copyWith(
+            fontWeight: FontWeight.w600,
+          ),
         ),
         
         const SizedBox(height: 16),
@@ -819,90 +256,521 @@ class _RestaurantDetailScreenState extends State<RestaurantDetailScreen> {
     );
   }
 
-  Widget _buildLocationSection() {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
+
+  // 가게이름 + 카테고리 (한 줄)
+  Widget _buildRestaurantName() {
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.baseline,
+      textBaseline: TextBaseline.alphabetic,
       children: [
         Text(
-          '위치 정보',
-          style: AppTextStyles.titleLarge.copyWith(
-            fontWeight: FontWeight.w600,
+          widget.restaurant.name,
+          style: AppTextStyles.headlineLarge.copyWith(
+            fontWeight: FontWeight.w700,
           ),
         ),
-        
-        const SizedBox(height: 16),
-        
-        Container(
-          padding: const EdgeInsets.all(16),
-          decoration: BoxDecoration(
-            color: AppDesignTokens.surfaceContainer,
-            borderRadius: BorderRadius.circular(12),
+        if (widget.restaurant.shortCategory.isNotEmpty) ...[
+          const SizedBox(width: 6),
+          Text(
+            widget.restaurant.shortCategory,
+            style: AppTextStyles.bodyMedium.copyWith(
+              color: AppDesignTokens.onSurfaceVariant,
+            ),
           ),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Row(
-                children: [
-                  const Icon(Icons.location_on, color: Colors.red, size: 20),
-                  const SizedBox(width: 8),
-                  Expanded(
-                    child: Text(
-                      widget.restaurant.address,
-                      style: AppTextStyles.bodyMedium,
-                    ),
-                  ),
-                ],
+        ],
+      ],
+    );
+  }
+
+  // 압축된 평점 정보 (한 줄)
+  Widget _buildCompactRatingInfo() {
+    final googlePlaces = widget.restaurant.googlePlaces;
+    final youtubeStats = widget.restaurant.youtubeStats;
+    final naverBlog = widget.restaurant.naverBlog;
+    
+    return Wrap(
+      crossAxisAlignment: WrapCrossAlignment.center,
+      children: [
+        // Google 평점
+        if (googlePlaces?.rating != null) ...[
+          ClipRRect(
+            borderRadius: BorderRadius.circular(2),
+            child: Image.asset(
+              'assets/images/map_icons/google_app.jpg',
+              width: 16,
+              height: 16,
+              fit: BoxFit.cover,
+            ),
+          ),
+          const SizedBox(width: 4),
+          Text(
+            'Google',
+            style: AppTextStyles.bodyMedium.copyWith(
+              color: AppDesignTokens.onSurfaceVariant,
+              fontWeight: FontWeight.w500,
+            ),
+          ),
+          const SizedBox(width: 4),
+          Icon(
+            Icons.star,
+            size: 16,
+            color: Colors.orange,
+          ),
+          const SizedBox(width: 2),
+          Text(
+            googlePlaces!.rating!.toStringAsFixed(1),
+            style: AppTextStyles.bodyMedium.copyWith(
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+          if (googlePlaces.userRatingsTotal > 0) ...[
+            Text(
+              ' · 리뷰 ${googlePlaces.userRatingsTotal}개',
+              style: AppTextStyles.bodyMedium.copyWith(
+                color: AppDesignTokens.onSurfaceVariant,
               ),
+            ),
+          ],
+        ],
+        
+        // YouTube 언급수
+        if (youtubeStats != null) ...[
+          if (googlePlaces?.rating != null) 
+            Text(
+              ' · ',
+              style: AppTextStyles.bodyMedium.copyWith(
+                color: AppDesignTokens.onSurfaceVariant,
+              ),
+            ),
+          Icon(
+            Icons.play_circle_filled,
+            size: 16,
+            color: Colors.red,
+          ),
+          const SizedBox(width: 4),
+          Text(
+            '${youtubeStats.mentionCount}회',
+            style: AppTextStyles.bodyMedium.copyWith(
+              color: AppDesignTokens.onSurfaceVariant,
+            ),
+          ),
+        ],
+        
+        // 네이버 블로그 개수
+        if (naverBlog != null) ...[
+          if (googlePlaces?.rating != null || youtubeStats != null) 
+            Text(
+              ' · ',
+              style: AppTextStyles.bodyMedium.copyWith(
+                color: AppDesignTokens.onSurfaceVariant,
+              ),
+            ),
+          ClipRRect(
+            borderRadius: BorderRadius.circular(2),
+            child: Image.asset(
+              'assets/images/map_icons/naver_blog.png',
+              width: 16,
+              height: 16,
+              fit: BoxFit.cover,
+            ),
+          ),
+          const SizedBox(width: 4),
+          Text(
+            'Blog ${naverBlog.totalCount}회',
+            style: AppTextStyles.bodyMedium.copyWith(
+              color: AppDesignTokens.onSurfaceVariant,
+            ),
+          ),
+        ],
+      ],
+    );
+  }
+
+  // 사진 갤러리 (높이 200px)
+  Widget _buildPhotoGallery() {
+    // Google Places 사진들이 있으면 갤러리로 표시
+    if (widget.restaurant.googlePlaces?.photos.isNotEmpty == true) {
+      final photos = widget.restaurant.googlePlaces!.photos;
+      return Container(
+        height: 200,
+        child: _buildImageGalleryCompact(photos),
+      );
+    }
+    
+    // 기존 이미지URL
+    if (widget.restaurant.imageUrl != null) {
+      return Container(
+        height: 200,
+        decoration: BoxDecoration(
+          borderRadius: BorderRadius.circular(12),
+        ),
+        child: ClipRRect(
+          borderRadius: BorderRadius.circular(12),
+          child: Image.network(
+            widget.restaurant.imageUrl!,
+            fit: BoxFit.cover,
+            width: double.infinity,
+            errorBuilder: (context, error, stackTrace) => _buildPhotoPlaceholder(),
+          ),
+        ),
+      );
+    }
+    
+    return _buildPhotoPlaceholder();
+  }
+
+  Widget _buildImageGalleryCompact(List<String> photos) {
+    if (photos.length == 1) {
+      return ClipRRect(
+        borderRadius: BorderRadius.circular(12),
+        child: Image.network(
+          photos.first,
+          fit: BoxFit.cover,
+          width: double.infinity,
+          errorBuilder: (context, error, stackTrace) => _buildPhotoPlaceholder(),
+        ),
+      );
+    }
+
+    final screenWidth = MediaQuery.of(context).size.width - 32; // 양쪽 padding 16씩 제외
+    final photoWidth = screenWidth * 0.65;
+    
+    return Stack(
+      children: [
+        NotificationListener<ScrollNotification>(
+          onNotification: (ScrollNotification notification) {
+            if (notification is ScrollUpdateNotification) {
+              final scrollOffset = notification.metrics.pixels;
+              final itemWidth = photoWidth + 8; // width + margin
+              final newIndex = (scrollOffset / itemWidth).round().clamp(0, photos.length - 1);
               
-              if (widget.restaurant.googlePlaces?.phoneNumber != null) ...[
-                const SizedBox(height: 12),
-                Row(
-                  children: [
-                    const Icon(Icons.phone, color: Colors.blue, size: 20),
-                    const SizedBox(width: 8),
-                    Text(
-                      widget.restaurant.googlePlaces!.phoneNumber!,
-                      style: AppTextStyles.bodyMedium,
-                    ),
-                  ],
+              if (newIndex != _currentPhotoIndex) {
+                setState(() {
+                  _currentPhotoIndex = newIndex;
+                });
+              }
+            }
+            return false;
+          },
+          child: SingleChildScrollView(
+            scrollDirection: Axis.horizontal,
+            child: Row(
+            children: photos.asMap().entries.map((entry) {
+              final index = entry.key;
+              final photo = entry.value;
+              
+              return Container(
+                width: photoWidth,
+                height: 200,
+                margin: EdgeInsets.only(
+                  left: index == 0 ? 0 : 8,
+                  right: index == photos.length - 1 ? 0 : 8,
                 ),
-              ],
-              
-              if (widget.restaurant.googlePlaces?.isOpen != null) ...[
-                const SizedBox(height: 12),
-                Row(
-                  children: [
-                    Icon(
-                      Icons.access_time,
-                      color: widget.restaurant.googlePlaces!.isOpen! 
-                          ? Colors.green 
-                          : Colors.red,
-                      size: 20,
-                    ),
-                    const SizedBox(width: 8),
-                    Text(
-                      widget.restaurant.googlePlaces!.isOpen! ? '영업중' : '마감',
-                      style: AppTextStyles.bodyMedium.copyWith(
-                        color: widget.restaurant.googlePlaces!.isOpen! 
-                            ? Colors.green 
-                            : Colors.red,
-                        fontWeight: FontWeight.w500,
-                      ),
-                    ),
-                  ],
+                child: ClipRRect(
+                  borderRadius: BorderRadius.circular(12),
+                  child: Image.network(
+                    photo,
+                    fit: BoxFit.cover,
+                    errorBuilder: (context, error, stackTrace) => _buildPhotoPlaceholder(),
+                  ),
                 ),
-              ],
-              
-              // 상세 영업시간 표시
-              if (widget.restaurant.googlePlaces?.regularOpeningHours != null) ...[
-                const SizedBox(height: 16),
-                _buildDetailedOpeningHours(widget.restaurant.googlePlaces!.regularOpeningHours!),
-              ],
-            ],
+              );
+            }).toList(),
+            ),
+          ),
+        ),
+        // 페이지 인디케이터
+        Positioned(
+          bottom: 12,
+          right: 12,
+          child: Container(
+            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+            decoration: BoxDecoration(
+              color: Colors.black.withOpacity(0.7),
+              borderRadius: BorderRadius.circular(12),
+            ),
+            child: Text(
+              '${_currentPhotoIndex + 1}/${photos.length}',
+              style: const TextStyle(
+                color: Colors.white,
+                fontSize: 12,
+                fontWeight: FontWeight.w500,
+              ),
+            ),
           ),
         ),
       ],
     );
+  }
+
+  Widget _buildPhotoPlaceholder() {
+    return Container(
+      decoration: BoxDecoration(
+        color: AppDesignTokens.surfaceContainer,
+        borderRadius: BorderRadius.circular(12),
+      ),
+      child: Center(
+        child: Icon(
+          Icons.restaurant,
+          size: 48,
+          color: AppDesignTokens.onSurfaceVariant,
+        ),
+      ),
+    );
+  }
+
+  // 주소 + 바로가기 버튼들
+  Widget _buildAddressWithNavigation() {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        // 주소
+        Row(
+          children: [
+            Icon(
+              Icons.location_on,
+              size: 20,
+              color: AppDesignTokens.onSurfaceVariant,
+            ),
+            const SizedBox(width: 8),
+            Expanded(
+              child: Text(
+                widget.restaurant.address,
+                style: AppTextStyles.bodyMedium,
+              ),
+            ),
+          ],
+        ),
+        
+        const SizedBox(height: 8),
+        
+        // 바로가기 버튼들
+        Row(
+          children: [
+            // 구글맵 버튼
+            InkWell(
+              onTap: () => _openGoogleMap(),
+              borderRadius: BorderRadius.circular(16),
+              child: Container(
+                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                decoration: BoxDecoration(
+                  color: const Color(0xFF4285F4).withOpacity(0.08),
+                  borderRadius: BorderRadius.circular(16),
+                  border: Border.all(
+                    color: const Color(0xFF4285F4).withOpacity(0.3),
+                    width: 1,
+                  ),
+                ),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    ClipRRect(
+                      borderRadius: BorderRadius.circular(3),
+                      child: Image.asset(
+                        'assets/images/map_icons/google_maps.jpg',
+                        width: 16,
+                        height: 16,
+                        fit: BoxFit.cover,
+                      ),
+                    ),
+                    const SizedBox(width: 4),
+                    Text(
+                      '구글맵',
+                      style: AppTextStyles.bodySmall.copyWith(
+                        color: const Color(0xFF4285F4),
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+            
+            const SizedBox(width: 8),
+            
+            // 카카오맵 버튼
+            InkWell(
+              onTap: () => _openKakaoMap(),
+              borderRadius: BorderRadius.circular(16),
+              child: Container(
+                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                decoration: BoxDecoration(
+                  color: const Color(0xFFFFEB00).withOpacity(0.08),
+                  borderRadius: BorderRadius.circular(16),
+                  border: Border.all(
+                    color: const Color(0xFFFFEB00).withOpacity(0.4),
+                    width: 1,
+                  ),
+                ),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    ClipRRect(
+                      borderRadius: BorderRadius.circular(3),
+                      child: Image.asset(
+                        'assets/images/map_icons/kakao_map.jpg',
+                        width: 16,
+                        height: 16,
+                        fit: BoxFit.cover,
+                      ),
+                    ),
+                    const SizedBox(width: 4),
+                    Text(
+                      '카카오맵',
+                      style: AppTextStyles.bodySmall.copyWith(
+                        color: const Color(0xFFCD9F00),
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+            
+            const SizedBox(width: 8),
+            
+            // 네이버맵 버튼
+            InkWell(
+              onTap: () => _openNaverMap(),
+              borderRadius: BorderRadius.circular(16),
+              child: Container(
+                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                decoration: BoxDecoration(
+                  color: const Color(0xFF03C75A).withOpacity(0.08),
+                  borderRadius: BorderRadius.circular(16),
+                  border: Border.all(
+                    color: const Color(0xFF03C75A).withOpacity(0.3),
+                    width: 1,
+                  ),
+                ),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    ClipRRect(
+                      borderRadius: BorderRadius.circular(3),
+                      child: Image.asset(
+                        'assets/images/map_icons/naver_map.webp',
+                        width: 16,
+                        height: 16,
+                        fit: BoxFit.cover,
+                      ),
+                    ),
+                    const SizedBox(width: 4),
+                    Text(
+                      '네이버맵',
+                      style: AppTextStyles.bodySmall.copyWith(
+                        color: const Color(0xFF00A040),
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ],
+        ),
+      ],
+    );
+  }
+
+  // 영업시간 섹션
+  Widget _buildOpeningHoursSection() {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          '영업정보',
+          style: AppTextStyles.headlineMedium.copyWith(
+            fontWeight: FontWeight.w600,
+          ),
+        ),
+        
+        const SizedBox(height: 12),
+        
+        // 전화번호
+        if (widget.restaurant.googlePlaces?.phoneNumber != null) ...[
+          Row(
+            children: [
+              const Icon(Icons.phone, color: Colors.blue, size: 20),
+              const SizedBox(width: 8),
+              Text(
+                widget.restaurant.googlePlaces!.phoneNumber!,
+                style: AppTextStyles.bodyMedium,
+              ),
+            ],
+          ),
+          const SizedBox(height: 12),
+        ],
+        
+        // 간소화된 영업시간 표시
+        if (widget.restaurant.googlePlaces?.regularOpeningHours != null)
+          _buildSimpleOpeningHours(widget.restaurant.googlePlaces!.regularOpeningHours!),
+      ],
+    );
+  }
+
+  Widget _buildSimpleOpeningHours(Map<String, dynamic> regularOpeningHours) {
+    try {
+      final weekdayDescriptions = regularOpeningHours['weekdayDescriptions'] as List?;
+      
+      if (weekdayDescriptions == null || weekdayDescriptions.isEmpty) {
+        return const SizedBox.shrink();
+      }
+
+      return Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            '영업시간',
+            style: AppTextStyles.bodyMedium.copyWith(
+              fontWeight: FontWeight.w600,
+              color: AppDesignTokens.primary,
+            ),
+          ),
+          const SizedBox(height: 8),
+          ...weekdayDescriptions.take(7).map((description) {
+            final descText = description.toString();
+            final parts = descText.split(': ');
+            final dayName = parts.isNotEmpty ? parts[0] : '';
+            final hours = parts.length > 1 ? parts[1] : '정보 없음';
+            
+            final today = DateTime.now().weekday;
+            final dayIndex = _getDayIndex(dayName);
+            final isToday = dayIndex == today;
+            
+            return Padding(
+              padding: const EdgeInsets.symmetric(vertical: 2),
+              child: Row(
+                children: [
+                  SizedBox(
+                    width: 24,
+                    child: Text(
+                      dayName.substring(0, 1),
+                      style: AppTextStyles.bodyMedium.copyWith(
+                        fontWeight: isToday ? FontWeight.w600 : FontWeight.normal,
+                        color: isToday ? AppDesignTokens.primary : AppDesignTokens.onSurfaceVariant,
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      hours,
+                      style: AppTextStyles.bodyMedium.copyWith(
+                        fontWeight: isToday ? FontWeight.w600 : FontWeight.normal,
+                        color: isToday ? AppDesignTokens.primary : AppDesignTokens.onSurface,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            );
+          }).toList(),
+        ],
+      );
+    } catch (e) {
+      return const SizedBox.shrink();
+    }
   }
 
   Widget _buildDetailedOpeningHours(Map<String, dynamic> regularOpeningHours) {
@@ -1055,6 +923,16 @@ class _RestaurantDetailScreenState extends State<RestaurantDetailScreen> {
     }
   }
 
+  void _openGoogleMap() async {
+    final url = 'https://www.google.com/maps/search/?api=1&query=${Uri.encodeComponent(widget.restaurant.name)}&query_place_id=${widget.restaurant.googlePlaces?.placeId ?? ""}';
+    
+    try {
+      await launchUrl(Uri.parse(url), mode: LaunchMode.externalApplication);
+    } catch (e) {
+      // 에러 처리
+    }
+  }
+
   void _openNaverMap() async {
     final url = 'https://map.naver.com/v5/search/${Uri.encodeComponent(widget.restaurant.name)}?c=${widget.restaurant.longitude},${widget.restaurant.latitude},15,0,0,0,dh';
     
@@ -1062,6 +940,165 @@ class _RestaurantDetailScreenState extends State<RestaurantDetailScreen> {
       await launchUrl(Uri.parse(url), mode: LaunchMode.externalApplication);
     } catch (e) {
       // 에러 처리
+    }
+  }
+
+  // 특징 태그 (간소화된 버전)
+  Widget _buildFeatureTags() {
+    return Wrap(
+      spacing: 8,
+      runSpacing: 8,
+      children: widget.restaurant.featureTags!.map((tag) => 
+        Container(
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+          decoration: BoxDecoration(
+            color: AppDesignTokens.primary.withOpacity(0.1),
+            borderRadius: BorderRadius.circular(16),
+          ),
+          child: Text(
+            tag,
+            style: AppTextStyles.bodySmall.copyWith(
+              color: AppDesignTokens.primary,
+              fontWeight: FontWeight.w500,
+            ),
+          ),
+        )
+      ).toList(),
+    );
+  }
+  
+  // 네이버 블로그 섹션
+  Widget _buildNaverBlogSection() {
+    final naverBlog = widget.restaurant.naverBlog!;
+    
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          children: [
+            ClipRRect(
+              borderRadius: BorderRadius.circular(2),
+              child: Image.asset(
+                'assets/images/map_icons/naver_blog.png',
+                width: 20,
+                height: 20,
+                fit: BoxFit.cover,
+              ),
+            ),
+            const SizedBox(width: 8),
+            Text(
+              '네이버 블로그',
+              style: AppTextStyles.titleLarge.copyWith(
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+            const Spacer(),
+            Text(
+              '총 ${naverBlog.totalCount}개',
+              style: AppTextStyles.bodyMedium.copyWith(
+                color: AppDesignTokens.onSurfaceVariant,
+              ),
+            ),
+          ],
+        ),
+        
+        const SizedBox(height: 16),
+        
+        ...naverBlog.posts.map((post) => Container(
+          margin: const EdgeInsets.only(bottom: 12),
+          child: InkWell(
+            onTap: () => _openBlogPost(post.link),
+            borderRadius: BorderRadius.circular(12),
+            child: Container(
+              padding: const EdgeInsets.all(16),
+              decoration: BoxDecoration(
+                color: AppDesignTokens.surfaceContainer,
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(
+                  color: AppDesignTokens.outline.withOpacity(0.2),
+                ),
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    post.title,
+                    style: AppTextStyles.bodyMedium.copyWith(
+                      fontWeight: FontWeight.w600,
+                    ),
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                  
+                  const SizedBox(height: 8),
+                  
+                  Text(
+                    post.description,
+                    style: AppTextStyles.bodyMedium,
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                  
+                  const SizedBox(height: 12),
+                  
+                  Row(
+                    children: [
+                      Icon(
+                        Icons.person_outline,
+                        size: 16,
+                        color: AppDesignTokens.onSurfaceVariant,
+                      ),
+                      const SizedBox(width: 4),
+                      Text(
+                        post.bloggerName,
+                        style: AppTextStyles.bodySmall.copyWith(
+                          color: AppDesignTokens.onSurfaceVariant,
+                        ),
+                      ),
+                      const Spacer(),
+                      Icon(
+                        Icons.calendar_today_outlined,
+                        size: 16,
+                        color: AppDesignTokens.onSurfaceVariant,
+                      ),
+                      const SizedBox(width: 4),
+                      Text(
+                        _formatBlogDate(post.postDate),
+                        style: AppTextStyles.bodySmall.copyWith(
+                          color: AppDesignTokens.onSurfaceVariant,
+                        ),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+          ),
+        )).toList(),
+      ],
+    );
+  }
+  
+  void _openBlogPost(String url) async {
+    try {
+      await launchUrl(Uri.parse(url), mode: LaunchMode.externalApplication);
+    } catch (e) {
+      // 에러 처리
+    }
+  }
+  
+  String _formatBlogDate(String dateString) {
+    try {
+      // 네이버 블로그 날짜 형식: YYYYMMDD
+      if (dateString.length == 8) {
+        final year = dateString.substring(0, 4);
+        final month = dateString.substring(4, 6);
+        final day = dateString.substring(6, 8);
+        return '$year.$month.$day';
+      }
+      return dateString;
+    } catch (e) {
+      return dateString;
     }
   }
 }

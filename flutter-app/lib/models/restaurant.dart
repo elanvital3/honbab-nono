@@ -16,13 +16,21 @@ class YoutubeStats {
     this.representativeVideo,
   });
 
+  static int _parseIntFromDynamic(dynamic value) {
+    if (value == null) return 0;
+    if (value is int) return value;
+    if (value is String) return int.tryParse(value) ?? 0;
+    if (value is num) return value.toInt();
+    return 0;
+  }
+
   factory YoutubeStats.fromMap(Map<String, dynamic> data) {
     return YoutubeStats(
-      mentionCount: data['mentionCount'] as int? ?? 0,
+      mentionCount: _parseIntFromDynamic(data['mentionCount']),
       channels: List<String>.from(data['channels'] as List? ?? []),
       firstMentionDate: data['firstMentionDate'] as String?,
       lastMentionDate: data['lastMentionDate'] as String?,
-      recentMentions: data['recentMentions'] as int? ?? 0,
+      recentMentions: _parseIntFromDynamic(data['recentMentions']),
       representativeVideo: data['representativeVideo'] != null
           ? RepresentativeVideo.fromMap(data['representativeVideo'] as Map<String, dynamic>)
           : null,
@@ -59,12 +67,20 @@ class RepresentativeVideo {
     this.thumbnailUrl,
   });
 
+  static int _parseIntFromDynamic(dynamic value) {
+    if (value == null) return 0;
+    if (value is int) return value;
+    if (value is String) return int.tryParse(value) ?? 0;
+    if (value is num) return value.toInt();
+    return 0;
+  }
+
   factory RepresentativeVideo.fromMap(Map<String, dynamic> data) {
     return RepresentativeVideo(
       title: data['title'] as String? ?? '',
       channelName: data['channelName'] as String? ?? '',
       videoId: data['videoId'] as String? ?? '',
-      viewCount: data['viewCount'] as int? ?? 0,
+      viewCount: _parseIntFromDynamic(data['viewCount']),
       publishedAt: data['publishedAt'] as String? ?? '',
       thumbnailUrl: data['thumbnailUrl'] as String?,
     );
@@ -78,6 +94,80 @@ class RepresentativeVideo {
       'viewCount': viewCount,
       'publishedAt': publishedAt,
       'thumbnailUrl': thumbnailUrl,
+    };
+  }
+}
+
+// 네이버 블로그 포스트 정보
+class NaverBlogPost {
+  final String title;
+  final String description;
+  final String link;
+  final String bloggerName;
+  final String bloggerLink;
+  final String postDate;
+
+  NaverBlogPost({
+    required this.title,
+    required this.description,
+    required this.link,
+    required this.bloggerName,
+    required this.bloggerLink,
+    required this.postDate,
+  });
+
+  factory NaverBlogPost.fromMap(Map<String, dynamic> data) {
+    return NaverBlogPost(
+      title: (data['title'] as String? ?? '').replaceAll(RegExp(r'<[^>]*>'), ''),
+      description: (data['description'] as String? ?? '').replaceAll(RegExp(r'<[^>]*>'), ''),
+      link: data['link'] as String? ?? '',
+      bloggerName: data['bloggername'] as String? ?? '',
+      bloggerLink: data['bloggerlink'] as String? ?? '',
+      postDate: data['postdate'] as String? ?? '',
+    );
+  }
+
+  Map<String, dynamic> toMap() {
+    return {
+      'title': title,
+      'description': description,
+      'link': link,
+      'bloggername': bloggerName,
+      'bloggerlink': bloggerLink,
+      'postdate': postDate,
+    };
+  }
+}
+
+// 네이버 블로그 데이터 정보
+class NaverBlogData {
+  final int totalCount;
+  final List<NaverBlogPost> posts;
+  final DateTime? updatedAt;
+
+  NaverBlogData({
+    required this.totalCount,
+    required this.posts,
+    this.updatedAt,
+  });
+
+  factory NaverBlogData.fromMap(Map<String, dynamic> data) {
+    return NaverBlogData(
+      totalCount: data['totalCount'] as int? ?? 0,
+      posts: (data['posts'] as List? ?? [])
+          .map((post) => NaverBlogPost.fromMap(post as Map<String, dynamic>))
+          .toList(),
+      updatedAt: data['updatedAt'] != null 
+          ? (data['updatedAt'] as dynamic).toDate() as DateTime?
+          : null,
+    );
+  }
+
+  Map<String, dynamic> toMap() {
+    return {
+      'totalCount': totalCount,
+      'posts': posts.map((post) => post.toMap()).toList(),
+      'updatedAt': updatedAt,
     };
   }
 }
@@ -108,16 +198,24 @@ class GooglePlacesData {
     this.updatedAt,
   });
 
+  static int? _parseIntFromDynamic(dynamic value) {
+    if (value == null) return null;
+    if (value is int) return value;
+    if (value is String) return int.tryParse(value);
+    if (value is num) return value.toInt();
+    return null;
+  }
+
   factory GooglePlacesData.fromMap(Map<String, dynamic> data) {
     return GooglePlacesData(
       placeId: data['placeId'] as String?,
       rating: (data['rating'] as num?)?.toDouble(),
-      userRatingsTotal: data['userRatingsTotal'] as int? ?? 0,
+      userRatingsTotal: _parseIntFromDynamic(data['userRatingsTotal']) ?? 0,
       reviews: (data['reviews'] as List? ?? [])
           .map((review) => GoogleReview.fromMap(review as Map<String, dynamic>))
           .toList(),
       photos: List<String>.from(data['photos'] as List? ?? []),
-      priceLevel: data['priceLevel'] as int?,
+      priceLevel: _parseIntFromDynamic(data['priceLevel']),
       isOpen: data['isOpen'] as bool?,
       phoneNumber: data['phoneNumber'] as String?,
       regularOpeningHours: data['regularOpeningHours'] as Map<String, dynamic>?,
@@ -162,9 +260,9 @@ class GoogleReview {
   factory GoogleReview.fromMap(Map<String, dynamic> data) {
     return GoogleReview(
       authorName: data['author_name'] as String? ?? '',
-      rating: data['rating'] as int? ?? 5,
+      rating: GooglePlacesData._parseIntFromDynamic(data['rating']) ?? 5,
       text: data['text'] as String? ?? '',
-      time: data['time'] as int? ?? 0,
+      time: GooglePlacesData._parseIntFromDynamic(data['time']) ?? 0,
       profilePhotoUrl: data['profile_photo_url'] as String?,
     );
   }
@@ -181,20 +279,52 @@ class GoogleReview {
 
   // 리뷰 날짜 포맷팅
   String get formattedDate {
-    final date = DateTime.fromMillisecondsSinceEpoch(time * 1000);
-    final now = DateTime.now();
-    final difference = now.difference(date);
+    try {
+      // time이 0이면 기본값 반환
+      if (time == 0) {
+        return '날짜 불명';
+      }
+      
+      DateTime date;
+      
+      // Google Places API time 필드 처리
+      // 먼저 초 단위로 시도 (일반적인 Unix timestamp)
+      date = DateTime.fromMillisecondsSinceEpoch(time * 1000);
+      
+      // 결과가 이상하면 밀리초 단위로 시도
+      final now = DateTime.now();
+      if (date.year < 2000 || date.year > now.year + 1) {
+        date = DateTime.fromMillisecondsSinceEpoch(time);
+      }
+      
+      // 여전히 이상하면 기본값 반환
+      if (date.year < 2000 || date.year > now.year + 1) {
+        return '날짜 불명';
+      }
+      
+      final difference = now.difference(date);
 
-    if (difference.inDays < 1) {
-      return '오늘';
-    } else if (difference.inDays < 7) {
-      return '${difference.inDays}일 전';
-    } else if (difference.inDays < 30) {
-      return '${difference.inDays ~/ 7}주 전';
-    } else if (difference.inDays < 365) {
-      return '${difference.inDays ~/ 30}개월 전';
-    } else {
-      return '${difference.inDays ~/ 365}년 전';
+      // 미래 날짜면 '최근'으로 처리
+      if (difference.isNegative) {
+        return '최근';
+      }
+
+      // 날짜별 포맷팅
+      if (difference.inDays < 1) {
+        return '오늘';
+      } else if (difference.inDays < 7) {
+        return '${difference.inDays}일 전';
+      } else if (difference.inDays < 30) {
+        return '${difference.inDays ~/ 7}주 전';
+      } else if (difference.inDays < 365) {
+        return '${difference.inDays ~/ 30}개월 전';
+      } else {
+        final years = difference.inDays ~/ 365;
+        return '${years}년 전';
+      }
+    } catch (e) {
+      print('⚠️ 리뷰 날짜 파싱 오류: $e, time: $time');
+      return '날짜 불명';
     }
   }
 }
@@ -213,12 +343,20 @@ class TrendScore {
     required this.recentMentions,
   });
 
+  static int _parseIntFromDynamic(dynamic value) {
+    if (value == null) return 0;
+    if (value is int) return value;
+    if (value is String) return int.tryParse(value) ?? 0;
+    if (value is num) return value.toInt();
+    return 0;
+  }
+
   factory TrendScore.fromMap(Map<String, dynamic> data) {
     return TrendScore(
-      hotness: data['hotness'] as int? ?? 0,
-      consistency: data['consistency'] as int? ?? 0,
+      hotness: _parseIntFromDynamic(data['hotness']),
+      consistency: _parseIntFromDynamic(data['consistency']),
       isRising: data['isRising'] as bool? ?? false,
-      recentMentions: data['recentMentions'] as int? ?? 0,
+      recentMentions: _parseIntFromDynamic(data['recentMentions']),
     );
   }
 
@@ -257,6 +395,9 @@ class Restaurant {
   // Google Places 데이터 필드들
   final GooglePlacesData? googlePlaces;
   
+  // 네이버 블로그 데이터 필드들
+  final NaverBlogData? naverBlog;
+  
   // 표시용 거리 문자열 (동적 계산 결과 저장)
   String displayDistance = '';
 
@@ -280,6 +421,7 @@ class Restaurant {
     this.featureTags,
     this.trendScore,
     this.googlePlaces,
+    this.naverBlog,
   });
 
   factory Restaurant.fromJson(Map<String, dynamic> json) {
@@ -370,6 +512,9 @@ class Restaurant {
       googlePlaces: data['googlePlaces'] != null 
           ? GooglePlacesData.fromMap(data['googlePlaces'] as Map<String, dynamic>)
           : null,
+      naverBlog: data['naverBlog'] != null 
+          ? NaverBlogData.fromMap(data['naverBlog'] as Map<String, dynamic>)
+          : null,
     );
   }
 
@@ -394,6 +539,7 @@ class Restaurant {
       'featureTags': featureTags,
       'trendScore': trendScore?.toMap(),
       'googlePlaces': googlePlaces?.toMap(),
+      'naverBlog': naverBlog?.toMap(),
     };
   }
 }

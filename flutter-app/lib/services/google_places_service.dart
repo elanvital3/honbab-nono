@@ -147,12 +147,50 @@ class GooglePlacesService {
         }
       }
 
+      // 리뷰 데이터 파싱
+      final reviewsList = <GoogleReview>[];
+      final reviews = place['reviews'] as List? ?? [];
+      
+      print('🔍 리뷰 데이터 확인: ${reviews.length}개 리뷰 받음');
+      
+      for (int i = 0; i < reviews.length && i < 5; i++) { // 최대 5개 리뷰만
+        try {
+          final reviewData = reviews[i] as Map<String, dynamic>;
+          print('🔍 리뷰 $i 원본 데이터: $reviewData');
+          
+          final review = GoogleReview.fromMap(reviewData);
+          final textPreview = review.text.isNotEmpty 
+              ? (review.text.length > 50 ? '${review.text.substring(0, 50)}...' : review.text)
+              : '(텍스트 없음)';
+          print('🔍 파싱된 리뷰: time=${review.time}, author=${review.authorName}, text=$textPreview');
+          
+          // formattedDate 테스트
+          try {
+            final formattedDate = review.formattedDate;
+            print('🔍 포맷된 날짜: $formattedDate');
+          } catch (e) {
+            print('❌ 날짜 포맷팅 오류: $e');
+          }
+          
+          // 모든 리뷰를 추가 (필터링 없음)
+          reviewsList.add(review);
+          print('✅ 리뷰 추가 완료');
+        } catch (e) {
+          print('❌ 리뷰 파싱 오류: $e');
+        }
+      }
+      
+      print('🔍 최종 추가된 리뷰 수: ${reviewsList.length}');
+      if (reviewsList.isNotEmpty) {
+        print('🔍 첫 번째 리뷰 미리보기: ${reviewsList.first.authorName} - ${reviewsList.first.formattedDate}');
+      }
+
       // Google Places 데이터 객체 생성
       final googlePlacesData = GooglePlacesData(
         placeId: place['id'] as String?,
         rating: rating,
         userRatingsTotal: userRatingCount,
-        reviews: [], // 리뷰는 별도 API 호출 필요
+        reviews: reviewsList,
         photos: photoUrls,
         priceLevel: place['priceLevel'] as int?,
         isOpen: place['currentOpeningHours']?['openNow'] as bool?,

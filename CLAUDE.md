@@ -909,3 +909,99 @@ honbab-nono/
 
 ## 🎯 **다음 단계: 마케팅 실행**
 이제 개발과 문서화가 완료되었으니, `docs/MARKETING_STRATEGY.md`의 **1개월차 즉시 실행 항목**부터 시작하여 실제 사용자 확대를 추진할 차례입니다!
+
+## 🍽️ **맛집 데이터 수집 및 관리 시스템** (2025-01-18 추가)
+
+### 📊 **현재 맛집 데이터 수집 방식**
+
+#### 1. **기본 데이터 소스**
+- **카카오 로컬 API**: 실시간 식당 검색 (모임 생성 시)
+  - 식당명, 주소, 좌표, 카테고리, 전화번호, 카카오맵 URL
+  - 거리 정보 (사용자 위치 기반)
+  - 실시간 API 호출로 항상 최신 정보
+
+#### 2. **추가 데이터 보강 API들**
+- **YouTube Data API v3**: 맛집 유튜버 콘텐츠 수집
+  - 유튜브 언급 횟수, 채널 정보
+  - 대표 영상 정보 (조회수, 썸네일 등)
+  - `youtubeStats` 필드에 저장
+  
+- **Google Places API**: 리뷰 및 평점 정보
+  - Google 평점, 리뷰 개수, 리뷰 내용
+  - 다중 사진 (최대 10장)
+  - 영업시간 상세 정보 (regularOpeningHours)
+  - 전화번호 및 가격대 정보
+  - `googlePlaces` 필드에 저장
+
+- **네이버 블로그 API**: 블로그 리뷰 수집
+  - 블로그 포스트 총 개수
+  - 최신 3개 포스트 (제목, 내용, 링크, 작성자)
+  - `naverBlog` 필드에 저장
+
+#### 3. **Firestore 식당 컬렉션 구조**
+```javascript
+restaurants/{restaurantId}: {
+  // 기본 정보 (카카오 API)
+  id: string,
+  name: string,
+  address: string,
+  latitude: number,
+  longitude: number,
+  category: string,
+  phone: string?,
+  url: string?,
+  city: string,
+  province: string,
+  
+  // YouTube 데이터
+  youtubeStats: {
+    mentionCount: number,
+    channels: string[],
+    recentMentions: number,
+    representativeVideo: {...}
+  },
+  
+  // Google Places 데이터
+  googlePlaces: {
+    placeId: string,
+    rating: number,
+    userRatingsTotal: number,
+    reviews: GoogleReview[],
+    photos: string[],
+    regularOpeningHours: {...}
+  },
+  
+  // 네이버 블로그 데이터
+  naverBlog: {
+    totalCount: number,
+    posts: NaverBlogPost[],
+    updatedAt: DateTime
+  },
+  
+  // 메타 정보
+  isActive: boolean,
+  updatedAt: Timestamp
+}
+```
+
+#### 4. **데이터 수집 프로세스**
+1. **모임 생성 시**: 카카오 API로 실시간 검색 (DB 저장 없음)
+2. **식당 상세 조회 시**: DB에서 추가 정보 로드
+3. **배치 업데이트**: 관리자 기능으로 전체 식당 데이터 보강
+   - YouTube 정보 추가
+   - Google Places 정보 추가
+   - 네이버 블로그 정보 추가
+
+#### 5. **현재 구현 완료 기능**
+- ✅ 카카오 API 실시간 식당 검색
+- ✅ YouTube 맛집 데이터 수집 시스템
+- ✅ Google Places 상세 정보 통합
+- ✅ 네이버 블로그 리뷰 수집
+- ✅ 식당 상세 화면에 모든 정보 표시
+- ✅ 관리자용 배치 업데이트 기능
+
+#### 6. **Phase 3 계획 중인 기능**
+- 자체 사용자 평점 시스템 (카카오/네이버는 평점 미제공)
+- 맛집 리스트 큐레이션 화면
+- AI 기반 맛집 추천 시스템
+- 사용자 리뷰 작성 기능
