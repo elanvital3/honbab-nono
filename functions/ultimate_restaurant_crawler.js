@@ -14,6 +14,8 @@
 
 const axios = require('axios');
 const admin = require('firebase-admin');
+const fs = require('fs');
+const path = require('path');
 
 // 환경변수 로드
 require('dotenv').config({ path: '../flutter-app/.env' });
@@ -64,8 +66,11 @@ class UltimateRestaurantCrawler {
       throw new Error('필수 API 키가 누락되었습니다. .env 파일을 확인하세요.');
     }
     
-    console.log(`🔑 YouTube API 키 ${this.youtubeApiKeys.length}개 로드됨`);
-    console.log(`🔑 Google Places API 키 ${this.googleApiKeys.length}개 로드됨`);
+    // 로깅 시스템 초기화
+    this.initializeLogging();
+    
+    this.log(`🔑 YouTube API 키 ${this.youtubeApiKeys.length}개 로드됨`);
+    this.log(`🔑 Google Places API 키 ${this.googleApiKeys.length}개 로드됨`);
     
     this.now = new Date();
     this.stats = {
@@ -82,6 +87,82 @@ class UltimateRestaurantCrawler {
   }
 
   // =============================================================================
+  // 📝 로깅 시스템
+  // =============================================================================
+
+  /**
+   * 로깅 시스템 초기화
+   */
+  initializeLogging() {
+    const now = new Date();
+    const dateStr = now.toISOString().split('T')[0]; // YYYY-MM-DD
+    const timeStr = now.toTimeString().split(' ')[0].replace(/:/g, '-'); // HH-MM-SS
+    
+    this.logFileName = `crawler_${dateStr}_${timeStr}.log`;
+    this.logFilePath = path.join(__dirname, 'logs', this.logFileName);
+    
+    // logs 디렉토리 생성
+    const logsDir = path.dirname(this.logFilePath);
+    if (!fs.existsSync(logsDir)) {
+      fs.mkdirSync(logsDir, { recursive: true });
+    }
+    
+    // 로그 파일 생성 및 헤더 작성
+    const header = `[${now.toISOString()}] 🍽️ Ultimate Restaurant Crawler 시작\n` +
+                  `로그 파일: ${this.logFileName}\n` +
+                  `===========================================\n\n`;
+    
+    fs.writeFileSync(this.logFilePath, header, 'utf8');
+    console.log(`📝 로그 파일 생성: ${this.logFilePath}`);
+  }
+
+  /**
+   * 통합 로깅 함수 (콘솔 + 파일)
+   */
+  log(message, level = 'INFO') {
+    const timestamp = new Date().toISOString();
+    const logLine = `[${timestamp}] [${level}] ${message}\n`;
+    
+    // 콘솔 출력
+    console.log(message);
+    
+    // 파일 저장
+    try {
+      fs.appendFileSync(this.logFilePath, logLine, 'utf8');
+    } catch (error) {
+      console.error('로그 파일 쓰기 실패:', error);
+    }
+  }
+
+  /**
+   * 에러 로깅
+   */
+  logError(message, error = null) {
+    let errorMessage = message;
+    if (error) {
+      errorMessage += ` - ${error.message}`;
+      if (error.stack) {
+        errorMessage += `\n스택 트레이스: ${error.stack}`;
+      }
+    }
+    this.log(errorMessage, 'ERROR');
+  }
+
+  /**
+   * 성공 로깅
+   */
+  logSuccess(message) {
+    this.log(message, 'SUCCESS');
+  }
+
+  /**
+   * 워닝 로깅
+   */
+  logWarning(message) {
+    this.log(message, 'WARNING');
+  }
+
+  // =============================================================================
   // 🔑 API 키 로테이션 시스템
   // =============================================================================
 
@@ -90,14 +171,14 @@ class UltimateRestaurantCrawler {
    */
   rotateYoutubeApiKey() {
     if (this.youtubeApiKeys.length <= 1) {
-      console.log('❌ 더 이상 사용할 YouTube API 키가 없습니다.');
+      this.logError('❌ 더 이상 사용할 YouTube API 키가 없습니다.');
       return false;
     }
     
     this.currentYoutubeKeyIndex = (this.currentYoutubeKeyIndex + 1) % this.youtubeApiKeys.length;
     this.youtubeApiKey = this.youtubeApiKeys[this.currentYoutubeKeyIndex];
     
-    console.log(`🔄 YouTube API 키 교체: ${this.currentYoutubeKeyIndex + 1}/${this.youtubeApiKeys.length}`);
+    this.logWarning(`🔄 YouTube API 키 교체: ${this.currentYoutubeKeyIndex + 1}/${this.youtubeApiKeys.length}`);
     return true;
   }
 
@@ -106,14 +187,14 @@ class UltimateRestaurantCrawler {
    */
   rotateGoogleApiKey() {
     if (this.googleApiKeys.length <= 1) {
-      console.log('❌ 더 이상 사용할 Google Places API 키가 없습니다.');
+      this.logError('❌ 더 이상 사용할 Google Places API 키가 없습니다.');
       return false;
     }
     
     this.currentGoogleKeyIndex = (this.currentGoogleKeyIndex + 1) % this.googleApiKeys.length;
     this.googleApiKey = this.googleApiKeys[this.currentGoogleKeyIndex];
     
-    console.log(`🔄 Google Places API 키 교체: ${this.currentGoogleKeyIndex + 1}/${this.googleApiKeys.length}`);
+    this.logWarning(`🔄 Google Places API 키 교체: ${this.currentGoogleKeyIndex + 1}/${this.googleApiKeys.length}`);
     return true;
   }
 
@@ -237,7 +318,8 @@ class UltimateRestaurantCrawler {
    * 현재 타겟 지역 설정
    */
   getTargetRegions() {
-    return ['제주도', '서울', '부산']; // 업데이트된 3개 지역
+    return ['제주도']; // 테스트용 제주도만
+    // return ['제주도', '서울', '부산']; // 전체 지역 (주석 처리)
   }
 
   /**
@@ -1510,24 +1592,24 @@ class UltimateRestaurantCrawler {
    * 전체 크롤링 프로세스 실행
    */
   async run() {
-    console.log('🍽️ Ultimate Restaurant Crawler 시작!');
-    console.log('='.repeat(50));
+    this.log('🍽️ Ultimate Restaurant Crawler 시작!');
+    this.log('='.repeat(50));
 
     const targetRegions = this.getTargetRegions();
     const searchQueries = this.getEnhancedSearchQueries();
 
     for (const region of targetRegions) {
-      console.log(`\n📍 ${region} 지역 크롤링 시작`);
-      console.log('='.repeat(50));
+      this.log(`\n📍 ${region} 지역 크롤링 시작`);
+      this.log('='.repeat(50));
       
       const queries = searchQueries[region] || [];
       const allRestaurantNames = new Set();
 
       // 1단계: YouTube에서 맛집명 수집
-      console.log(`\n🎥 1단계: YouTube 맛집 크롤링`);
-      console.log(`   검색 키워드 수: ${queries.length}개`);
-      console.log(`   키워드당 최대 영상: ${50}개`);
-      console.log(`   예상 최대 영상 수: ${queries.length * 50}개 (중복 제거 전)\n`);
+      this.log(`\n🎥 1단계: YouTube 맛집 크롤링`);
+      this.log(`   검색 키워드 수: ${queries.length}개`);
+      this.log(`   키워드당 최대 영상: ${50}개`);
+      this.log(`   예상 최대 영상 수: ${queries.length * 50}개 (중복 제거 전)\n`);
       
       // 중복 영상 제거를 위한 Map 사용 (videoId 기준)
       const videoMap = new Map();
@@ -1803,21 +1885,21 @@ class UltimateRestaurantCrawler {
    * 최종 통계 출력
    */
   printFinalStats() {
-    console.log('\n' + '='.repeat(50));
-    console.log('🎉 통합 크롤링 완료! 최종 통계:');
-    console.log('='.repeat(50));
-    console.log(`📺 YouTube 영상 수집: ${this.stats.youtubeVideos}개`);
-    console.log(`🎥 YouTube 식당명 추출: ${this.stats.extractedRestaurants}개`);
-    console.log(`🔍 Google Places 식당명 수집: ${this.stats.googlePlacesRestaurants}개`);
-    console.log(`🔄 통합 후 총 식당명: ${this.stats.mergedRestaurants}개`);
-    console.log(`🗺️ 카카오 매칭 성공: ${this.stats.kakaoMatched}개`);
-    console.log(`📊 Google Places 상세 정보 보강: ${this.stats.googleEnhanced}개`);
-    console.log(`📝 네이버 블로그 추가: ${this.stats.naverBlogAdded}개`);
-    console.log(`💾 Firestore 저장: ${this.stats.saved}개`);
-    console.log(`❌ 에러 발생: ${this.stats.errors}개`);
-    console.log('='.repeat(50));
-    console.log(`📈 향상된 발견율: ${Math.round((this.stats.mergedRestaurants / this.stats.extractedRestaurants) * 100)}% (기존 대비 ${this.stats.googlePlacesRestaurants}개 추가)`);
-    console.log('='.repeat(50));
+    this.log('\n' + '='.repeat(50));
+    this.logSuccess('🎉 통합 크롤링 완료! 최종 통계:');
+    this.log('='.repeat(50));
+    this.log(`📺 YouTube 영상 수집: ${this.stats.youtubeVideos}개`);
+    this.log(`🎥 YouTube 식당명 추출: ${this.stats.extractedRestaurants}개`);
+    this.log(`🔍 Google Places 식당명 수집: ${this.stats.googlePlacesRestaurants}개`);
+    this.log(`🔄 통합 후 총 식당명: ${this.stats.mergedRestaurants}개`);
+    this.log(`🗺️ 카카오 매칭 성공: ${this.stats.kakaoMatched}개`);
+    this.log(`📊 Google Places 상세 정보 보강: ${this.stats.googleEnhanced}개`);
+    this.log(`📝 네이버 블로그 추가: ${this.stats.naverBlogAdded}개`);
+    this.log(`💾 Firestore 저장: ${this.stats.saved}개`);
+    this.log(`❌ 에러 발생: ${this.stats.errors}개`);
+    this.log('='.repeat(50));
+    this.log(`📈 향상된 발견율: ${Math.round((this.stats.mergedRestaurants / this.stats.extractedRestaurants) * 100)}% (기존 대비 ${this.stats.googlePlacesRestaurants}개 추가)`);
+    this.log('='.repeat(50));
   }
 }
 
@@ -1829,8 +1911,12 @@ async function main() {
   try {
     const crawler = new UltimateRestaurantCrawler();
     await crawler.run();
+    crawler.logSuccess('✅ 크롤링 프로세스 정상 완료');
   } catch (error) {
     console.error('❌ 크롤링 중 치명적 오류:', error);
+    if (error.stack) {
+      console.error('스택 트레이스:', error.stack);
+    }
     process.exit(1);
   }
 }
