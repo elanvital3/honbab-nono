@@ -16,57 +16,70 @@ class _RestaurantListScreenState extends State<RestaurantListScreen> {
   // 현재 선택된 지역 인덱스
   int _currentRegionIndex = 0;
   
-  // 지역별 맛집 데이터
+  // 무한 스크롤 관련 변수들
   List<Restaurant> _restaurants = [];
+  List<Restaurant> _remainingRestaurants = []; // 🔥 남은 데이터 저장
   bool _isLoading = true;
+  bool _isLoadingMore = false;
+  bool _hasMore = true;
+  final ScrollController _scrollController = ScrollController();
   final Map<String, bool> _favoriteStatus = {};
   
   // 정렬 옵션
-  String _sortOption = 'rating'; // 기본값: 평점순
+  String _sortOption = 'default'; // 기본값: 추천순
   
   // 서브 지역 필터
   String _selectedSubRegion = '전체';
   
-  // 지역별 서브 지역 매핑
+  // 지역별 서브 지역 매핑 (관광지 인기순)
   final Map<String, List<String>> subRegions = {
     '제주도': ['전체', '제주시', '서귀포시'],
-    '서울': ['전체', '강남구', '홍대', '명동', '이태원'],
-    '부산': ['전체', '해운대구', '서면', '광안리'],
-    '경주': ['전체', '불국사', '첨성대'],
+    '서울': ['전체', '홍대', '강남', '명동', '이태원', '인사동', '동대문'],
+    '부산': ['전체', '해운대', '서면', '광안리', '남포동', '송정', '기장'],
   };
   
   final List<Map<String, dynamic>> regions = [
     {
       'name': '제주도', 
       'emoji': '🏝️',
-      'subtitle': '제주시 · 서귀포',
+      'subtitle': '제주시 · 서귀포시',
       'imagePath': 'assets/images/regions/jeju.jpg',
     },
     {
       'name': '서울', 
       'emoji': '🗼',
-      'subtitle': '강남 · 홍대 · 명동 · 이태원',
+      'subtitle': '홍대 · 강남 · 명동 · 이태원',
       'imagePath': 'assets/images/regions/seoul.jpg',
     },
     {
       'name': '부산', 
       'emoji': '🌊',
-      'subtitle': '해운대 · 서면 · 광안리',
+      'subtitle': '해운대 · 서면 · 광안리 · 남포동',
       'imagePath': 'assets/images/regions/busan.webp',
-    },
-    {
-      'name': '경주', 
-      'emoji': '🏯',
-      'subtitle': '불국사 · 첨성대 주변',
-      'imagePath': 'assets/images/regions/gyeongju.jpg',
     },
   ];
 
   @override
   void initState() {
     super.initState();
+    // 스크롤 리스너 추가
+    _scrollController.addListener(_onScroll);
     // 첫 번째 지역(제주도) 데이터 로드
     _loadRegionData();
+  }
+
+  @override
+  void dispose() {
+    _scrollController.dispose();
+    super.dispose();
+  }
+
+  // 스크롤 이벤트 핸들러
+  void _onScroll() {
+    if (_scrollController.position.pixels >= _scrollController.position.maxScrollExtent - 200) {
+      // 바닥에서 200px 전에 더 로드
+      _loadMoreRestaurants();
+    }
   }
   
   // 현재 선택된 지역 가져오기
@@ -77,6 +90,7 @@ class _RestaurantListScreenState extends State<RestaurantListScreen> {
     setState(() {
       _currentRegionIndex = (_currentRegionIndex - 1 + regions.length) % regions.length;
       _selectedSubRegion = '전체'; // 지역 변경 시 서브 지역 초기화
+      _resetPagination(); // 페이지네이션 상태 초기화
     });
     _loadRegionData();
   }
@@ -86,8 +100,17 @@ class _RestaurantListScreenState extends State<RestaurantListScreen> {
     setState(() {
       _currentRegionIndex = (_currentRegionIndex + 1) % regions.length;
       _selectedSubRegion = '전체'; // 지역 변경 시 서브 지역 초기화
+      _resetPagination(); // 페이지네이션 상태 초기화
     });
     _loadRegionData();
+  }
+
+  // 페이지네이션 상태 초기화
+  void _resetPagination() {
+    _restaurants.clear();
+    _remainingRestaurants.clear(); // 🔥 남은 데이터도 초기화
+    _hasMore = true;
+    _isLoadingMore = false;
   }
 
   @override
@@ -116,8 +139,8 @@ class _RestaurantListScreenState extends State<RestaurantListScreen> {
   // 지역 배너 with 좌우 버튼
   Widget _buildRegionBanner() {
     return Container(
-      height: 120,
-      margin: const EdgeInsets.all(16),
+      height: 108,
+      margin: const EdgeInsets.fromLTRB(16, 12, 16, 8),
       child: Stack(
         children: [
           // 배경 배너
@@ -260,7 +283,7 @@ class _RestaurantListScreenState extends State<RestaurantListScreen> {
     final currentSubRegions = subRegions[currentRegion['name']] ?? ['전체'];
     
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
       decoration: BoxDecoration(
         color: AppDesignTokens.surface,
         border: Border(
@@ -269,55 +292,55 @@ class _RestaurantListScreenState extends State<RestaurantListScreen> {
           ),
         ),
       ),
-      child: Row(
-        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-        crossAxisAlignment: CrossAxisAlignment.center,
+      child: Column(
         children: [
-          // 왼쪽: 지역 필터 칩들
-          Expanded(
+          // 상단: 지역 필터 칩들 (왼쪽 정렬)
+          Align(
+            alignment: Alignment.centerLeft,
             child: SingleChildScrollView(
               scrollDirection: Axis.horizontal,
               child: Row(
                 children: currentSubRegions.map((subRegion) {
-                  final isSelected = _selectedSubRegion == subRegion;
-                  return Padding(
-                    padding: const EdgeInsets.only(right: 8),
-                    child: GestureDetector(
-                      onTap: () {
-                        setState(() {
-                          _selectedSubRegion = subRegion;
-                        });
-                        _loadRegionData(forceRefresh: true);
-                      },
-                      child: Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-                        decoration: BoxDecoration(
+                final isSelected = _selectedSubRegion == subRegion;
+                return Padding(
+                  padding: const EdgeInsets.only(right: 8),
+                  child: GestureDetector(
+                    onTap: () {
+                      setState(() {
+                        _selectedSubRegion = subRegion;
+                      });
+                      _loadRegionData(forceRefresh: true);
+                    },
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                      decoration: BoxDecoration(
+                        color: isSelected 
+                            ? Colors.black 
+                            : AppDesignTokens.surfaceContainer,
+                        borderRadius: BorderRadius.circular(16),
+                      ),
+                      child: Text(
+                        subRegion,
+                        style: AppTextStyles.bodySmall.copyWith(
                           color: isSelected 
-                              ? Colors.black 
-                              : AppDesignTokens.surfaceContainer,
-                          borderRadius: BorderRadius.circular(16),
-                        ),
-                        child: Text(
-                          subRegion,
-                          style: AppTextStyles.bodySmall.copyWith(
-                            color: isSelected 
-                                ? Colors.white 
-                                : AppDesignTokens.onSurfaceVariant,
-                            fontWeight: isSelected ? FontWeight.w600 : FontWeight.normal,
-                          ),
+                              ? Colors.white 
+                              : AppDesignTokens.onSurfaceVariant,
+                          fontWeight: isSelected ? FontWeight.w600 : FontWeight.normal,
                         ),
                       ),
                     ),
-                  );
-                }).toList(),
+                  ),
+                );
+              }).toList(),
               ),
             ),
           ),
           
-          const SizedBox(width: 16),
+          const SizedBox(height: 6),
           
-          // 오른쪽: 정렬 드롭다운
+          // 하단: 정렬 드롭다운 (오른쪽 정렬)
           Row(
+            mainAxisAlignment: MainAxisAlignment.end,
             children: [
               Text(
                 '정렬:',
@@ -339,14 +362,11 @@ class _RestaurantListScreenState extends State<RestaurantListScreen> {
                   size: 16,
                 ),
                 selectedItemBuilder: (BuildContext context) {
-                  return ['하이브리드 추천순', '평점순', 'YouTube 언급순', '리뷰 많은순', '소스별'].map((String value) {
+                  return ['추천순', '평점순'].map((String value) {
                     return Container(
                       alignment: Alignment.centerLeft,
                       child: Text(
-                        _sortOption == 'hybrid' ? '하이브리드 추천순' :
-                        _sortOption == 'rating' ? '평점순' :
-                        _sortOption == 'youtube' ? 'YouTube 언급순' :
-                        _sortOption == 'reviews' ? '리뷰 많은순' : '소스별',
+                        _sortOption == 'default' ? '추천순' : '평점순',
                         style: AppTextStyles.bodyMedium.copyWith(
                           color: AppDesignTokens.onSurface,
                         ),
@@ -355,11 +375,8 @@ class _RestaurantListScreenState extends State<RestaurantListScreen> {
                   }).toList();
                 },
                 items: const [
-                  DropdownMenuItem(value: 'hybrid', child: Text('하이브리드 추천순')),
+                  DropdownMenuItem(value: 'default', child: Text('추천순')),
                   DropdownMenuItem(value: 'rating', child: Text('평점순')),
-                  DropdownMenuItem(value: 'youtube', child: Text('YouTube 언급순')),
-                  DropdownMenuItem(value: 'reviews', child: Text('리뷰 많은순')),
-                  DropdownMenuItem(value: 'source', child: Text('소스별')),
                 ],
                 onChanged: (value) {
                   if (value != null) {
@@ -390,16 +407,28 @@ class _RestaurantListScreenState extends State<RestaurantListScreen> {
     return RefreshIndicator(
       onRefresh: () => _loadRegionData(forceRefresh: true),
       child: ListView.separated(
+        controller: _scrollController, // 🔥 스크롤 컨트롤러 추가
         padding: const EdgeInsets.symmetric(vertical: 8),
-        itemCount: _restaurants.length,
-        separatorBuilder: (context, index) => Divider(
-          height: 1,
-          thickness: 1,
-          color: AppDesignTokens.outline.withOpacity(0.1),
-          indent: 16,
-          endIndent: 16,
-        ),
+        itemCount: _restaurants.length + (_hasMore ? 1 : 0), // 🔥 로딩 인디케이터 위한 +1
+        separatorBuilder: (context, index) {
+          // 마지막 아이템(로딩 인디케이터)에는 구분선 없음
+          if (index >= _restaurants.length - 1) {
+            return const SizedBox.shrink();
+          }
+          return Divider(
+            height: 1,
+            thickness: 1,
+            color: AppDesignTokens.outline.withOpacity(0.1),
+            indent: 16,
+            endIndent: 16,
+          );
+        },
         itemBuilder: (context, index) {
+          // 🔥 로딩 인디케이터 표시
+          if (index >= _restaurants.length) {
+            return _buildLoadingIndicator();
+          }
+          
           final restaurant = _restaurants[index];
           return _buildEnhancedRestaurantCard(
             restaurant: restaurant,
@@ -411,18 +440,53 @@ class _RestaurantListScreenState extends State<RestaurantListScreen> {
     );
   }
 
-  // 지역 데이터 로드 메서드
+  // 하단 로딩 인디케이터
+  Widget _buildLoadingIndicator() {
+    if (!_isLoadingMore) return const SizedBox.shrink();
+    
+    return Container(
+      padding: const EdgeInsets.symmetric(vertical: 16),
+      alignment: Alignment.center,
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          SizedBox(
+            width: 20,
+            height: 20,
+            child: CircularProgressIndicator(
+              strokeWidth: 2,
+              valueColor: AlwaysStoppedAnimation<Color>(AppDesignTokens.primary),
+            ),
+          ),
+          const SizedBox(width: 12),
+          Text(
+            '더 많은 맛집을 불러오는 중...',
+            style: AppTextStyles.bodyMedium.copyWith(
+              color: AppDesignTokens.onSurfaceVariant,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  // 지역 데이터 로드 메서드 (기존 방식 + 무한 스크롤 준비)
   Future<void> _loadRegionData({bool forceRefresh = false}) async {
     final regionName = currentRegion['name'];
+    
+    if (forceRefresh) {
+      _resetPagination();
+    }
     
     setState(() {
       _isLoading = true;
     });
 
     try {
+      // 🔥 기존 방식 사용 (검증된 로직)
       final restaurants = await RestaurantService.getRestaurantsByRegion(
         region: regionName,
-        limit: 30,
+        limit: 100, // 일단 많이 가져와서 클라이언트에서 페이징
       );
 
       if (mounted) {
@@ -432,8 +496,14 @@ class _RestaurantListScreenState extends State<RestaurantListScreen> {
         // 정렬 적용
         final sortedRestaurants = _sortRestaurants(filteredRestaurants);
         
+        // 🔥 클라이언트 사이드 페이징 (첫 20개만)
+        final initialRestaurants = sortedRestaurants.take(20).toList();
+        final remainingRestaurants = sortedRestaurants.skip(20).toList();
+        
         setState(() {
-          _restaurants = sortedRestaurants;
+          _restaurants = initialRestaurants;
+          _remainingRestaurants = remainingRestaurants; // 남은 데이터 저장
+          _hasMore = remainingRestaurants.isNotEmpty;
           _isLoading = false;
         });
 
@@ -448,6 +518,41 @@ class _RestaurantListScreenState extends State<RestaurantListScreen> {
       }
     }
   }
+
+  // 더 많은 식당 로드 (무한 스크롤) - 클라이언트 사이드 페이징
+  Future<void> _loadMoreRestaurants() async {
+    if (_isLoadingMore || !_hasMore || _remainingRestaurants.isEmpty) return;
+
+    setState(() {
+      _isLoadingMore = true;
+    });
+
+    try {
+      // 남은 데이터에서 다음 페이지 가져오기 (20개씩)
+      const pageSize = 20;
+      final nextBatch = _remainingRestaurants.take(pageSize).toList();
+      final remainingAfterBatch = _remainingRestaurants.skip(pageSize).toList();
+
+      if (mounted) {
+        setState(() {
+          _restaurants.addAll(nextBatch);
+          _remainingRestaurants = remainingAfterBatch;
+          _hasMore = remainingAfterBatch.isNotEmpty;
+          _isLoadingMore = false;
+        });
+
+        // 새로 로드된 식당들의 즐겨찾기 상태 로드
+        await _loadFavoriteStatus();
+      }
+    } catch (e) {
+      if (mounted) {
+        setState(() {
+          _isLoadingMore = false;
+        });
+      }
+    }
+  }
+
 
   // 서브 지역 필터링
   List<Restaurant> _filterBySubRegion(List<Restaurant> restaurants) {
@@ -472,16 +577,22 @@ class _RestaurantListScreenState extends State<RestaurantListScreen> {
         return address.contains('명동') || address.contains('중구');
       } else if (subRegion.contains('이태원')) {
         return address.contains('이태원') || address.contains('용산');
+      } else if (subRegion.contains('인사동')) {
+        return address.contains('인사동') || address.contains('종로');
+      } else if (subRegion.contains('동대문')) {
+        return address.contains('동대문') || address.contains('중랑');
       } else if (subRegion.contains('해운대')) {
         return address.contains('해운대');
       } else if (subRegion.contains('서면')) {
         return address.contains('서면') || address.contains('부산진');
       } else if (subRegion.contains('광안리')) {
         return address.contains('광안리') || address.contains('수영');
-      } else if (subRegion.contains('불국사')) {
-        return address.contains('불국사') || address.contains('진현동');
-      } else if (subRegion.contains('첨성대')) {
-        return address.contains('첨성대') || address.contains('인왕동');
+      } else if (subRegion.contains('남포동')) {
+        return address.contains('남포동') || address.contains('중구');
+      } else if (subRegion.contains('송정')) {
+        return address.contains('송정') || address.contains('해운대구');
+      } else if (subRegion.contains('기장')) {
+        return address.contains('기장');
       }
       
       return address.contains(subRegion);
@@ -501,36 +612,62 @@ class _RestaurantListScreenState extends State<RestaurantListScreen> {
         });
         break;
         
-      case 'youtube':
-        sortedList.sort((a, b) {
-          final aMentions = a.youtubeStats?.mentionCount ?? 0;
-          final bMentions = b.youtubeStats?.mentionCount ?? 0;
-          return bMentions.compareTo(aMentions); // 많은 언급 우선
-        });
-        break;
-        
-      case 'reviews':
-        sortedList.sort((a, b) {
-          final aReviews = a.googlePlaces?.userRatingsTotal ?? 0;
-          final bReviews = b.googlePlaces?.userRatingsTotal ?? 0;
-          return bReviews.compareTo(aReviews); // 많은 리뷰 우선
-        });
-        break;
         
       case 'default':
       default:
-        // 기본 정렬: YouTube 언급수와 Google 평점 종합
+        // 추천순: YouTube 언급 + Google 평점 + 리뷰 신뢰성 종합
         sortedList.sort((a, b) {
-          final aScore = (a.youtubeStats?.mentionCount ?? 0) * 0.3 + 
-                        (a.googlePlaces?.rating ?? 0.0) * 2.0;
-          final bScore = (b.youtubeStats?.mentionCount ?? 0) * 0.3 + 
-                        (b.googlePlaces?.rating ?? 0.0) * 2.0;
+          // YouTube 화제성 점수 (0-6점)
+          final aYoutubeScore = (a.youtubeStats?.mentionCount ?? 0) * 0.3;
+          final bYoutubeScore = (b.youtubeStats?.mentionCount ?? 0) * 0.3;
+          
+          // Google 평점 기본 점수 (0-10점)  
+          final aRating = a.googlePlaces?.rating ?? 0.0;
+          final bRating = b.googlePlaces?.rating ?? 0.0;
+          final aRatingScore = aRating * 2.0;
+          final bRatingScore = bRating * 2.0;
+          
+          // 리뷰 개수 신뢰성 보너스 (0-2점)
+          final aReviewCount = a.googlePlaces?.userRatingsTotal ?? 0;
+          final bReviewCount = b.googlePlaces?.userRatingsTotal ?? 0;
+          final aReviewBonus = _calculateReviewBonus(aReviewCount, aRating);
+          final bReviewBonus = _calculateReviewBonus(bReviewCount, bRating);
+          
+          final aScore = aYoutubeScore + aRatingScore + aReviewBonus;
+          final bScore = bYoutubeScore + bRatingScore + bReviewBonus;
+          
           return bScore.compareTo(aScore);
         });
         break;
     }
     
     return sortedList;
+  }
+
+  // 리뷰 개수 기반 신뢰성 보너스 계산
+  double _calculateReviewBonus(int reviewCount, double rating) {
+    if (rating == 0) return 0.0; // 평점이 없으면 보너스 없음
+    
+    // 리뷰 개수별 신뢰성 가중치
+    double reliabilityWeight;
+    if (reviewCount >= 100) {
+      reliabilityWeight = 1.0; // 매우 신뢰성 높음
+    } else if (reviewCount >= 50) {
+      reliabilityWeight = 0.8; // 신뢰성 높음
+    } else if (reviewCount >= 20) {
+      reliabilityWeight = 0.6; // 보통 신뢰성
+    } else if (reviewCount >= 10) {
+      reliabilityWeight = 0.4; // 낮은 신뢰성
+    } else if (reviewCount >= 5) {
+      reliabilityWeight = 0.2; // 매우 낮은 신뢰성
+    } else {
+      reliabilityWeight = 0.0; // 신뢰성 없음
+    }
+    
+    // 높은 평점일수록 더 큰 보너스 (4.0 이상부터 보너스)
+    final ratingBonus = rating >= 4.0 ? (rating - 4.0) : 0.0;
+    
+    return reliabilityWeight * ratingBonus * 2.0; // 최대 2점 보너스
   }
 
   // 즐겨찾기 상태 로드
@@ -776,6 +913,7 @@ class _RestaurantListScreenState extends State<RestaurantListScreen> {
   Widget _buildRatingAndYoutubeInfo(Restaurant restaurant) {
     final googlePlaces = restaurant.googlePlaces;
     final youtubeStats = restaurant.youtubeStats;
+    final naverBlog = restaurant.naverBlog;
     
     return Wrap(
       crossAxisAlignment: WrapCrossAlignment.center,
@@ -804,7 +942,7 @@ class _RestaurantListScreenState extends State<RestaurantListScreen> {
           ),
         ],
         
-        // 구분자
+        // 구분자 (Google과 YouTube 사이)
         if (googlePlaces?.rating != null && youtubeStats != null) ...[
           Text(
             ' · ',

@@ -4,6 +4,7 @@ import '../../models/restaurant.dart';
 import '../../styles/text_styles.dart';
 import '../../constants/app_design_tokens.dart';
 import '../../services/restaurant_service.dart';
+import '../meeting/create_meeting_screen.dart';
 
 class RestaurantDetailScreen extends StatefulWidget {
   final Restaurant restaurant;
@@ -96,11 +97,14 @@ class _RestaurantDetailScreenState extends State<RestaurantDetailScreen> {
           ),
         ],
       ),
-      body: SingleChildScrollView(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
+      body: Column(
+        children: [
+          Expanded(
+            child: SingleChildScrollView(
+              padding: const EdgeInsets.all(16),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
             // 가게이름 (큰 글씨)
             _buildRestaurantName(),
             
@@ -146,9 +150,14 @@ class _RestaurantDetailScreenState extends State<RestaurantDetailScreen> {
               const SizedBox(height: 16),
             ],
             
-            const SizedBox(height: 32), // 하단 여백
-          ],
-        ),
+                  const SizedBox(height: 32), // 하단 여백
+                ],
+              ),
+            ),
+          ),
+          // 하단 고정 버튼
+          _buildBottomCreateMeetingButton(),
+        ],
       ),
     );
   }
@@ -349,34 +358,7 @@ class _RestaurantDetailScreenState extends State<RestaurantDetailScreen> {
           ),
           const SizedBox(width: 4),
           Text(
-            '${youtubeStats.mentionCount}회',
-            style: AppTextStyles.bodyMedium.copyWith(
-              color: AppDesignTokens.onSurfaceVariant,
-            ),
-          ),
-        ],
-        
-        // 네이버 블로그 개수
-        if (naverBlog != null) ...[
-          if (googlePlaces?.rating != null || youtubeStats != null) 
-            Text(
-              ' · ',
-              style: AppTextStyles.bodyMedium.copyWith(
-                color: AppDesignTokens.onSurfaceVariant,
-              ),
-            ),
-          ClipRRect(
-            borderRadius: BorderRadius.circular(2),
-            child: Image.asset(
-              'assets/images/map_icons/naver_blog.png',
-              width: 16,
-              height: 16,
-              fit: BoxFit.cover,
-            ),
-          ),
-          const SizedBox(width: 4),
-          Text(
-            'Blog ${naverBlog.totalCount}회',
+            'YouTube ${youtubeStats.mentionCount}회',
             style: AppTextStyles.bodyMedium.copyWith(
               color: AppDesignTokens.onSurfaceVariant,
             ),
@@ -993,12 +975,6 @@ class _RestaurantDetailScreenState extends State<RestaurantDetailScreen> {
               ),
             ),
             const Spacer(),
-            Text(
-              '총 ${naverBlog.totalCount}개',
-              style: AppTextStyles.bodyMedium.copyWith(
-                color: AppDesignTokens.onSurfaceVariant,
-              ),
-            ),
           ],
         ),
         
@@ -1100,5 +1076,70 @@ class _RestaurantDetailScreenState extends State<RestaurantDetailScreen> {
     } catch (e) {
       return dateString;
     }
+  }
+
+  // 하단 고정 "여기에 모임 만들기" 버튼
+  Widget _buildBottomCreateMeetingButton() {
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: AppDesignTokens.background,
+        border: Border(
+          top: BorderSide(
+            color: AppDesignTokens.outline.withOpacity(0.2),
+            width: 1,
+          ),
+        ),
+      ),
+      child: SafeArea(
+        child: SizedBox(
+          width: double.infinity,
+          height: 56,
+          child: ElevatedButton(
+            onPressed: () => _navigateToCreateMeeting(),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: AppDesignTokens.primary,
+              foregroundColor: Colors.white,
+              elevation: 0,
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(16),
+              ),
+            ),
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                const Icon(
+                  Icons.add_circle_outline,
+                  size: 24,
+                ),
+                const SizedBox(width: 8),
+                Text(
+                  '여기에 모임 만들기',
+                  style: AppTextStyles.titleMedium.copyWith(
+                    color: Colors.white,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  // 모임 생성 화면으로 이동
+  void _navigateToCreateMeeting() {
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (context) => const CreateMeetingScreen(),
+        settings: RouteSettings(
+          arguments: {
+            'restaurant': widget.restaurant,
+          },
+        ),
+      ),
+    );
   }
 }

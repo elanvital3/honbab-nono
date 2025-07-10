@@ -101,7 +101,7 @@ class NaverBlogService {
       }
       
       return NaverBlogData(
-        totalCount: totalCountSum,
+        totalCount: finalPosts.length, // 🔥 실제 필터링된 블로그 수 사용!
         posts: finalPosts,
         updatedAt: DateTime.now(),
       );

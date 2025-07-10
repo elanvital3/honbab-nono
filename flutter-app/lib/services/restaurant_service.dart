@@ -6,6 +6,19 @@ import 'auth_service.dart';
 import 'naver_blog_service.dart';
 import 'youtube_service.dart';
 
+/// 페이지네이션 결과 클래스
+class RestaurantPage {
+  final List<Restaurant> restaurants;
+  final DocumentSnapshot? lastDocument;
+  final bool hasMore;
+  
+  RestaurantPage({
+    required this.restaurants,
+    this.lastDocument,
+    required this.hasMore,
+  });
+}
+
 class RestaurantService {
   static final FirebaseFirestore _firestore = FirebaseFirestore.instance;
   static const String _collection = 'restaurants';
@@ -79,75 +92,56 @@ class RestaurantService {
     }
   }
 
-  /// 특정 지역의 인기 식당 (검색어 없이)
+  /// 특정 지역의 인기 식당 (검색어 없이) - 페이지네이션 지원
   static Future<List<Restaurant>> getPopularRestaurants({
     String? city,
     String? province,
-    int limit = 15,
+    int limit = 20,
+    DocumentSnapshot? lastDocument, // 🔥 커서 기반 페이지네이션
   }) async {
     try {
       if (kDebugMode) {
-        print('🔍 인기 식당 조회: city=$city, province=$province');
+        print('🔍 인기 식당 조회: city=$city, province=$province, limit=$limit, hasLastDoc=${lastDocument != null}');
       }
 
-      // 인덱스 문제 해결을 위해 간단한 쿼리만 사용
+      // 기본 쿼리
       Query restaurantQuery = _firestore
           .collection(_collection)
           .where('isActive', isEqualTo: true);
 
-      // 정렬 없이 기본 쿼리만 실행
-      final querySnapshot = await restaurantQuery.limit(30).get();
+      // 서버에서 지역 필터링 (더 효율적)
+      if (city != null && city.isNotEmpty) {
+        restaurantQuery = restaurantQuery.where('city', isEqualTo: city);
+      } else if (province != null && province.isNotEmpty) {
+        restaurantQuery = restaurantQuery.where('province', isEqualTo: province);
+      }
 
-      List<Restaurant> allRestaurants = querySnapshot.docs
+      // 업데이트 시간 기준으로 정렬 (최신순) - 임시 비활성화 (인덱스 이슈)
+      // restaurantQuery = restaurantQuery.orderBy('updatedAt', descending: true);
+
+      // 커서 기반 페이지네이션
+      if (lastDocument != null) {
+        restaurantQuery = restaurantQuery.startAfterDocument(lastDocument);
+      }
+
+      // 실제 요청할 limit (정확한 페이지네이션을 위해)
+      final querySnapshot = await restaurantQuery.limit(limit).get();
+
+      // 서버에서 이미 필터링과 정렬이 완료된 데이터
+      List<Restaurant> restaurants = querySnapshot.docs
           .map((doc) => Restaurant.fromFirestore(doc.data() as Map<String, dynamic>, doc.id))
           .toList();
 
-      // 앱에서 필터링 (지역별)
-      List<Restaurant> filteredRestaurants = allRestaurants.where((restaurant) {
-        if (city != null && city.isNotEmpty) {
-          return restaurant.city == city;
-        } else if (province != null && province.isNotEmpty) {
-          return restaurant.province == province;
-        }
-        return true;
-      }).toList();
-
       if (kDebugMode) {
-        print('🔍 필터링 과정:');
-        print('   전체 레스토랑: ${allRestaurants.length}개');
-        print('   필터 조건: city=$city, province=$province');
-        print('   필터링 후: ${filteredRestaurants.length}개');
-        
-        if (allRestaurants.isNotEmpty) {
-          print('📋 전체 레스토랑 샘플 (처음 5개):');
-          for (var restaurant in allRestaurants.take(5)) {
-            print('   - ${restaurant.name} (province: "${restaurant.province}", city: "${restaurant.city}")');
+        print('✅ 인기 식당 ${restaurants.length}개 로드됨 (페이지네이션)');
+        if (restaurants.isNotEmpty) {
+          print('📋 로드된 식당들:');
+          for (final restaurant in restaurants.take(3)) {
+            print('   - ${restaurant.name} (${restaurant.province ?? restaurant.city ?? "위치불명"})');
           }
-        }
-        
-        if (province != null && filteredRestaurants.isEmpty && allRestaurants.isNotEmpty) {
-          print('⚠️ 도 필터링에서 매칭 실패! 실제 province 값들:');
-          final provinceValues = allRestaurants.map((r) => r.province).toSet();
-          for (var prov in provinceValues) {
-            print('   - "${prov}"');
+          if (restaurants.length > 3) {
+            print('   ... 외 ${restaurants.length - 3}개');
           }
-        }
-      }
-
-      // 앱에서 정렬 (최신순)
-      filteredRestaurants.sort((a, b) {
-        final aTime = a.updatedAt ?? DateTime(2000);
-        final bTime = b.updatedAt ?? DateTime(2000);
-        return bTime.compareTo(aTime);
-      });
-
-      // 제한
-      final restaurants = filteredRestaurants.take(limit).toList();
-
-      if (kDebugMode) {
-        print('✅ 인기 식당 ${restaurants.length}개 로드됨 (전체: ${allRestaurants.length}개)');
-        for (final restaurant in restaurants.take(3)) {
-          print('   - ${restaurant.name} (${restaurant.province ?? restaurant.city ?? "위치불명"})');
         }
       }
 
@@ -158,6 +152,72 @@ class RestaurantService {
         print('❌ 인기 식당 로드 에러: $e');
       }
       return [];
+    }
+  }
+
+  /// 페이지네이션을 지원하는 인기 식당 조회 (RestaurantPage 반환)
+  static Future<RestaurantPage> getPopularRestaurantsPage({
+    String? city,
+    String? province,
+    int limit = 20,
+    DocumentSnapshot? lastDocument,
+  }) async {
+    try {
+      if (kDebugMode) {
+        print('🔍 인기 식당 페이지 조회: city=$city, province=$province, limit=$limit');
+      }
+
+      // 기본 쿼리
+      Query restaurantQuery = _firestore
+          .collection(_collection)
+          .where('isActive', isEqualTo: true);
+
+      // 서버에서 지역 필터링
+      if (city != null && city.isNotEmpty) {
+        restaurantQuery = restaurantQuery.where('city', isEqualTo: city);
+      } else if (province != null && province.isNotEmpty) {
+        restaurantQuery = restaurantQuery.where('province', isEqualTo: province);
+      }
+
+      // 업데이트 시간 기준으로 정렬 (최신순) - 임시 비활성화 (인덱스 이슈)
+      // restaurantQuery = restaurantQuery.orderBy('updatedAt', descending: true);
+
+      // 커서 기반 페이지네이션
+      if (lastDocument != null) {
+        restaurantQuery = restaurantQuery.startAfterDocument(lastDocument);
+      }
+
+      // 실제 요청할 limit
+      final querySnapshot = await restaurantQuery.limit(limit).get();
+
+      // 결과 파싱
+      List<Restaurant> restaurants = querySnapshot.docs
+          .map((doc) => Restaurant.fromFirestore(doc.data() as Map<String, dynamic>, doc.id))
+          .toList();
+
+      // 다음 페이지 존재 여부 확인
+      final hasMore = restaurants.length == limit;
+      final lastDoc = querySnapshot.docs.isNotEmpty ? querySnapshot.docs.last : null;
+
+      if (kDebugMode) {
+        print('✅ 식당 페이지 로드 완료: ${restaurants.length}개, hasMore: $hasMore');
+      }
+
+      return RestaurantPage(
+        restaurants: restaurants,
+        lastDocument: lastDoc,
+        hasMore: hasMore,
+      );
+
+    } catch (e) {
+      if (kDebugMode) {
+        print('❌ 식당 페이지 로드 에러: $e');
+      }
+      return RestaurantPage(
+        restaurants: [],
+        lastDocument: null,
+        hasMore: false,
+      );
     }
   }
 
@@ -342,20 +402,36 @@ class RestaurantService {
         province = '제주특별자치도';
         // 제주도는 province만으로 필터링 (city는 제주시, 서귀포시 등 다양함)
       } else if (region == '서울') {
+        // 서울은 city 기반으로 필터링 (province가 누락된 경우 대응)
+        // 일단 province로 시도하고, 없으면 city 목록으로 검색
         province = '서울특별시';
       } else if (region == '부산') {
+        // 부산도 city 기반으로 필터링 (province가 누락된 경우 대응)
         province = '부산광역시';
       } else if (region == '경주') {
         city = '경주시';
         province = '경상북도';
       }
 
-      // 기존 getPopularRestaurants 메서드 활용
-      final restaurants = await getPopularRestaurants(
-        city: city,
-        province: province,
-        limit: limit,
-      );
+      // 서울/부산은 city 기반 복합 검색, 제주도는 province 검색
+      List<Restaurant> restaurants;
+      
+      if (region == '서울') {
+        // 서울의 구별 city 목록으로 검색
+        final seoulCities = ['강남구', '강동구', '동대문구', '마포구', '서초구', '용산구', '종로구', '영등포구', '중구'];
+        restaurants = await _getRestaurantsByCities(seoulCities, limit);
+      } else if (region == '부산') {
+        // 부산의 구별 city 목록으로 검색
+        final busanCities = ['기장군', '부산진구', '사상구', '수영구', '연제구', '영도구', '해운대구', '중구'];
+        restaurants = await _getRestaurantsByCities(busanCities, limit);
+      } else {
+        // 제주도 등 기존 방식
+        restaurants = await getPopularRestaurants(
+          city: city,
+          province: province,
+          limit: limit,
+        );
+      }
 
       if (kDebugMode) {
         print('✅ 지역별 맛집 조회 완료: ${restaurants.length}개');
@@ -372,6 +448,42 @@ class RestaurantService {
     } catch (e) {
       if (kDebugMode) {
         print('❌ 지역별 맛집 조회 실패: $e');
+      }
+      return [];
+    }
+  }
+
+  /// 여러 city로 검색하는 헬퍼 메서드 (서울/부산용)
+  static Future<List<Restaurant>> _getRestaurantsByCities(List<String> cities, int limit) async {
+    try {
+      final List<Restaurant> allRestaurants = [];
+      
+      // 각 city별로 검색해서 합치기
+      for (final city in cities) {
+        final restaurants = await getPopularRestaurants(
+          city: city,
+          limit: limit ~/ cities.length + 10, // 각 city당 일정량씩
+        );
+        allRestaurants.addAll(restaurants);
+      }
+      
+      // 중복 제거 (ID 기준)
+      final uniqueRestaurants = <String, Restaurant>{};
+      for (final restaurant in allRestaurants) {
+        uniqueRestaurants[restaurant.id] = restaurant;
+      }
+      
+      // limit만큼 반환
+      final result = uniqueRestaurants.values.toList();
+      if (result.length > limit) {
+        result.shuffle(); // 다양한 구에서 고르게 선택
+        return result.take(limit).toList();
+      }
+      
+      return result;
+    } catch (e) {
+      if (kDebugMode) {
+        print('❌ 복합 city 검색 실패: $e');
       }
       return [];
     }

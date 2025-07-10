@@ -117,14 +117,38 @@ class NaverBlogPost {
   });
 
   factory NaverBlogPost.fromMap(Map<String, dynamic> data) {
-    return NaverBlogPost(
-      title: (data['title'] as String? ?? '').replaceAll(RegExp(r'<[^>]*>'), ''),
-      description: (data['description'] as String? ?? '').replaceAll(RegExp(r'<[^>]*>'), ''),
-      link: data['link'] as String? ?? '',
-      bloggerName: data['bloggername'] as String? ?? '',
-      bloggerLink: data['bloggerlink'] as String? ?? '',
-      postDate: data['postdate'] as String? ?? '',
-    );
+    try {
+      return NaverBlogPost(
+        title: _cleanString(data['title']),
+        description: _cleanString(data['description']),
+        link: data['link'] as String? ?? '',
+        bloggerName: data['bloggername'] as String? ?? '',
+        bloggerLink: '', // Fixed: bloggerlink 필드가 Firestore에 없으므로 빈 문자열로 설정
+        postDate: data['postdate'] as String? ?? '',
+      );
+    } catch (e) {
+      print('❌ NaverBlogPost.fromMap 에러: $e');
+      print('📄 문제되는 블로그 데이터: $data');
+      // 에러 발생 시 기본값으로 반환
+      return NaverBlogPost(
+        title: '제목 불러오기 실패',
+        description: '설명 불러오기 실패',
+        link: '',
+        bloggerName: '알 수 없음',
+        bloggerLink: '',
+        postDate: '',
+      );
+    }
+  }
+
+  static String _cleanString(dynamic value) {
+    if (value == null) return '';
+    String str = value.toString();
+    // HTML 태그 제거
+    str = str.replaceAll(RegExp(r'<[^>]*>'), '');
+    // 유효하지 않은 UTF-8 문자 제거
+    str = String.fromCharCodes(str.runes.where((r) => r != 0xFFFD));
+    return str;
   }
 
   Map<String, dynamic> toMap() {
@@ -154,7 +178,7 @@ class NaverBlogData {
   factory NaverBlogData.fromMap(Map<String, dynamic> data) {
     return NaverBlogData(
       totalCount: data['totalCount'] as int? ?? 0,
-      posts: (data['posts'] as List? ?? [])
+      posts: (data['blogs'] as List? ?? [])  // Fixed: changed from 'posts' to 'blogs'
           .map((post) => NaverBlogPost.fromMap(post as Map<String, dynamic>))
           .toList(),
       updatedAt: data['updatedAt'] != null 
@@ -207,22 +231,36 @@ class GooglePlacesData {
   }
 
   factory GooglePlacesData.fromMap(Map<String, dynamic> data) {
-    return GooglePlacesData(
-      placeId: data['placeId'] as String?,
-      rating: (data['rating'] as num?)?.toDouble(),
-      userRatingsTotal: _parseIntFromDynamic(data['userRatingsTotal']) ?? 0,
-      reviews: (data['reviews'] as List? ?? [])
-          .map((review) => GoogleReview.fromMap(review as Map<String, dynamic>))
-          .toList(),
-      photos: List<String>.from(data['photos'] as List? ?? []),
-      priceLevel: _parseIntFromDynamic(data['priceLevel']),
-      isOpen: data['isOpen'] as bool?,
-      phoneNumber: data['phoneNumber'] as String?,
-      regularOpeningHours: data['regularOpeningHours'] as Map<String, dynamic>?,
-      updatedAt: data['updatedAt'] != null 
-          ? (data['updatedAt'] as dynamic).toDate() as DateTime?
-          : null,
-    );
+    try {
+      print('🔍 GooglePlaces 전체 데이터 키들: ${data.keys.toList()}');
+      print('🔍 rating 값: ${data['rating']} (타입: ${data['rating'].runtimeType})');
+      print('🔍 userRatingsTotal 값: ${data['userRatingsTotal']} (타입: ${data['userRatingsTotal'].runtimeType})');
+      
+      return GooglePlacesData(
+        placeId: data['placeId'] as String?,
+        rating: (data['rating'] as num?)?.toDouble(),
+        userRatingsTotal: _parseIntFromDynamic(data['userRatingsTotal']) ?? 0,
+        reviews: (data['reviews'] as List? ?? [])
+            .map((review) => GoogleReview.fromMap(review as Map<String, dynamic>))
+            .toList(), // 🔥 실제 리뷰 데이터 파싱!
+        photos: (data['photos'] as List? ?? [])
+            .map((photo) => photo is String ? photo : (photo['photo_reference'] ?? ''))
+            .where((photo) => photo.isNotEmpty)
+            .cast<String>()
+            .toList(),
+        priceLevel: _parseIntFromDynamic(data['priceLevel']),
+        isOpen: data['isOpen'] as bool?,
+        phoneNumber: data['phoneNumber'] as String?,
+        regularOpeningHours: data['regularOpeningHours'] as Map<String, dynamic>?,
+        updatedAt: data['updatedAt'] != null 
+            ? (data['updatedAt'] as dynamic).toDate() as DateTime?
+            : null,
+      );
+    } catch (e) {
+      print('❌ GooglePlacesData.fromMap 에러: $e');
+      print('📄 문제되는 GooglePlaces 데이터: $data');
+      rethrow;
+    }
   }
 
   Map<String, dynamic> toMap() {
@@ -480,6 +518,26 @@ class Restaurant {
     }
   }
 
+  // GooglePlaces 안전 파싱
+  static GooglePlacesData? _parseGooglePlaces(dynamic googlePlacesData) {
+    try {
+      if (googlePlacesData == null) return null;
+      
+      print('🔍 GooglePlaces 파싱 시작: ${googlePlacesData.runtimeType}');
+      print('   값: $googlePlacesData');
+      
+      if (googlePlacesData is Map<String, dynamic>) {
+        return GooglePlacesData.fromMap(googlePlacesData);
+      } else {
+        print('❌ GooglePlaces가 Map이 아님: ${googlePlacesData.runtimeType}');
+        return null;
+      }
+    } catch (e) {
+      print('❌ GooglePlaces 파싱 에러: $e');
+      return null;
+    }
+  }
+
   // Firestore 데이터로부터 생성
   factory Restaurant.fromFirestore(Map<String, dynamic> data, String documentId) {
     return Restaurant(
@@ -503,15 +561,13 @@ class Restaurant {
       youtubeStats: data['youtubeStats'] != null 
           ? YoutubeStats.fromMap(data['youtubeStats'] as Map<String, dynamic>)
           : null,
-      featureTags: data['featureTags'] != null 
-          ? List<String>.from(data['featureTags'] as List)
+      featureTags: data['tags'] != null 
+          ? List<String>.from(data['tags'] as List)
           : null,
       trendScore: data['trendScore'] != null 
           ? TrendScore.fromMap(data['trendScore'] as Map<String, dynamic>)
           : null,
-      googlePlaces: data['googlePlaces'] != null 
-          ? GooglePlacesData.fromMap(data['googlePlaces'] as Map<String, dynamic>)
-          : null,
+      googlePlaces: _parseGooglePlaces(data['googlePlaces']),
       naverBlog: data['naverBlog'] != null 
           ? NaverBlogData.fromMap(data['naverBlog'] as Map<String, dynamic>)
           : null,
