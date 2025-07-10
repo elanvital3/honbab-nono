@@ -13,6 +13,11 @@ class NicknameInputScreen extends StatefulWidget {
   final String? profileImageUrl;
   final String? email;
   final String? kakaoId;
+  // 본인인증에서 받은 정보들
+  final String? verifiedName;
+  final String? verifiedGender;
+  final int? verifiedBirthYear;
+  final String? verifiedPhone;
 
   const NicknameInputScreen({
     super.key,
@@ -20,6 +25,10 @@ class NicknameInputScreen extends StatefulWidget {
     this.profileImageUrl,
     this.email,
     this.kakaoId,
+    this.verifiedName,
+    this.verifiedGender,
+    this.verifiedBirthYear,
+    this.verifiedPhone,
   });
 
   @override
@@ -45,7 +54,20 @@ class _NicknameInputScreenState extends State<NicknameInputScreen> {
     super.initState();
     _nicknameController.addListener(_validateNickname);
     _phoneController.addListener(_validatePhone);
-    // 출생년도는 드롭다운으로 변경되어 리스너 제거
+    
+    // 본인인증에서 받은 정보로 미리 설정
+    if (widget.verifiedName != null) {
+      _nicknameController.text = widget.verifiedName!;
+    }
+    if (widget.verifiedGender != null) {
+      _selectedGender = widget.verifiedGender;
+    }
+    if (widget.verifiedBirthYear != null) {
+      _selectedBirthYear = widget.verifiedBirthYear!;
+    }
+    if (widget.verifiedPhone != null) {
+      _phoneController.text = widget.verifiedPhone!;
+    }
   }
 
   @override

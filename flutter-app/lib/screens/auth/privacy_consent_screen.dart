@@ -4,7 +4,7 @@ import '../../services/user_service.dart';
 import '../../styles/text_styles.dart';
 import '../../constants/app_design_tokens.dart';
 import '../../constants/privacy_policy_content.dart';
-import 'nickname_input_screen.dart';
+import 'adult_verification_screen.dart';
 import 'privacy_policy_screen.dart';
 import 'login_screen.dart';
 import '../home/home_screen.dart';
@@ -267,12 +267,13 @@ class _PrivacyConsentScreenState extends State<PrivacyConsentScreen> {
           // 설정 업데이트인 경우 홈으로
           Navigator.pushReplacementNamed(context, '/home');
         } else {
-          // 신규 가입인 경우 닉네임 입력으로
+          // 신규 가입인 경우 성인인증으로
           Navigator.pushReplacement(
             context,
             MaterialPageRoute(
-              builder: (context) => NicknameInputScreen(
+              builder: (context) => AdultVerificationScreen(
                 userId: widget.userId,
+                defaultName: widget.defaultName,
                 profileImageUrl: widget.profileImageUrl,
                 email: widget.email,
                 kakaoId: widget.kakaoId,

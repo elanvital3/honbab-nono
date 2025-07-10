@@ -80,6 +80,9 @@ dependencies:
   
   # 보안 (비밀번호 해시 생성)
   crypto: ^3.0.3
+  
+  # 아임포트 본인인증 및 결제
+  iamport_flutter: ^1.2.0
 
 dev_dependencies:
   flutter_test:
