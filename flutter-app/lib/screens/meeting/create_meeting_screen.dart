@@ -26,7 +26,7 @@ class _CreateMeetingScreenState extends State<CreateMeetingScreen> {
   DateTime? _selectedDate;
   TimeOfDay? _selectedTime;
   int _maxParticipants = 4;
-  String _genderPreference = '무관';
+  String _genderRestriction = 'all'; // 'all', 'male', 'female'
   Restaurant? _selectedRestaurant;
   bool _isLoading = false;
 
@@ -220,7 +220,7 @@ class _CreateMeetingScreenState extends State<CreateMeetingScreen> {
         longitude: _selectedRestaurant!.longitude,
         restaurantName: _selectedRestaurant!.name,
         restaurantId: _selectedRestaurant!.id, // 즐겨찾기 시스템을 위한 식당 ID
-        genderPreference: _genderPreference,
+        genderRestriction: _genderRestriction,
         city: city, // 도시 정보 추가
         fullAddress: _selectedRestaurant!.address, // 전체 주소 추가
         representativeImageUrl: restaurantImageUrl, // 검색된 식당 이미지 URL
@@ -231,7 +231,7 @@ class _CreateMeetingScreenState extends State<CreateMeetingScreen> {
         print('  - 식당: ${newMeeting.restaurantName}');
         print('  - 설명: ${newMeeting.description}');
         print('  - 날짜: ${newMeeting.dateTime}');
-        print('  - 성별선호: ${newMeeting.genderPreference}');
+        print('  - 성별제한: ${newMeeting.genderRestriction}');
         print('  - 호스트: ${newMeeting.hostName}');
         print('  - 도시: ${newMeeting.city}');
         print('  - 주소: ${newMeeting.fullAddress}');
@@ -675,7 +675,11 @@ class _CreateMeetingScreenState extends State<CreateMeetingScreen> {
   }
 
   Widget _buildGenderPreferenceSection() {
-    final List<String> genderOptions = ['무관', '동성만', '이성만', '동성 1명이상'];
+    final List<Map<String, String>> genderOptions = [
+      {'value': 'all', 'label': '누구나', 'icon': '👥'},
+      {'value': 'male', 'label': '남성만', 'icon': '♂️'},
+      {'value': 'female', 'label': '여성만', 'icon': '♀️'},
+    ];
     
     return Container(
       padding: const EdgeInsets.all(16),
@@ -686,10 +690,27 @@ class _CreateMeetingScreenState extends State<CreateMeetingScreen> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
+          Row(
+            children: [
+              Text(
+                '참가 제한',
+                style: AppTextStyles.bodyLarge.copyWith(
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+              const SizedBox(width: 8),
+              Icon(
+                Icons.security,
+                size: 18,
+                color: Theme.of(context).colorScheme.primary,
+              ),
+            ],
+          ),
+          const SizedBox(height: 4),
           Text(
-            '성별 선호도',
-            style: AppTextStyles.bodyLarge.copyWith(
-              fontWeight: FontWeight.w600,
+            '안전한 모임을 위한 참가 제한 설정',
+            style: AppTextStyles.bodySmall.copyWith(
+              color: Theme.of(context).colorScheme.outline,
             ),
           ),
           const SizedBox(height: 12),
@@ -697,11 +718,11 @@ class _CreateMeetingScreenState extends State<CreateMeetingScreen> {
             spacing: 8,
             runSpacing: 8,
             children: genderOptions.map((option) {
-              final isSelected = _genderPreference == option;
+              final isSelected = _genderRestriction == option['value'];
               return GestureDetector(
                 onTap: () {
                   setState(() {
-                    _genderPreference = option;
+                    _genderRestriction = option['value']!;
                   });
                 },
                 child: Container(
@@ -717,15 +738,30 @@ class _CreateMeetingScreenState extends State<CreateMeetingScreen> {
                           : Theme.of(context).colorScheme.outline.withOpacity(0.3),
                     ),
                   ),
-                  child: Text(
-                    option,
-                    style: TextStyle(
-                      fontSize: 14,
-                      fontWeight: FontWeight.w500,
-                      color: isSelected 
-                          ? Colors.white
-                          : Theme.of(context).colorScheme.onSurface,
-                    ),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Text(
+                        option['icon']!,
+                        style: TextStyle(
+                          fontSize: 16,
+                          color: isSelected 
+                              ? Colors.white
+                              : Theme.of(context).colorScheme.onSurface,
+                        ),
+                      ),
+                      const SizedBox(width: 6),
+                      Text(
+                        option['label']!,
+                        style: TextStyle(
+                          fontSize: 14,
+                          fontWeight: FontWeight.w500,
+                          color: isSelected 
+                              ? Colors.white
+                              : Theme.of(context).colorScheme.onSurface,
+                        ),
+                      ),
+                    ],
                   ),
                 ),
               );

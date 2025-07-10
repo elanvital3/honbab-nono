@@ -310,6 +310,13 @@ class MeetingService {
           throw Exception('Meeting is full');
         }
         
+        // 성별 제한 확인
+        final user = await UserService.getUser(userId);
+        if (!meeting.canUserJoin(user?.gender)) {
+          String restrictionText = meeting.genderRestrictionText;
+          throw Exception('이 모임은 $restrictionText 참가 가능합니다');
+        }
+        
         // 신청자 목록에 추가
         final updatedApplicants = [...meeting.pendingApplicantIds, userId];
         
@@ -526,6 +533,13 @@ class MeetingService {
         
         if (meeting.currentParticipants >= meeting.maxParticipants) {
           throw Exception('Meeting is full');
+        }
+        
+        // 성별 제한 확인
+        final user = await UserService.getUser(userId);
+        if (!meeting.canUserJoin(user?.gender)) {
+          String restrictionText = meeting.genderRestrictionText;
+          throw Exception('이 모임은 $restrictionText 참가 가능합니다');
         }
         
         // UID 추가 만 처리

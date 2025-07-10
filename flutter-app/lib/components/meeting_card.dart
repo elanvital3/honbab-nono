@@ -325,26 +325,39 @@ class MeetingCard extends StatelessWidget {
                       spacing: 4,
                       runSpacing: 4,
                       children: [
-                        // 성별 선호도 태그 (항상 표시)
-                        Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                          decoration: BoxDecoration(
-                            color: Theme.of(context).colorScheme.primary.withOpacity(0.1),
-                            borderRadius: BorderRadius.circular(8),
-                            border: Border.all(
-                              color: Theme.of(context).colorScheme.primary.withOpacity(0.3),
-                              width: 0.5,
+                        // 성별 제한 태그 (누구나가 아닐 때만 표시)
+                        if (meeting.genderRestriction != 'all')
+                          Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                            decoration: BoxDecoration(
+                              color: Theme.of(context).colorScheme.primary.withOpacity(0.1),
+                              borderRadius: BorderRadius.circular(8),
+                              border: Border.all(
+                                color: Theme.of(context).colorScheme.primary.withOpacity(0.3),
+                                width: 0.5,
+                              ),
+                            ),
+                            child: Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                Text(
+                                  meeting.genderRestrictionIcon,
+                                  style: const TextStyle(
+                                    fontSize: 10,
+                                  ),
+                                ),
+                                const SizedBox(width: 2),
+                                Text(
+                                  meeting.genderRestrictionText,
+                                  style: TextStyle(
+                                    fontSize: 10,
+                                    color: Theme.of(context).colorScheme.primary,
+                                    fontWeight: FontWeight.w600,
+                                  ),
+                                ),
+                              ],
                             ),
                           ),
-                          child: Text(
-                            meeting.genderPreference,
-                            style: TextStyle(
-                              fontSize: 10,
-                              color: Theme.of(context).colorScheme.primary,
-                              fontWeight: FontWeight.w600,
-                            ),
-                          ),
-                        ),
                         // 기존 태그들 (최대 2개)
                         ...meeting.tags.take(2).map((tag) => Container(
                           padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),

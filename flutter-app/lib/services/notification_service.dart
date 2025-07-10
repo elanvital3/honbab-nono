@@ -868,13 +868,13 @@ class NotificationService {
     }
   }
 
-  /// 사용자들의 FCM 토큰 가져오기 (단순화된 버전 - users 문서에서 직접 조회)
+  /// 사용자들의 FCM 토큰 가져오기 (사용자 ID 기반 제외)
   Future<List<String>> _getFCMTokensForUsers(List<String> userIds) async {
     try {
       final tokens = <String>[];
       
       if (kDebugMode) {
-        print('🔍 단순화된 FCM 토큰 조회 시작 - 대상 사용자: $userIds');
+        print('🔍 FCM 토큰 조회 시작 - 대상 사용자: $userIds');
       }
       
       // 각 사용자의 문서에서 직접 FCM 토큰 조회
@@ -893,8 +893,12 @@ class NotificationService {
             print('👤 사용자 $userId: FCM 토큰 ${fcmToken != null ? "있음" : "없음"}');
           }
           
-          if (fcmToken != null && fcmToken.isNotEmpty && fcmToken != _fcmToken) {
+          // FCM 토큰이 유효하면 추가 (사용자 ID는 이미 notifyAllParticipants에서 제외됨)
+          if (fcmToken != null && fcmToken.isNotEmpty) {
             tokens.add(fcmToken);
+            if (kDebugMode) {
+              print('✅ 사용자 $userId의 FCM 토큰 추가됨');
+            }
           }
         } else {
           if (kDebugMode) {
@@ -1081,6 +1085,14 @@ class NotificationService {
     required String senderName,
     required String message,
   }) async {
+    if (kDebugMode) {
+      print('💬 채팅 메시지 알림 발송 시작');
+      print('📝 모임: ${meeting.restaurantName ?? meeting.location}');
+      print('👤 발송자: $senderName ($senderUserId)');
+      print('📱 전체 참여자: ${meeting.participantIds}');
+      print('🚫 제외할 사용자: $senderUserId');
+    }
+    
     await notifyAllParticipants(
       participantIds: meeting.participantIds,
       excludeUserId: senderUserId,

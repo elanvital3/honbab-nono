@@ -1338,6 +1338,12 @@ class _MeetingDetailScreenState extends State<MeetingDetailScreen> with WidgetsB
       } else if (e.toString().contains('Cannot apply to your own meeting')) {
         errorMessage = '본인이 주최한 모임에는 신청할 수 없습니다';
         errorIcon = Icons.person;
+      } else if (e.toString().contains('여성만 참가 가능합니다')) {
+        errorMessage = '이 모임은 여성만 참가 가능합니다';
+        errorIcon = Icons.woman;
+      } else if (e.toString().contains('남성만 참가 가능합니다')) {
+        errorMessage = '이 모임은 남성만 참가 가능합니다';
+        errorIcon = Icons.man;
       } else if (e.toString().contains('permission-denied')) {
         errorMessage = '권한이 없습니다. 다시 로그인해주세요';
         errorIcon = Icons.lock;

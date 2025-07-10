@@ -18,7 +18,7 @@ class Meeting {
   final double? longitude;
   final String? restaurantName;
   final String? restaurantId; // 즐겨찾기 시스템을 위한 식당 ID
-  final String genderPreference; // 성별 선호도: '무관', '동성만', '이성만', '동성 1명이상'
+  final String genderRestriction; // 성별 제한: 'all', 'male', 'female' (기존 genderPreference 대체)
   final String? city; // 도시 정보 (예: '천안시', '서울시')
   final String? fullAddress; // 전체 주소
   final String status; // 모임 상태: 'active', 'completed'
@@ -44,7 +44,7 @@ class Meeting {
     this.longitude,
     this.restaurantName,
     this.restaurantId,
-    this.genderPreference = '무관',
+    this.genderRestriction = 'all',
     this.city,
     this.fullAddress,
     this.status = 'active',
@@ -74,6 +74,58 @@ class Meeting {
 
   String get formattedDateTime {
     return '${dateTime.month}/${dateTime.day} ${dateTime.hour}:${dateTime.minute.toString().padLeft(2, '0')}';
+  }
+
+  // 성별 제한 표시용 텍스트
+  String get genderRestrictionText {
+    switch (genderRestriction) {
+      case 'male':
+        return '남성만';
+      case 'female':
+        return '여성만';
+      case 'all':
+      default:
+        return '누구나';
+    }
+  }
+
+  // 성별 제한 아이콘
+  String get genderRestrictionIcon {
+    switch (genderRestriction) {
+      case 'male':
+        return '♂️';
+      case 'female':
+        return '♀️';
+      case 'all':
+      default:
+        return '👥';
+    }
+  }
+
+  // 사용자가 이 모임에 참가할 수 있는지 성별 기준으로 확인
+  bool canUserJoin(String? userGender) {
+    if (genderRestriction == 'all') return true;
+    if (userGender == null) return false;
+    return genderRestriction == userGender;
+  }
+
+  // 기존 한글 genderPreference 값을 영어 genderRestriction 값으로 변환
+  static String? _convertGenderPreference(String? oldValue) {
+    if (oldValue == null) return null;
+    switch (oldValue) {
+      case '무관':
+        return 'all';
+      case '동성만':
+        return null; // 사용자 성별을 모르므로 all로 처리
+      case '이성만':
+        return null; // 사용자 성별을 모르므로 all로 처리
+      case '남성만':
+        return 'male';
+      case '여성만':
+        return 'female';
+      default:
+        return 'all';
+    }
   }
 
   // Firestore 변환 메서드들
@@ -124,7 +176,8 @@ class Meeting {
         longitude: (data['longitude'] as num?)?.toDouble(),
         restaurantName: data['restaurantName']?.toString(),
         restaurantId: data['restaurantId']?.toString(),
-        genderPreference: data['genderPreference']?.toString() ?? '무관',
+        genderRestriction: _convertGenderPreference(data['genderPreference']?.toString()) ?? 
+                          data['genderRestriction']?.toString() ?? 'all',
         city: data['city']?.toString(),
         fullAddress: data['fullAddress']?.toString(),
         status: data['status']?.toString() ?? 'active',
@@ -160,7 +213,7 @@ class Meeting {
       'longitude': longitude,
       'restaurantName': restaurantName,
       'restaurantId': restaurantId,
-      'genderPreference': genderPreference,
+      'genderRestriction': genderRestriction,
       'city': city,
       'fullAddress': fullAddress,
       'status': status,
@@ -188,7 +241,7 @@ class Meeting {
     double? longitude,
     String? restaurantName,
     String? restaurantId,
-    String? genderPreference,
+    String? genderRestriction,
     String? city,
     String? fullAddress,
     String? status,
@@ -214,7 +267,7 @@ class Meeting {
       longitude: longitude ?? this.longitude,
       restaurantName: restaurantName ?? this.restaurantName,
       restaurantId: restaurantId ?? this.restaurantId,
-      genderPreference: genderPreference ?? this.genderPreference,
+      genderRestriction: genderRestriction ?? this.genderRestriction,
       city: city ?? this.city,
       fullAddress: fullAddress ?? this.fullAddress,
       status: status ?? this.status,
