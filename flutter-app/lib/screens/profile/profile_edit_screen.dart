@@ -11,6 +11,7 @@ import '../../styles/text_styles.dart';
 import '../../components/common/common_card.dart';
 import '../../components/common/common_button.dart';
 import '../../components/common/common_confirm_dialog.dart';
+import '../../components/common/badge_chip.dart';
 import '../../models/user_badge.dart';
 import '../../services/kakao_auth_service.dart';
 import 'package:kakao_flutter_sdk/kakao_flutter_sdk.dart';
@@ -732,48 +733,10 @@ class _ProfileEditScreenState extends State<ProfileEditScreen> {
       children: UserBadge.allBadges.map((badge) {
         final isSelected = _selectedBadges.contains(badge.id);
         
-        return GestureDetector(
+        return BadgeChip(
+          badge: badge,
+          isSelected: isSelected,
           onTap: () => _toggleBadge(badge.id),
-          child: Container(
-            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-            decoration: BoxDecoration(
-              color: isSelected
-                  ? AppDesignTokens.primary.withOpacity(0.1)
-                  : Colors.grey[50],
-              borderRadius: BorderRadius.circular(20),
-              border: Border.all(
-                color: isSelected
-                    ? AppDesignTokens.primary
-                    : Colors.grey[300]!,
-                width: isSelected ? 2 : 1,
-              ),
-            ),
-            child: Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Text(
-                  badge.emoji,
-                  style: const TextStyle(
-                    fontSize: 14,
-                    fontFamily: null,
-                  ),
-                ),
-                const SizedBox(width: 6),
-                Text(
-                  badge.name,
-                  style: TextStyle(
-                    fontSize: 14,
-                    color: isSelected
-                        ? AppDesignTokens.primary
-                        : Colors.black87,
-                    fontWeight: isSelected
-                        ? FontWeight.w600
-                        : FontWeight.normal,
-                  ),
-                ),
-              ],
-            ),
-          ),
         );
       }).toList(),
     );
