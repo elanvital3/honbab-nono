@@ -8,6 +8,7 @@ class User {
   final String? gender; // 성별 (male/female)
   final int? birthYear; // 출생연도
   final String? profileImageUrl;
+  final String? kakaoProfileImageUrl; // 카카오 원본 프로필 이미지 URL
   final String? bio;
   final String? kakaoId;
   final String? fcmToken;  // FCM 푸시 알림 토큰
@@ -20,6 +21,8 @@ class User {
   final int meetingsJoined;
   final List<String> favoriteRestaurants;
   final List<String> badges; // 사용자 특성 뱃지 ID 목록
+  final bool isAdultVerified; // 성인인증 완료 여부
+  final DateTime? adultVerifiedAt; // 성인인증 완료 시간
   final DateTime createdAt;
   final DateTime updatedAt;
 
@@ -31,6 +34,7 @@ class User {
     this.gender,
     this.birthYear,
     this.profileImageUrl,
+    this.kakaoProfileImageUrl,
     this.bio,
     this.kakaoId,
     this.fcmToken,
@@ -43,6 +47,8 @@ class User {
     this.meetingsJoined = 0,
     this.favoriteRestaurants = const [],
     this.badges = const [],
+    this.isAdultVerified = false,
+    this.adultVerifiedAt,
     DateTime? createdAt,
     DateTime? updatedAt,
   }) : createdAt = createdAt ?? DateTime.now(),
@@ -58,6 +64,7 @@ class User {
       gender: data['gender'],
       birthYear: data['birthYear'],
       profileImageUrl: data['profileImageUrl'],
+      kakaoProfileImageUrl: data['kakaoProfileImageUrl'],
       bio: data['bio'],
       kakaoId: data['kakaoId'],
       fcmToken: data['fcmToken'],
@@ -70,6 +77,8 @@ class User {
       meetingsJoined: data['meetingsJoined'] ?? 0,
       favoriteRestaurants: List<String>.from(data['favoriteRestaurants'] ?? []),
       badges: List<String>.from(data['badges'] ?? []),
+      isAdultVerified: data['isAdultVerified'] ?? false,
+      adultVerifiedAt: (data['adultVerifiedAt'] as Timestamp?)?.toDate(),
       createdAt: (data['createdAt'] as Timestamp?)?.toDate() ?? DateTime.now(),
       updatedAt: (data['updatedAt'] as Timestamp?)?.toDate() ?? DateTime.now(),
     );
@@ -83,6 +92,7 @@ class User {
       'gender': gender,
       'birthYear': birthYear,
       'profileImageUrl': profileImageUrl,
+      'kakaoProfileImageUrl': kakaoProfileImageUrl,
       'bio': bio,
       'kakaoId': kakaoId,
       'fcmToken': fcmToken,
@@ -95,6 +105,8 @@ class User {
       'meetingsJoined': meetingsJoined,
       'favoriteRestaurants': favoriteRestaurants,
       'badges': badges,
+      'isAdultVerified': isAdultVerified,
+      'adultVerifiedAt': adultVerifiedAt != null ? Timestamp.fromDate(adultVerifiedAt!) : null,
       'createdAt': Timestamp.fromDate(createdAt),
       'updatedAt': Timestamp.fromDate(updatedAt),
     };
@@ -108,6 +120,7 @@ class User {
     String? gender,
     int? birthYear,
     String? profileImageUrl,
+    String? kakaoProfileImageUrl,
     String? bio,
     String? kakaoId,
     String? fcmToken,
@@ -120,6 +133,8 @@ class User {
     int? meetingsJoined,
     List<String>? favoriteRestaurants,
     List<String>? badges,
+    bool? isAdultVerified,
+    DateTime? adultVerifiedAt,
     DateTime? createdAt,
     DateTime? updatedAt,
   }) {
@@ -131,6 +146,7 @@ class User {
       gender: gender ?? this.gender,
       birthYear: birthYear ?? this.birthYear,
       profileImageUrl: profileImageUrl ?? this.profileImageUrl,
+      kakaoProfileImageUrl: kakaoProfileImageUrl ?? this.kakaoProfileImageUrl,
       bio: bio ?? this.bio,
       kakaoId: kakaoId ?? this.kakaoId,
       fcmToken: fcmToken ?? this.fcmToken,
@@ -143,6 +159,8 @@ class User {
       meetingsJoined: meetingsJoined ?? this.meetingsJoined,
       favoriteRestaurants: favoriteRestaurants ?? this.favoriteRestaurants,
       badges: badges ?? this.badges,
+      isAdultVerified: isAdultVerified ?? this.isAdultVerified,
+      adultVerifiedAt: adultVerifiedAt ?? this.adultVerifiedAt,
       createdAt: createdAt ?? this.createdAt,
       updatedAt: updatedAt ?? this.updatedAt,
     );

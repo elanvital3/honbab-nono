@@ -7,6 +7,7 @@ import 'evaluation_service.dart';
 import 'meeting_service.dart';
 import 'chat_service.dart';
 import 'blacklist_service.dart';
+import 'deletion_history_service.dart';
 
 class UserService {
   static final FirebaseFirestore _firestore = FirebaseFirestore.instance;
@@ -295,6 +296,8 @@ class UserService {
     String? profileImageUrl,
     String? kakaoId,
     List<String>? badges,
+    bool isAdultVerified = false,
+    DateTime? adultVerifiedAt,
   }) async {
     try {
       final user = User(
@@ -307,6 +310,8 @@ class UserService {
         profileImageUrl: profileImageUrl,
         kakaoId: kakaoId,
         badges: badges ?? [],
+        isAdultVerified: isAdultVerified,
+        adultVerifiedAt: adultVerifiedAt,
       );
       
       await _firestore.collection(_collection).doc(id).set(user.toFirestore());
@@ -316,12 +321,116 @@ class UserService {
         if (phoneNumber != null) print('  - 전화번호: $phoneNumber');
         if (gender != null) print('  - 성별: $gender');
         if (birthYear != null) print('  - 출생연도: $birthYear');
+        if (isAdultVerified) print('  - 성인인증: 완료 (${adultVerifiedAt?.toString()})');
       }
       
       return user;
     } catch (e) {
       if (kDebugMode) {
         print('❌ Error creating user with nickname: $e');
+      }
+      rethrow;
+    }
+  }
+
+  /// 기존 사용자 성인인증 상태 업데이트
+  static Future<void> updateAdultVerificationStatus({
+    required String userId,
+    required bool isAdultVerified,
+    DateTime? adultVerifiedAt,
+    String? name,
+    String? gender,
+    int? birthYear,
+    String? phoneNumber,
+  }) async {
+    try {
+      if (kDebugMode) {
+        print('🔄 성인인증 상태 업데이트 시작: $userId');
+        print('  - 인증 상태: $isAdultVerified');
+        print('  - 인증 시간: ${adultVerifiedAt?.toString() ?? '없음'}');
+        if (name != null) print('  - 이름: $name');
+      }
+
+      final updates = <String, dynamic>{
+        'isAdultVerified': isAdultVerified,
+        'updatedAt': Timestamp.fromDate(DateTime.now()),
+      };
+
+      // 본인인증 정보가 제공된 경우 업데이트
+      if (name != null) updates['name'] = name;
+      if (gender != null) updates['gender'] = gender;
+      if (birthYear != null) updates['birthYear'] = birthYear;
+      if (phoneNumber != null) updates['phoneNumber'] = phoneNumber;
+
+      if (adultVerifiedAt != null) {
+        updates['adultVerifiedAt'] = Timestamp.fromDate(adultVerifiedAt);
+      } else if (!isAdultVerified) {
+        // 인증 취소 시 인증 시간도 제거
+        updates['adultVerifiedAt'] = null;
+      } else if (isAdultVerified && adultVerifiedAt == null) {
+        // 인증 완료 시 시간이 없으면 현재 시간으로 설정
+        updates['adultVerifiedAt'] = Timestamp.fromDate(DateTime.now());
+      }
+
+      await _firestore.collection(_collection).doc(userId).update(updates);
+      
+      if (kDebugMode) {
+        print('✅ 성인인증 상태 업데이트 완료: $userId');
+      }
+    } catch (e) {
+      if (kDebugMode) {
+        print('❌ 성인인증 상태 업데이트 실패: $e');
+      }
+      rethrow;
+    }
+  }
+
+  /// 기존 사용자 성인인증 처리 (본인인증 데이터 포함)
+  static Future<void> updateUserWithAdultVerification({
+    required String userId,
+    String? verifiedName,
+    String? verifiedGender,
+    int? verifiedBirthYear,
+    String? verifiedPhone,
+  }) async {
+    try {
+      if (kDebugMode) {
+        print('🔄 기존 사용자 성인인증 처리 시작: $userId');
+        print('  - 인증된 이름: $verifiedName');
+        print('  - 인증된 성별: $verifiedGender');
+        print('  - 인증된 출생연도: $verifiedBirthYear');
+        print('  - 인증된 전화번호: $verifiedPhone');
+      }
+
+      final updates = <String, dynamic>{
+        'isAdultVerified': true,
+        'adultVerifiedAt': Timestamp.fromDate(DateTime.now()),
+        'updatedAt': Timestamp.fromDate(DateTime.now()),
+      };
+
+      // 기존 정보가 없는 경우에만 업데이트
+      final user = await getUser(userId);
+      if (user != null) {
+        if (verifiedGender != null && user.gender == null) {
+          updates['gender'] = verifiedGender;
+        }
+        if (verifiedBirthYear != null && user.birthYear == null) {
+          updates['birthYear'] = verifiedBirthYear;
+        }
+        if (verifiedPhone != null && user.phoneNumber == null) {
+          updates['phoneNumber'] = verifiedPhone;
+        }
+      }
+
+      await _firestore.collection(_collection).doc(userId).update(updates);
+      
+      if (kDebugMode) {
+        print('✅ 기존 사용자 성인인증 처리 완료: $userId');
+        print('   업데이트된 필드: ${updates.keys.toList()}');
+      }
+    } catch (e) {
+      if (kDebugMode) {
+        print('❌ 기존 사용자 성인인증 처리 실패: $e');
       }
       rethrow;
     }
@@ -797,6 +906,26 @@ class UserService {
         print('🔍 삭제 대상 사용자: ${user.name} (${user.email})');
       }
 
+      // 1.5. 탈퇴 이력 저장 (DeletionHistoryService 사용)
+      if (kDebugMode) {
+        print('🔄 Phase 1.5: 탈퇴 이력 저장 시작');
+      }
+      
+      try {
+        await DeletionHistoryService.saveDeletionHistory(
+          user: user,
+          deletionReason: reason ?? '사용자 요청에 의한 회원탈퇴',
+        );
+        if (kDebugMode) {
+          print('✅ Phase 1.5 완료: 탈퇴 이력 저장 완료');
+        }
+      } catch (e) {
+        if (kDebugMode) {
+          print('⚠️ Phase 1.5 실패: $e (계속 진행)');
+        }
+        // 탈퇴 이력 저장 실패는 전체 탈퇴를 방해하지 않음
+      }
+
       // 2. Firestore 배치 작업으로 일관성 보장
       final batch = _firestore.batch();
       final now = Timestamp.fromDate(DateTime.now());
@@ -905,6 +1034,52 @@ class UserService {
         print('❌ 회원탈퇴 실패: $e');
       }
       rethrow;
+    }
+  }
+
+  /// 사용자 본인인증 상태 조회
+  static Future<bool> isUserAdultVerified(String userId) async {
+    try {
+      final user = await getUser(userId);
+      return user?.isAdultVerified ?? false;
+    } catch (e) {
+      if (kDebugMode) {
+        print('❌ 본인인증 상태 조회 실패: $e');
+      }
+      return false;
+    }
+  }
+
+  /// 본인인증이 필요한 작업 전 체크
+  static Future<bool> checkAdultVerificationRequired(String userId) async {
+    try {
+      final isVerified = await isUserAdultVerified(userId);
+      
+      if (kDebugMode) {
+        print('🔍 본인인증 체크: $userId -> ${isVerified ? "인증됨" : "인증 필요"}');
+      }
+      
+      return !isVerified; // true면 인증이 필요함
+    } catch (e) {
+      if (kDebugMode) {
+        print('❌ 본인인증 체크 실패: $e');
+      }
+      return true; // 에러 시 안전하게 인증 필요로 처리
+    }
+  }
+
+  /// 본인인증 완료 후 통계 업데이트 (필요 시)
+  static Future<void> updateVerificationStats(String userId) async {
+    try {
+      // 향후 본인인증 관련 통계가 필요하면 여기에 추가
+      if (kDebugMode) {
+        print('📊 본인인증 통계 업데이트: $userId');
+      }
+    } catch (e) {
+      if (kDebugMode) {
+        print('❌ 본인인증 통계 업데이트 실패: $e');
+      }
+      // 통계 업데이트 실패는 전체 프로세스에 영향주지 않음
     }
   }
 }

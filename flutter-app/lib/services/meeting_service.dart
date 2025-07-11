@@ -749,6 +749,23 @@ class MeetingService {
   /// 즐겨찾기 식당 사용자들에게 새 모임 알림 발송
   static Future<void> _notifyFavoriteRestaurantUsers(Meeting meeting) async {
     try {
+      // 즐겨찾기 식당 알림 설정 확인
+      final notificationService = NotificationService();
+      if (!await notificationService.isFavoriteRestaurantNotificationEnabled()) {
+        if (kDebugMode) {
+          print('🔕 즐겨찾기 식당 알림이 비활성화되어 있어 스킵합니다');
+        }
+        return;
+      }
+      
+      // 방해금지 모드 확인
+      if (await notificationService.isDoNotDisturbActive()) {
+        if (kDebugMode) {
+          print('🔕 방해금지 모드로 인해 즐겨찾기 식당 알림 스킵');
+        }
+        return;
+      }
+      
       // restaurantId가 없으면 알림 발송 스킨
       if (meeting.restaurantId == null || meeting.restaurantId!.isEmpty) {
         if (kDebugMode) {
@@ -790,7 +807,6 @@ class MeetingService {
       final body = '$hostName님이 ${meeting.restaurantName ?? meeting.location}에서 모임을 개설했어요';
       
       // 모든 즐겨찾기 사용자들에게 알림 발송
-      final notificationService = NotificationService();
       int successCount = 0;
       int failCount = 0;
       
@@ -808,11 +824,13 @@ class MeetingService {
             print('📤 FCM 발송 시도 [$i/${favoriteUserTokens.length}]: ${token.substring(0, 20)}...');
           }
           
-          // Firebase Functions 제거됨 - FCM 기능 대신 로컬 알림 사용
-          // 추후 Phase 2에서 Firebase Admin SDK로 구현 예정
-          if (kDebugMode) {
-            print('🔔 즐겨찾기 식당 알림 체크: $title');
-          }
+          // Firebase Functions를 통한 실제 FCM 발송
+          await notificationService.sendDirectTestMessage(
+            targetToken: token,
+            title: title,
+            body: body,
+            type: 'favorite_restaurant_meeting',
+          );
           
           successCount++;
           if (kDebugMode) {

@@ -4,6 +4,7 @@ import '../../models/meeting.dart';
 import '../../models/restaurant.dart';
 import '../../models/user.dart' as app_user;
 import '../../components/restaurant_search_modal.dart';
+import '../../components/common/common_confirm_dialog.dart';
 import '../../services/auth_service.dart';
 import '../../services/meeting_service.dart';
 import '../../services/user_service.dart';
@@ -165,6 +166,16 @@ class _CreateMeetingScreenState extends State<CreateMeetingScreen> {
       if (kDebugMode) {
         print('✅ 사용자 정보 확인: ${currentUser.name}');
         print('🔍 사용자 카카오 ID: ${currentUser.kakaoId}');
+        print('🔍 본인인증 상태: ${currentUser.isAdultVerified}');
+      }
+
+      // 본인인증 필수 체크
+      if (!currentUser.isAdultVerified) {
+        setState(() {
+          _isLoading = false;
+        });
+        _showVerificationRequiredDialog();
+        return;
       }
 
       // 모임 날짜/시간 결합
@@ -284,6 +295,20 @@ class _CreateMeetingScreenState extends State<CreateMeetingScreen> {
         content: Text(message),
         backgroundColor: Colors.red,
         behavior: SnackBarBehavior.floating,
+      ),
+    );
+  }
+
+  void _showVerificationRequiredDialog() {
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (context) => const CommonConfirmDialog(
+        title: '본인인증이 필요합니다',
+        content: '모임을 주최하려면 본인인증을 완료해야 합니다. 마이페이지에서 본인인증을 진행해주세요.',
+        confirmText: '확인',
+        icon: Icons.verified_user,
+        showCancelButton: false,
       ),
     );
   }

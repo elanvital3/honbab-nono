@@ -16,6 +16,7 @@ admin.initializeApp({
   projectId: 'honbab-nono'
 });
 const db = admin.firestore();
+const messaging = admin.messaging();
 
 /**
  * 카카오 ID 기반으로 고정된 Firebase UID를 가진 Custom Token 생성
@@ -780,6 +781,81 @@ exports.deleteAllAuthUsers = onCall(async (request) => {
   } catch (error) {
     logger.error('❌ Firebase Auth 사용자 삭제 실패:', error);
     throw new Error(`Auth 사용자 삭제 실패: ${error.message}`);
+  }
+});
+
+/**
+ * FCM 푸시 알림 발송 함수
+ * Flutter 앱에서 직접 호출하여 다른 사용자에게 푸시 알림을 보낼 수 있음
+ */
+exports.sendNotification = onCall(async (request) => {
+  const data = request.data;
+  const auth = request.auth;
+  
+  // 인증 확인
+  if (!auth) {
+    throw new Error('인증되지 않은 요청입니다.');
+  }
+  
+  // 필수 파라미터 검증
+  if (!data.token || !data.title || !data.body) {
+    throw new Error('token, title, body는 필수 항목입니다.');
+  }
+  
+  try {
+    // FCM 메시지 구성
+    const message = {
+      token: data.token,
+      notification: {
+        title: data.title,
+        body: data.body,
+      },
+      data: data.data || {},
+      android: {
+        priority: 'high',
+        notification: {
+          sound: 'default',
+          priority: 'high',
+          channelId: data.channelId || 'default',
+        },
+      },
+      apns: {
+        payload: {
+          aps: {
+            alert: {
+              title: data.title,
+              body: data.body,
+            },
+            sound: 'default',
+            badge: 1,
+          },
+        },
+      },
+    };
+    
+    // FCM 메시지 발송
+    const response = await messaging.send(message);
+    
+    logger.info(`✅ FCM 알림 발송 성공: ${response}`);
+    logger.info(`📱 수신자 토큰: ${data.token.substring(0, 20)}...`);
+    logger.info(`📝 제목: ${data.title}`);
+    
+    return {
+      success: true,
+      messageId: response,
+      timestamp: new Date().toISOString(),
+    };
+    
+  } catch (error) {
+    logger.error('❌ FCM 알림 발송 실패:', error);
+    
+    // 에러 타입에 따른 처리
+    if (error.code === 'messaging/invalid-registration-token' ||
+        error.code === 'messaging/registration-token-not-registered') {
+      throw new Error('유효하지 않은 FCM 토큰입니다.');
+    }
+    
+    throw new Error(`알림 발송 실패: ${error.message}`);
   }
 });
 

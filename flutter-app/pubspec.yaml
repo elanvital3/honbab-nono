@@ -44,6 +44,7 @@ dependencies:
   firebase_auth: ^5.0.0
   cloud_firestore: ^5.0.0
   firebase_storage: ^12.0.0
+  cloud_functions: ^5.0.0
   
   # 상태 관리 (Firebase와 함께 사용)
   provider: ^6.1.2
@@ -75,14 +76,16 @@ dependencies:
   permission_handler: ^11.4.0
   timezone: ^0.9.4
   
+  # 이미지 선택 및 처리
+  image_picker: ^1.0.7
+  
   # 환경변수 관리 (보안상 필요)
   flutter_dotenv: ^5.1.0
   
   # 보안 (비밀번호 해시 생성)
   crypto: ^3.0.3
   
-  # 아임포트 본인인증 및 결제
-  iamport_flutter: ^1.2.0
+  # PortOne (구 아임포트) 본인인증 및 결제
 
 dev_dependencies:
   flutter_test:

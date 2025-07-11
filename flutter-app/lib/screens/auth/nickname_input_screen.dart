@@ -3,6 +3,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import '../../services/user_service.dart';
 import '../../services/notification_service.dart';
+import '../../services/deletion_history_service.dart';
 import '../home/home_screen.dart';
 import '../../models/user_badge.dart';
 import '../../components/user_badge_chip.dart';
@@ -37,44 +38,40 @@ class NicknameInputScreen extends StatefulWidget {
 
 class _NicknameInputScreenState extends State<NicknameInputScreen> {
   final TextEditingController _nicknameController = TextEditingController();
-  final TextEditingController _phoneController = TextEditingController();
-  final TextEditingController _birthYearController = TextEditingController();
   bool _isLoading = false;
   bool _isNicknameValid = false;
   String? _nicknameError;
-  String? _selectedGender;
-  String? _phoneError;
-  String? _birthYearError;
-  int _selectedBirthYear = 1990; // 기본값
   final Set<String> _selectedBadgeIds = <String>{}; // 뱃지 선택
   static const int _maxBadges = 3; // 최대 선택 가능한 뱃지 수
 
   @override
   void initState() {
     super.initState();
+    
+    if (kDebugMode) {
+      print('🆔 NicknameInputScreen: initState 시작');
+      print('  - userId: ${widget.userId}');
+      print('  - verifiedName: ${widget.verifiedName}');
+    }
+    
     _nicknameController.addListener(_validateNickname);
-    _phoneController.addListener(_validatePhone);
     
     // 본인인증에서 받은 정보로 미리 설정
     if (widget.verifiedName != null) {
       _nicknameController.text = widget.verifiedName!;
+      if (kDebugMode) {
+        print('✅ NicknameInputScreen: 닉네임 미리 설정 - ${widget.verifiedName}');
+      }
     }
-    if (widget.verifiedGender != null) {
-      _selectedGender = widget.verifiedGender;
-    }
-    if (widget.verifiedBirthYear != null) {
-      _selectedBirthYear = widget.verifiedBirthYear!;
-    }
-    if (widget.verifiedPhone != null) {
-      _phoneController.text = widget.verifiedPhone!;
+    
+    if (kDebugMode) {
+      print('✅ NicknameInputScreen: initState 완료');
     }
   }
 
   @override
   void dispose() {
     _nicknameController.dispose();
-    _phoneController.dispose();
-    _birthYearController.dispose();
     super.dispose();
   }
 
@@ -97,43 +94,10 @@ class _NicknameInputScreenState extends State<NicknameInputScreen> {
     });
   }
 
-  void _validatePhone() {
-    final phone = _phoneController.text.trim();
-    final cleanPhone = phone.replaceAll('-', '').replaceAll(' ', '');
-    setState(() {
-      if (phone.isEmpty) {
-        _phoneError = null;
-      } else if (cleanPhone.length != 11 || !cleanPhone.startsWith('010')) {
-        _phoneError = '올바른 휴대폰 번호를 입력해주세요 (010-0000-0000)';
-      } else {
-        _phoneError = null;
-      }
-    });
-  }
-
-  void _validateBirthYear() {
-    final year = _birthYearController.text.trim();
-    final currentYear = DateTime.now().year;
-    setState(() {
-      if (year.isEmpty) {
-        _birthYearError = null;
-      } else {
-        final birthYear = int.tryParse(year);
-        if (birthYear == null || birthYear < 1900 || birthYear > currentYear - 14) {
-          _birthYearError = '유효한 출생연도를 입력해주세요 (만 14세 이상)';
-        } else {
-          _birthYearError = null;
-        }
-      }
-    });
-  }
 
   bool _isFormValid() {
-    return _isNicknameValid &&
-           _selectedGender != null &&
-           _phoneController.text.trim().isNotEmpty &&
-           _phoneError == null;
-           // 출생년도는 기본값이 있어서 항상 유효
+    // 닉네임만 체크 (성인인증에서 나머지 정보를 받을 예정)
+    return _isNicknameValid;
   }
 
   Future<void> _checkNicknameAvailability() async {
@@ -144,6 +108,23 @@ class _NicknameInputScreenState extends State<NicknameInputScreen> {
     });
 
     try {
+      // 1. 재가입 제한 확인 (중요!)
+      final reactivationStatus = await DeletionHistoryService.checkReactivationStatus(
+        kakaoId: widget.kakaoId,
+        email: widget.email,
+      );
+      
+      if (!reactivationStatus.allowed) {
+        if (mounted) {
+          setState(() {
+            _nicknameError = reactivationStatus.displayMessage;
+            _isLoading = false;
+          });
+        }
+        return;
+      }
+
+      // 2. 닉네임 중복 확인
       final existingUser = await UserService.getUserByNickname(nickname);
       
       if (existingUser != null && mounted) {
@@ -155,7 +136,7 @@ class _NicknameInputScreenState extends State<NicknameInputScreen> {
         return;
       }
 
-      // 닉네임이 사용 가능하면 회원가입 완료
+      // 3. 닉네임이 사용 가능하면 회원가입 완료
       await _completeSignup();
       
     } catch (e) {
@@ -170,20 +151,31 @@ class _NicknameInputScreenState extends State<NicknameInputScreen> {
 
   Future<void> _completeSignup() async {
     try {
-      // 전화번호는 이미 포맷된 상태로 저장
-      final formattedPhone = _phoneController.text.trim();
+      // 본인인증 여부 확인
+      final isVerified = widget.verifiedName != null;
       
-      // 사용자 정보 업데이트
+      if (kDebugMode) {
+        print('🔄 NicknameInput: 회원가입 정보');
+        print('  - 본인인증 여부: $isVerified');
+        print('  - 닉네임: ${_nicknameController.text.trim()}');
+        print('  - 성별: ${widget.verifiedGender}');
+        print('  - 출생연도: ${widget.verifiedBirthYear}');
+        print('  - 전화번호: ${widget.verifiedPhone}');
+      }
+      
+      // 사용자 정보 업데이트 (성인인증 정보만 저장, 없으면 null)
       final user = await UserService.createUserWithNickname(
         id: widget.userId,
         name: _nicknameController.text.trim(),
         email: widget.email,
-        phoneNumber: formattedPhone,
-        gender: _selectedGender!,
-        birthYear: _selectedBirthYear,
+        phoneNumber: widget.verifiedPhone,
+        gender: widget.verifiedGender,
+        birthYear: widget.verifiedBirthYear,
         profileImageUrl: widget.profileImageUrl,
         kakaoId: widget.kakaoId,
         badges: _selectedBadgeIds.toList(), // 선택된 뱃지 포함
+        isAdultVerified: isVerified, // 본인인증을 거쳤으면 true
+        adultVerifiedAt: isVerified ? DateTime.now() : null,
       );
 
       if (user != null && mounted) {
@@ -271,9 +263,21 @@ class _NicknameInputScreenState extends State<NicknameInputScreen> {
 
   @override
   Widget build(BuildContext context) {
+    if (kDebugMode) {
+      print('🏗️ NicknameInputScreen: build 메서드 실행');
+    }
+    
     return Scaffold(
       backgroundColor: Colors.white,
       resizeToAvoidBottomInset: true,
+      appBar: AppBar(
+        backgroundColor: Colors.white,
+        elevation: 0,
+        leading: IconButton(
+          icon: const Icon(Icons.arrow_back, color: Color(0xFF333333)),
+          onPressed: () => Navigator.pop(context),
+        ),
+      ),
       body: SafeArea(
         child: SingleChildScrollView(
           padding: const EdgeInsets.symmetric(horizontal: 24),
@@ -368,43 +372,6 @@ class _NicknameInputScreenState extends State<NicknameInputScreen> {
                   Expanded(
                     child: Column(
                   children: [
-                    // 안내 텍스트
-                    Container(
-                      padding: const EdgeInsets.all(16),
-                      decoration: BoxDecoration(
-                        color: const Color(0xFFF9F9F9),
-                        borderRadius: BorderRadius.circular(12),
-                        border: Border.all(color: const Color(0xFFE0E0E0)),
-                      ),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Row(
-                            children: [
-                              Icon(Icons.info_outline, color: const Color(0xFFD2B48C), size: 20),
-                              const SizedBox(width: 8),
-                              const Text(
-                                '개인정보 수집 안내',
-                                style: TextStyle(
-                                  fontSize: 14,
-                                  fontWeight: FontWeight.w600,
-                                  color: Color(0xFFD2B48C),
-                                ),
-                              ),
-                            ],
-                          ),
-                          const SizedBox(height: 12),
-                          _buildInfoItem('성별', '안전한 동성/이성 매칭을 위해 필요합니다'),
-                          const SizedBox(height: 8),
-                          _buildInfoItem('출생연도', '적절한 연령대 매칭을 위해 필요합니다'),
-                          const SizedBox(height: 8),
-                          _buildInfoItem('전화번호', '긴급 연락 및 계정 보안을 위해 필요합니다'),
-                        ],
-                      ),
-                    ),
-                    
-                    const SizedBox(height: 24),
-                    
                     // 닉네임 입력 필드
                     TextField(
                       controller: _nicknameController,
@@ -435,120 +402,6 @@ class _NicknameInputScreenState extends State<NicknameInputScreen> {
                         color: Color(0xFF333333),
                       ),
                       maxLength: 10,
-                    ),
-                    
-                    const SizedBox(height: 16),
-                    
-                    // 성별 선택
-                    Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        const Text(
-                          '성별 *',
-                          style: TextStyle(
-                            fontSize: 16,
-                            fontWeight: FontWeight.w500,
-                            color: Color(0xFF333333),
-                          ),
-                        ),
-                        const SizedBox(height: 8),
-                        Row(
-                          children: [
-                            Expanded(
-                              child: _buildGenderButton('남성', 'male'),
-                            ),
-                            const SizedBox(width: 12),
-                            Expanded(
-                              child: _buildGenderButton('여성', 'female'),
-                            ),
-                          ],
-                        ),
-                      ],
-                    ),
-                    
-                    const SizedBox(height: 20),
-                    
-                    // 출생연도 선택
-                    Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        const Text(
-                          '출생연도 *',
-                          style: TextStyle(
-                            fontSize: 16,
-                            fontWeight: FontWeight.w500,
-                            color: Color(0xFF333333),
-                          ),
-                        ),
-                        const SizedBox(height: 8),
-                        Container(
-                          width: double.infinity,
-                          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
-                          decoration: BoxDecoration(
-                            border: Border.all(color: const Color(0xFFE0E0E0)),
-                            borderRadius: BorderRadius.circular(12),
-                          ),
-                          child: DropdownButtonHideUnderline(
-                            child: DropdownButton<int>(
-                              value: _selectedBirthYear,
-                              isExpanded: true,
-                              icon: const Icon(Icons.arrow_drop_down, color: Color(0xFF666666)),
-                              style: const TextStyle(
-                                fontSize: 16,
-                                color: Color(0xFF333333),
-                              ),
-                              items: _generateBirthYearItems(),
-                              onChanged: _isLoading ? null : (int? newValue) {
-                                if (newValue != null) {
-                                  setState(() {
-                                    _selectedBirthYear = newValue;
-                                  });
-                                }
-                              },
-                            ),
-                          ),
-                        ),
-                      ],
-                    ),
-                    
-                    const SizedBox(height: 16),
-                    
-                    // 전화번호 입력
-                    TextField(
-                      controller: _phoneController,
-                      enabled: !_isLoading,
-                      keyboardType: TextInputType.number,
-                      inputFormatters: [
-                        FilteringTextInputFormatter.digitsOnly,
-                        LengthLimitingTextInputFormatter(11),
-                        _PhoneNumberFormatter(),
-                      ],
-                      decoration: InputDecoration(
-                        labelText: '전화번호 *',
-                        hintText: '010-0000-0000',
-                        border: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(12),
-                          borderSide: const BorderSide(color: Color(0xFFE0E0E0)),
-                        ),
-                        focusedBorder: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(12),
-                          borderSide: const BorderSide(color: Color(0xFFD2B48C), width: 2),
-                        ),
-                        errorBorder: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(12),
-                          borderSide: const BorderSide(color: Colors.red, width: 2),
-                        ),
-                        contentPadding: const EdgeInsets.symmetric(
-                          horizontal: 16,
-                          vertical: 16,
-                        ),
-                        errorText: _phoneError,
-                      ),
-                      style: const TextStyle(
-                        fontSize: 16,
-                        color: Color(0xFF333333),
-                      ),
-                      maxLength: 13, // 010-0000-0000 형태
                     ),
                     
                     const SizedBox(height: 24),
@@ -610,77 +463,6 @@ class _NicknameInputScreenState extends State<NicknameInputScreen> {
     );
   }
 
-  Widget _buildInfoItem(String title, String description) {
-    return Row(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        const Text('• ', style: TextStyle(color: Color(0xFF666666), fontSize: 12)),
-        Expanded(
-          child: RichText(
-            text: TextSpan(
-              style: const TextStyle(fontSize: 12, color: Color(0xFF666666)),
-              children: [
-                TextSpan(
-                  text: '$title: ',
-                  style: const TextStyle(fontWeight: FontWeight.w600),
-                ),
-                TextSpan(text: description),
-              ],
-            ),
-          ),
-        ),
-      ],
-    );
-  }
-
-  Widget _buildGenderButton(String label, String value) {
-    final isSelected = _selectedGender == value;
-    return GestureDetector(
-      onTap: _isLoading ? null : () {
-        setState(() {
-          _selectedGender = value;
-        });
-      },
-      child: Container(
-        padding: const EdgeInsets.symmetric(vertical: 12),
-        decoration: BoxDecoration(
-          color: isSelected ? const Color(0xFFD2B48C) : Colors.white,
-          borderRadius: BorderRadius.circular(12),
-          border: Border.all(
-            color: isSelected ? const Color(0xFFD2B48C) : const Color(0xFFE0E0E0),
-            width: isSelected ? 2 : 1,
-          ),
-        ),
-        child: Center(
-          child: Text(
-            label,
-            style: TextStyle(
-              fontSize: 16,
-              fontWeight: FontWeight.w500,
-              color: isSelected ? Colors.white : const Color(0xFF666666),
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-
-  List<DropdownMenuItem<int>> _generateBirthYearItems() {
-    final currentYear = DateTime.now().year;
-    final startYear = currentYear - 80; // 80세까지
-    final endYear = currentYear - 14;   // 만 14세까지
-    
-    return List.generate(
-      endYear - startYear + 1,
-      (index) {
-        final year = endYear - index; // 최신 연도부터 정렬
-        return DropdownMenuItem<int>(
-          value: year,
-          child: Text('$year년'),
-        );
-      },
-    );
-  }
 
   Widget _buildBadgeSelection() {
     return Column(
@@ -707,14 +489,6 @@ class _NicknameInputScreenState extends State<NicknameInputScreen> {
             ),
           ],
         ),
-        const SizedBox(height: 8),
-        Text(
-          '나를 잘 나타내는 특성을 선택해주세요 (최대 $_maxBadges개)',
-          style: const TextStyle(
-            fontSize: 12,
-            color: Color(0xFF666666),
-          ),
-        ),
         const SizedBox(height: 12),
         
         // 선택된 뱃지 표시
@@ -729,108 +503,67 @@ class _NicknameInputScreenState extends State<NicknameInputScreen> {
           const SizedBox(height: 12),
         ],
         
-        // 뱃지 선택 - 스크롤 없이 전체 표시
-        ...UserBadge.allCategories.map((category) {
-          final badges = UserBadge.getBadgesByCategory(category);
-          return Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              const SizedBox(height: 12),
-              Text(
-                category,
-                style: const TextStyle(
-                  fontSize: 14,
-                  fontWeight: FontWeight.w600,
-                  color: Color(0xFF333333),
+        // 뱃지 선택 - 카테고리 구분 없이 전체 나열
+        const SizedBox(height: 12),
+        Wrap(
+          spacing: 8,
+          runSpacing: 8,
+          children: UserBadge.allBadges.map((badge) {
+            final isSelected = _selectedBadgeIds.contains(badge.id);
+            return GestureDetector(
+              onTap: () => _toggleBadge(badge.id),
+              child: Container(
+                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                decoration: BoxDecoration(
+                  color: isSelected
+                      ? AppDesignTokens.primary.withOpacity(0.1)
+                      : Colors.grey[50],
+                  borderRadius: BorderRadius.circular(20),
+                  border: Border.all(
+                    color: isSelected
+                        ? AppDesignTokens.primary
+                        : Colors.grey[300]!,
+                    width: isSelected ? 2 : 1,
+                  ),
                 ),
-              ),
-              const SizedBox(height: 8),
-              Wrap(
-                spacing: 8,
-                runSpacing: 8,
-                children: badges.map((badge) {
-                  final isSelected = _selectedBadgeIds.contains(badge.id);
-                  return GestureDetector(
-                    onTap: () => _toggleBadge(badge.id),
-                    child: Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                      decoration: BoxDecoration(
-                        color: isSelected
-                            ? AppDesignTokens.primary.withOpacity(0.1)
-                            : Colors.grey[50],
-                        borderRadius: BorderRadius.circular(20),
-                        border: Border.all(
-                          color: isSelected
-                              ? AppDesignTokens.primary
-                              : Colors.grey[300]!,
-                          width: isSelected ? 2 : 1,
-                        ),
-                      ),
-                      child: Row(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          Text(
-                            badge.emoji,
-                            style: const TextStyle(
-                              fontSize: 14,
-                              fontFamily: null,
-                            ),
-                          ),
-                          const SizedBox(width: 6),
-                          Text(
-                            badge.name,
-                            style: TextStyle(
-                              fontSize: 14,
-                              color: isSelected
-                                  ? AppDesignTokens.primary
-                                  : Colors.black87,
-                              fontWeight: isSelected
-                                  ? FontWeight.w600
-                                  : FontWeight.normal,
-                            ),
-                          ),
-                          if (isSelected) ...[ 
-                            const SizedBox(width: 6),
-                            Icon(
-                              Icons.check_circle,
-                              color: AppDesignTokens.primary,
-                              size: 16,
-                            ),
-                          ],
-                        ],
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text(
+                      badge.emoji,
+                      style: const TextStyle(
+                        fontSize: 14,
+                        fontFamily: null,
                       ),
                     ),
-                  );
-                }).toList(),
+                    const SizedBox(width: 6),
+                    Text(
+                      badge.name,
+                      style: TextStyle(
+                        fontSize: 14,
+                        color: isSelected
+                            ? AppDesignTokens.primary
+                            : Colors.black87,
+                        fontWeight: isSelected
+                            ? FontWeight.w600
+                            : FontWeight.normal,
+                      ),
+                    ),
+                    if (isSelected) ...[ 
+                      const SizedBox(width: 6),
+                      Icon(
+                        Icons.check_circle,
+                        color: AppDesignTokens.primary,
+                        size: 16,
+                      ),
+                    ],
+                  ],
+                ),
               ),
-            ],
-          );
-        }).toList(),
+            );
+          }).toList(),
+        ),
       ],
     );
-  }
-}
-
-class _PhoneNumberFormatter extends TextInputFormatter {
-  @override
-  TextEditingValue formatEditUpdate(
-    TextEditingValue oldValue,
-    TextEditingValue newValue,
-  ) {
-    final text = newValue.text;
-    
-    if (text.length <= 3) {
-      return newValue;
-    } else if (text.length <= 7) {
-      return TextEditingValue(
-        text: '${text.substring(0, 3)}-${text.substring(3)}',
-        selection: TextSelection.collapsed(offset: text.length + 1),
-      );
-    } else {
-      return TextEditingValue(
-        text: '${text.substring(0, 3)}-${text.substring(3, 7)}-${text.substring(7)}',
-        selection: TextSelection.collapsed(offset: text.length + 2),
-      );
-    }
   }
 }

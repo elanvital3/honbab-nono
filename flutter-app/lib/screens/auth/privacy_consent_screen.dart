@@ -87,6 +87,7 @@ class _PrivacyConsentScreenState extends State<PrivacyConsentScreen> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
+        
         // 필수 동의 옵션
         _buildConsentOption(
           title: '개인정보 수집 · 이용 동의 (필수)',
@@ -268,7 +269,7 @@ class _PrivacyConsentScreenState extends State<PrivacyConsentScreen> {
           Navigator.pushReplacementNamed(context, '/home');
         } else {
           // 신규 가입인 경우 성인인증으로
-          Navigator.pushReplacement(
+          Navigator.push(
             context,
             MaterialPageRoute(
               builder: (context) => AdultVerificationScreen(

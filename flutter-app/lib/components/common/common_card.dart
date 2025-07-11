@@ -36,9 +36,9 @@ class CommonCard extends StatelessWidget {
         borderRadius: borderRadius ?? AppBorderRadius.medium,
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withOpacity(0.05),
-            blurRadius: elevation ?? AppDesignTokens.elevationLow,
-            offset: const Offset(0, 1),
+            color: Theme.of(context).colorScheme.shadow.withOpacity(0.1),
+            blurRadius: 8,
+            offset: const Offset(0, 2),
           ),
         ],
         border: isSelected 

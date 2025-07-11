@@ -1,12 +1,12 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/foundation.dart';
-import 'package:flutter_dotenv/flutter_dotenv.dart';
-import 'package:iamport_flutter/iamport_certification.dart';
 import '../../services/certification_service.dart';
 import '../../models/certification_result.dart';
 import '../../constants/app_design_tokens.dart';
 import '../../styles/text_styles.dart';
+import '../../components/common/common_confirm_dialog.dart';
 import 'nickname_input_screen.dart';
+import 'webview_certification_screen.dart';
 
 class AdultVerificationScreen extends StatefulWidget {
   final String userId;
@@ -49,15 +49,12 @@ class _AdultVerificationScreenState extends State<AdultVerificationScreen> {
     showDialog(
       context: context,
       barrierDismissible: false,
-      builder: (context) => AlertDialog(
-        title: const Text('설정 오류'),
-        content: const Text('아임포트 본인인증 설정이 완전하지 않습니다.\n관리자에게 문의해주세요.'),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(context).pop(),
-            child: const Text('확인'),
-          ),
-        ],
+      builder: (context) => const CommonConfirmDialog(
+        title: '설정 오류',
+        content: '아임포트 본인인증 설정이 완전하지 않습니다.\n관리자에게 문의해주세요.',
+        confirmText: '확인',
+        icon: Icons.error_outline,
+        iconColor: Colors.red,
       ),
     );
   }
@@ -72,62 +69,13 @@ class _AdultVerificationScreenState extends State<AdultVerificationScreen> {
         print('🔑 성인인증 시작');
       }
 
-      // 성인인증 화면으로 이동
+      // WebView 기반 성인인증 화면으로 이동
       Navigator.push(
         context,
         MaterialPageRoute(
-          builder: (context) => IamportCertification(
-            appBar: AppBar(
-              title: const Text('본인인증'),
-              backgroundColor: AppDesignTokens.primary,
-              foregroundColor: Colors.white,
-              elevation: 0,
-            ),
-            initialChild: Container(
-              color: Colors.white,
-              child: Center(
-                child: Column(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    // 앱 아이콘
-                    Container(
-                      width: 80,
-                      height: 80,
-                      decoration: BoxDecoration(
-                        borderRadius: BorderRadius.circular(16),
-                        color: AppDesignTokens.primary,
-                      ),
-                      child: const Icon(
-                        Icons.verified_user,
-                        size: 40,
-                        color: Colors.white,
-                      ),
-                    ),
-                    const SizedBox(height: 24),
-                    Text(
-                      '본인인증 진행 중...',
-                      style: AppTextStyles.h3,
-                    ),
-                    const SizedBox(height: 16),
-                    Text(
-                      '잠시만 기다려주세요',
-                      style: AppTextStyles.body.copyWith(
-                        color: AppDesignTokens.onSurface.withOpacity(0.7),
-                      ),
-                    ),
-                    const SizedBox(height: 24),
-                    const CircularProgressIndicator(
-                      valueColor: AlwaysStoppedAnimation<Color>(AppDesignTokens.primary),
-                    ),
-                  ],
-                ),
-              ),
-            ),
-            userCode: dotenv.env['IAMPORT_USER_CODE'] ?? '',
-            data: CertificationService.createAdultVerificationData(
-              name: widget.defaultName,
-            ),
-            callback: _handleCertificationResult,
+          builder: (context) => WebViewCertificationScreen(
+            name: widget.defaultName,
+            onResult: _handleCertificationResult,
           ),
         ),
       );
@@ -148,41 +96,119 @@ class _AdultVerificationScreenState extends State<AdultVerificationScreen> {
     }
   }
 
-  Future<void> _handleCertificationResult(Map<String, String> result) async {
+  void _handleCertificationResult(CertificationResult certResult) {
     try {
       if (kDebugMode) {
-        print('📋 본인인증 결과 수신: $result');
+        print('📋 AdultVerification: 본인인증 결과 수신: $certResult');
+        print('📋 AdultVerification: success=${certResult.success}, isAdult=${certResult.isAdult}');
+        print('📋 AdultVerification: mounted=$mounted');
       }
-
-      // 결과 검증
-      final certResult = await CertificationService.verifyCertification(result);
       
       if (mounted) {
-        // 성인인증 화면 닫기
-        Navigator.of(context).pop();
+        setState(() {
+          _isLoading = false;
+        });
         
         if (certResult.success && certResult.isAdult) {
+          if (kDebugMode) {
+            print('✅ AdultVerification: 성공 조건 만족, 닉네임 입력 화면으로 이동');
+          }
           // 성공 시 닉네임 입력 화면으로 이동
           _navigateToNicknameInput(certResult);
         } else {
+          if (kDebugMode) {
+            print('❌ AdultVerification: 성공 조건 불만족, 에러 다이얼로그 표시');
+          }
           // 실패 시 에러 다이얼로그 표시
           _showErrorDialog(certResult.errorMessage ?? '본인인증에 실패했습니다.');
+        }
+      } else {
+        if (kDebugMode) {
+          print('⚠️ AdultVerification: mounted=false, 위젯이 이미 제거됨');
         }
       }
     } catch (e) {
       if (kDebugMode) {
-        print('❌ 본인인증 결과 처리 중 오류: $e');
+        print('❌ AdultVerification: 본인인증 결과 처리 중 오류: $e');
       }
       
       if (mounted) {
-        Navigator.of(context).pop(); // 인증 화면 닫기
+        setState(() {
+          _isLoading = false;
+        });
         _showErrorDialog('본인인증 결과를 처리하는 중 오류가 발생했습니다.');
       }
     }
   }
 
   void _navigateToNicknameInput(CertificationResult certResult) {
-    Navigator.pushReplacement(
+    if (kDebugMode) {
+      print('🚀 AdultVerification: _navigateToNicknameInput 시작');
+      print('  - userId: ${widget.userId}');
+      print('  - verifiedName: ${certResult.name}');
+      print('  - verifiedGender: ${certResult.normalizedGender}');
+      print('  - verifiedBirthYear: ${certResult.birthYear}');
+      print('  - verifiedPhone: ${certResult.formattedPhone}');
+    }
+    
+    // WebView 정리를 위한 약간의 딜레이 후 네비게이션
+    Future.delayed(const Duration(milliseconds: 300), () {
+      if (!mounted) {
+        if (kDebugMode) {
+          print('⚠️ AdultVerification: 위젯이 이미 dispose됨, 네비게이션 취소');
+        }
+        return;
+      }
+      
+      try {
+        if (kDebugMode) {
+          print('🚀 AdultVerification: Navigator.pushReplacement 시작 (딜레이 후)');
+          print('  - context 상태: ${context.mounted}');
+          print('  - Navigator 사용 가능: ${Navigator.canPop(context)}');
+        }
+        
+        final result = Navigator.push(
+          context,
+          MaterialPageRoute(
+            builder: (context) {
+              if (kDebugMode) {
+                print('🏗️ AdultVerification: NicknameInputScreen 빌더 실행');
+              }
+              return NicknameInputScreen(
+                userId: widget.userId,
+                profileImageUrl: widget.profileImageUrl,
+                email: widget.email,
+                kakaoId: widget.kakaoId,
+                // 본인인증에서 받은 정보를 미리 설정
+                verifiedName: certResult.name,
+                verifiedGender: certResult.normalizedGender,
+                verifiedBirthYear: certResult.birthYear,
+                verifiedPhone: certResult.formattedPhone,
+              );
+            },
+          ),
+        );
+        
+        if (kDebugMode) {
+          print('✅ AdultVerification: Navigator.push 호출 완료');
+          print('  - result type: ${result.runtimeType}');
+        }
+      } catch (e) {
+        if (kDebugMode) {
+          print('❌ AdultVerification: Navigator.push 실패: $e');
+          print('  - Stack trace: ${StackTrace.current}');
+        }
+      }
+    });
+  }
+  
+  void _skipVerification() {
+    if (kDebugMode) {
+      print('⏭️ AdultVerification: 본인인증 건너뛰기');
+    }
+    
+    // 빈값으로 닉네임 입력 화면으로 이동
+    Navigator.push(
       context,
       MaterialPageRoute(
         builder: (context) => NicknameInputScreen(
@@ -190,11 +216,11 @@ class _AdultVerificationScreenState extends State<AdultVerificationScreen> {
           profileImageUrl: widget.profileImageUrl,
           email: widget.email,
           kakaoId: widget.kakaoId,
-          // 본인인증에서 받은 정보를 미리 설정
-          verifiedName: certResult.name,
-          verifiedGender: certResult.normalizedGender,
-          verifiedBirthYear: certResult.birthYear,
-          verifiedPhone: certResult.formattedPhone,
+          // 본인인증 정보는 빈값으로 전달
+          verifiedName: null,
+          verifiedGender: null,
+          verifiedBirthYear: null,
+          verifiedPhone: null,
         ),
       ),
     );
@@ -203,25 +229,12 @@ class _AdultVerificationScreenState extends State<AdultVerificationScreen> {
   void _showErrorDialog(String message) {
     showDialog(
       context: context,
-      builder: (context) => AlertDialog(
-        title: Row(
-          children: [
-            Icon(
-              Icons.error_outline,
-              color: Colors.red[600],
-              size: 24,
-            ),
-            const SizedBox(width: 8),
-            const Text('본인인증 실패'),
-          ],
-        ),
-        content: Text(message),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(context).pop(),
-            child: const Text('확인'),
-          ),
-        ],
+      builder: (context) => CommonConfirmDialog(
+        title: '본인인증 실패',
+        content: message,
+        confirmText: '확인',
+        icon: Icons.error_outline,
+        iconColor: Colors.red[600],
       ),
     );
   }
@@ -237,7 +250,7 @@ class _AdultVerificationScreenState extends State<AdultVerificationScreen> {
             children: [
               // Header Section
               Expanded(
-                flex: 3,
+                flex: 2,
                 child: Column(
                   mainAxisAlignment: MainAxisAlignment.center,
                   children: [
@@ -272,13 +285,13 @@ class _AdultVerificationScreenState extends State<AdultVerificationScreen> {
                     const SizedBox(height: 24),
                     Text(
                       '성인인증이 필요합니다',
-                      style: AppTextStyles.h2,
+                      style: AppTextStyles.headlineLarge,
                       textAlign: TextAlign.center,
                     ),
                     const SizedBox(height: 16),
                     Text(
                       '안전한 매칭 서비스 이용을 위해\n본인인증을 진행해주세요',
-                      style: AppTextStyles.body.copyWith(
+                      style: AppTextStyles.bodyLarge.copyWith(
                         color: AppDesignTokens.onSurface.withOpacity(0.7),
                       ),
                       textAlign: TextAlign.center,
@@ -289,7 +302,7 @@ class _AdultVerificationScreenState extends State<AdultVerificationScreen> {
 
               // Information Section
               Expanded(
-                flex: 2,
+                flex: 1,
                 child: Column(
                   children: [
                     Container(
@@ -314,7 +327,7 @@ class _AdultVerificationScreenState extends State<AdultVerificationScreen> {
                               const SizedBox(width: 8),
                               Text(
                                 '본인인증 안내',
-                                style: AppTextStyles.body.copyWith(
+                                style: AppTextStyles.bodyLarge.copyWith(
                                   fontWeight: FontWeight.w600,
                                   color: AppDesignTokens.primary,
                                 ),
@@ -327,8 +340,6 @@ class _AdultVerificationScreenState extends State<AdultVerificationScreen> {
                           _buildInfoItem('• 실명 인증으로 안전한 매칭 보장'),
                           const SizedBox(height: 8),
                           _buildInfoItem('• 개인정보는 안전하게 보호됩니다'),
-                          const SizedBox(height: 8),
-                          _buildInfoItem('• 카카오 개발자 정책 준수'),
                         ],
                       ),
                     ),
@@ -337,11 +348,8 @@ class _AdultVerificationScreenState extends State<AdultVerificationScreen> {
               ),
 
               // Button Section
-              Expanded(
-                flex: 1,
-                child: Column(
-                  mainAxisAlignment: MainAxisAlignment.end,
-                  children: [
+              Column(
+                children: [
                     // 본인인증 버튼
                     SizedBox(
                       width: double.infinity,
@@ -366,16 +374,53 @@ class _AdultVerificationScreenState extends State<AdultVerificationScreen> {
                               )
                             : Text(
                                 '본인인증 시작하기',
-                                style: AppTextStyles.body.copyWith(
+                                style: AppTextStyles.bodyLarge.copyWith(
                                   fontWeight: FontWeight.w600,
                                   color: Colors.white,
                                 ),
                               ),
                       ),
                     ),
-                    const SizedBox(height: 40),
-                  ],
-                ),
+                    
+                    const SizedBox(height: 12),
+                    
+                    // 나중에 하기 버튼
+                    SizedBox(
+                      width: double.infinity,
+                      child: TextButton(
+                        onPressed: _isLoading ? null : _skipVerification,
+                        style: TextButton.styleFrom(
+                          padding: const EdgeInsets.symmetric(vertical: 16),
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(12),
+                            side: BorderSide(
+                              color: AppDesignTokens.outline.withOpacity(0.3),
+                            ),
+                          ),
+                        ),
+                        child: Text(
+                          '나중에 하기',
+                          style: AppTextStyles.bodyLarge.copyWith(
+                            fontWeight: FontWeight.w500,
+                            color: AppDesignTokens.onSurfaceVariant,
+                          ),
+                        ),
+                      ),
+                    ),
+                    
+                    const SizedBox(height: 8),
+                    
+                    // 안내 문구
+                    Text(
+                      '모임 참여 시 본인인증이 필요합니다',
+                      style: AppTextStyles.bodySmall.copyWith(
+                        color: AppDesignTokens.onSurfaceVariant.withOpacity(0.7),
+                      ),
+                      textAlign: TextAlign.center,
+                    ),
+                    
+                    const SizedBox(height: 24),
+                ],
               ),
             ],
           ),
@@ -387,7 +432,7 @@ class _AdultVerificationScreenState extends State<AdultVerificationScreen> {
   Widget _buildInfoItem(String text) {
     return Text(
       text,
-      style: AppTextStyles.caption.copyWith(
+      style: AppTextStyles.bodySmall.copyWith(
         color: AppDesignTokens.onSurface.withOpacity(0.8),
         height: 1.4,
       ),

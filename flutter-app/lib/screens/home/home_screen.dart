@@ -12,6 +12,7 @@ import '../../components/meeting_card.dart';
 import '../../components/kakao_webview_map.dart';
 import '../../components/kakao_web_map.dart';
 import '../../components/hierarchical_location_picker.dart';
+import '../../components/common/common_confirm_dialog.dart';
 import '../../services/meeting_service.dart';
 import '../../services/auth_service.dart';
 import '../../services/user_service.dart';
@@ -30,7 +31,9 @@ import '../settings/notification_settings_screen.dart';
 import '../settings/account_deletion_screen.dart';
 import '../../components/participant_profile_widget.dart';
 import '../../components/common/common_confirm_dialog.dart';
+import '../../components/user_badge_chip.dart';
 import '../restaurant/restaurant_list_screen.dart';
+import '../auth/existing_user_adult_verification_screen.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -51,12 +54,31 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       ValueNotifier<int>(0);
   // _totalUnreadCount 제거 - 이제 ValueNotifier로 관리
   // Timer _unreadCountDebounceTimer 제거 - ValueNotifier로 대체됨
+  
+  // FAB 스크롤 상태 관리
+  bool _isScrolled = false;
+  final ScrollController _fabScrollController = ScrollController();
 
   @override
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
     _initializeCurrentLocation();
+    
+    // FAB 스크롤 리스너 설정
+    _fabScrollController.addListener(_onScroll);
+  }
+  
+  void _onScroll() {
+    if (_fabScrollController.offset > 50 && !_isScrolled) {
+      setState(() {
+        _isScrolled = true;
+      });
+    } else if (_fabScrollController.offset <= 50 && _isScrolled) {
+      setState(() {
+        _isScrolled = false;
+      });
+    }
   }
 
   @override
@@ -965,6 +987,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
     _searchController.dispose();
+    _fabScrollController.dispose();
     // _unreadCountDebounceTimer?.cancel(); 제거
     super.dispose();
   }
@@ -1164,6 +1187,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                   onStatusFilterChanged: _updateStatusFilter,
                   onTimeFilterChanged: _updateTimeFilter,
                   onLocationFilterChanged: _updateLocationFilter,
+                  scrollController: _fabScrollController,
                 ),
                 _MapTab(
                   key: _mapKey,
@@ -1217,7 +1241,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
             ),
             floatingActionButton:
                 _selectedIndex == 0
-                    ? FloatingActionButton(
+                    ? FloatingActionButton.extended(
                       heroTag: "home_create_fab",
                       onPressed: () async {
                         if (AuthService.currentUserId == null) {
@@ -1227,15 +1251,59 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                           return;
                         }
 
-                        final result = await Navigator.pushNamed(
-                          context,
-                          '/create-meeting',
-                        );
-                        // CreateMeetingScreen에서 이미 모임을 생성하고 성공 메시지도 표시했으므로
-                        // 여기서는 추가 처리가 필요없음 (StreamBuilder가 자동으로 새 데이터를 받아옴)
+                        // 본인인증 체크
+                        try {
+                          final currentUserId = AuthService.currentUserId;
+                          if (currentUserId == null) return;
+                          
+                          final currentUser = await UserService.getUser(currentUserId);
+                          if (currentUser == null) return;
+
+                          if (!currentUser.isAdultVerified) {
+                            // 본인인증이 안된 경우 다이얼로그 표시
+                            showDialog(
+                              context: context,
+                              builder: (context) => const CommonConfirmDialog(
+                                title: '본인인증이 필요합니다',
+                                content: '모임을 주최하려면 본인인증을 완료해야 합니다. 마이페이지에서 본인인증을 진행해주세요.',
+                                confirmText: '확인',
+                                icon: Icons.verified_user,
+                                showCancelButton: false,
+                              ),
+                            );
+                            return;
+                          }
+
+                          // 본인인증이 완료된 경우에만 모임 생성 화면으로 이동
+                          final result = await Navigator.pushNamed(
+                            context,
+                            '/create-meeting',
+                          );
+                          // CreateMeetingScreen에서 이미 모임을 생성하고 성공 메시지도 표시했으므로
+                          // 여기서는 추가 처리가 필요없음 (StreamBuilder가 자동으로 새 데이터를 받아옴)
+                        } catch (e) {
+                          if (kDebugMode) {
+                            print('❌ 사용자 정보 확인 실패: $e');
+                          }
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            const SnackBar(content: Text('사용자 정보를 확인할 수 없습니다.')),
+                          );
+                        }
                       },
                       backgroundColor: Theme.of(context).colorScheme.primary,
-                      child: const Icon(Icons.add, color: Colors.white),
+                      icon: const Icon(Icons.add, color: Colors.white),
+                      label: AnimatedSwitcher(
+                        duration: const Duration(milliseconds: 200),
+                        child: _isScrolled
+                            ? const SizedBox.shrink()
+                            : const Text(
+                                '모임 만들기',
+                                style: TextStyle(
+                                  color: Colors.white,
+                                  fontWeight: FontWeight.w600,
+                                ),
+                              ),
+                      ),
                     )
                     : null,
           );
@@ -1548,6 +1616,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     required Function(String) onStatusFilterChanged,
     required Function(String) onTimeFilterChanged,
     required Function(String) onLocationFilterChanged,
+    required ScrollController scrollController,
   }) {
     return _MeetingListTab(
       meetings: meetings,
@@ -1557,6 +1626,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       onStatusFilterChanged: onStatusFilterChanged,
       onTimeFilterChanged: onTimeFilterChanged,
       onLocationFilterChanged: onLocationFilterChanged,
+      scrollController: scrollController,
     );
   }
 }
@@ -1569,6 +1639,7 @@ class _MeetingListTab extends StatefulWidget {
   final Function(String) onStatusFilterChanged;
   final Function(String) onTimeFilterChanged;
   final Function(String) onLocationFilterChanged;
+  final ScrollController scrollController;
 
   const _MeetingListTab({
     required this.meetings,
@@ -1578,6 +1649,7 @@ class _MeetingListTab extends StatefulWidget {
     required this.onStatusFilterChanged,
     required this.onTimeFilterChanged,
     required this.onLocationFilterChanged,
+    required this.scrollController,
   });
 
   @override
@@ -1691,6 +1763,7 @@ class _MeetingListTabState extends State<_MeetingListTab>
                       ),
                     )
                     : ListView.builder(
+                      controller: widget.scrollController,
                       padding: const EdgeInsets.symmetric(vertical: 8),
                       itemCount: widget.meetings.length,
                       itemBuilder: (context, index) {
@@ -4695,6 +4768,9 @@ class _ProfileTabState extends State<_ProfileTab>
           // 설정 메뉴
           _buildSettingsSection(),
 
+          // 문의 섹션 (별도 카드)
+          _buildInquirySection(),
+
           const SizedBox(height: 20),
         ],
       ),
@@ -4787,14 +4863,6 @@ class _ProfileTabState extends State<_ProfileTab>
                         color: Theme.of(context).colorScheme.onSurface,
                       ),
                     ),
-                    const SizedBox(height: 4),
-                    Text(
-                      '${_formatJoinDate(_currentUser!.createdAt)} 가입',
-                      style: TextStyle(
-                        fontSize: 14,
-                        color: Theme.of(context).colorScheme.outline,
-                      ),
-                    ),
                   ],
                 ),
               ),
@@ -4808,63 +4876,16 @@ class _ProfileTabState extends State<_ProfileTab>
             ],
           ),
 
-          const SizedBox(height: 16),
-
-          // 뱃지들 (실제 활동 기반)
-          _buildBadges(),
+          // 사용자의 실제 뱃지 표시
+          if (_currentUser!.badges.isNotEmpty) ...[
+            const SizedBox(height: 16),
+            UserBadgesList(badgeIds: _currentUser!.badges),
+          ],
         ],
       ),
     );
   }
 
-  Widget _buildBadges() {
-    final badges = <String>[];
-
-    // 활동 기반 뱃지 생성
-    if (_participatedMeetings == 0) {
-      badges.add('🆕 신규');
-    }
-    if (_participatedMeetings >= 10) {
-      badges.add('🏆 활발한 참여자');
-    }
-    if (_hostedMeetings >= 5) {
-      badges.add('👑 모임 리더');
-    }
-    if (_currentUser!.rating >= 4.5) {
-      badges.add('⭐ 매너왕');
-    }
-
-    if (badges.isEmpty) {
-      return const SizedBox.shrink();
-    }
-
-    return Wrap(
-      spacing: 8,
-      children:
-          badges
-              .map(
-                (badge) => Container(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 12,
-                    vertical: 6,
-                  ),
-                  decoration: BoxDecoration(
-                    color: Theme.of(context).colorScheme.surfaceContainer,
-                    borderRadius: BorderRadius.circular(16),
-                  ),
-                  child: Text(
-                    badge,
-                    style: TextStyle(
-                      fontSize: 12,
-                      color: Theme.of(context).colorScheme.onSurface,
-                      fontWeight: FontWeight.w500,
-                    ),
-                  ),
-                ),
-              )
-              .toList(),
-    );
-  }
 
   Widget _buildStatsSection() {
     return Container(
@@ -5288,13 +5309,10 @@ class _ProfileTabState extends State<_ProfileTab>
             '푸시 알림 및 소리 설정',
             () => _showNotificationSettings(),
           ),
-          _buildSettingItem(
-            Icons.help,
-            '고객센터',
-            '문의하기 및 도움말',
-            () => _showCustomerService(),
-          ),
+          // 본인인증 상태
+          _buildVerificationStatus(),
           const SizedBox(height: 8),
+          
           _buildSettingItem(
             Icons.logout,
             '로그아웃',
@@ -5309,6 +5327,103 @@ class _ProfileTabState extends State<_ProfileTab>
             '모든 데이터가 삭제됩니다',
             () => _showDeleteAccountDialog(),
             isLogout: true,
+          ),
+          
+          // 사업자 정보 섹션
+          const SizedBox(height: 32),
+          Container(
+            width: double.infinity,
+            padding: const EdgeInsets.all(20),
+            decoration: BoxDecoration(
+              color: const Color(0xFFF9F9F9),
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(color: const Color(0xFFE0E0E0)),
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  '사업자 정보',
+                  style: AppTextStyles.titleMedium.copyWith(
+                    fontWeight: FontWeight.bold,
+                    color: const Color(0xFF333333),
+                  ),
+                ),
+                const SizedBox(height: 16),
+                
+                // 법인명
+                _buildBusinessInfoRow('법인명', '구구랩'),
+                const SizedBox(height: 8),
+                
+                // 대표자명
+                _buildBusinessInfoRow('대표자명', '김태훈'),
+                const SizedBox(height: 8),
+                
+                // 사업자등록번호
+                _buildBusinessInfoRow('사업자등록번호', '418-26-01909'),
+                const SizedBox(height: 8),
+                
+                // 주소
+                _buildBusinessInfoRow('주소', '충청남도 천안시 서북구 불당26로 80, 405동 2401호'),
+                const SizedBox(height: 8),
+                
+                // 고객센터
+                _buildBusinessInfoRow('고객센터', '070-8028-1701'),
+                const SizedBox(height: 12),
+                
+                const Divider(color: Color(0xFFE0E0E0), height: 1),
+                const SizedBox(height: 12),
+                
+                Text(
+                  '업종: 정보통신업, 컴퓨터 프로그래밍 서비스업',
+                  style: AppTextStyles.bodySmall.copyWith(
+                    color: const Color(0xFF666666),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildInquirySection() {
+    return Container(
+      margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+      padding: const EdgeInsets.all(20),
+      decoration: BoxDecoration(
+        color: Theme.of(context).colorScheme.surface,
+        borderRadius: BorderRadius.circular(12),
+        boxShadow: [
+          BoxShadow(
+            color: Theme.of(context).colorScheme.shadow.withOpacity(0.1),
+            blurRadius: 8,
+            offset: const Offset(0, 2),
+          ),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text('문의', style: AppTextStyles.titleLarge),
+          const SizedBox(height: 16),
+          
+          Row(
+            children: [
+              Icon(
+                Icons.email,
+                size: 20,
+                color: Theme.of(context).colorScheme.outline,
+              ),
+              const SizedBox(width: 12),
+              Text(
+                'elanvital3@gmail.com',
+                style: AppTextStyles.bodyMedium.copyWith(
+                  color: Theme.of(context).colorScheme.onSurface,
+                ),
+              ),
+            ],
           ),
         ],
       ),
@@ -5380,18 +5495,6 @@ class _ProfileTabState extends State<_ProfileTab>
     );
   }
 
-  String _formatJoinDate(DateTime date) {
-    final now = DateTime.now();
-    final difference = now.difference(date).inDays;
-
-    if (difference < 30) {
-      return '${difference}일 전';
-    } else if (difference < 365) {
-      return '${(difference / 30).floor()}개월 전';
-    } else {
-      return '${date.year}년 ${date.month}월';
-    }
-  }
 
   String _formatMeetingDate(DateTime date) {
     final now = DateTime.now();
@@ -5518,6 +5621,218 @@ class _ProfileTabState extends State<_ProfileTab>
       context,
       MaterialPageRoute(
         builder: (context) => const AccountDeletionScreen(),
+      ),
+    );
+  }
+
+  void _showAdultVerification() {
+    if (_currentUser == null) return;
+
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (context) => ExistingUserAdultVerificationScreen(
+          userId: _currentUser!.id,
+          userName: _currentUser!.name,
+        ),
+      ),
+    ).then((_) {
+      // 성인인증 완료 후 사용자 정보 새로고침
+      _loadUserData();
+    });
+  }
+  
+  Widget _buildVerificationStatus() {
+    final isVerified = _currentUser?.isAdultVerified ?? false;
+    
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        onTap: isVerified ? null : _showAdultVerification,
+        borderRadius: BorderRadius.circular(8),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(vertical: 12),
+          child: Row(
+            children: [
+              Icon(
+                isVerified ? Icons.verified_user : Icons.warning,
+                size: 24,
+                color: isVerified 
+                    ? AppDesignTokens.primary 
+                    : Colors.orange[400],
+              ),
+              const SizedBox(width: 16),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      '본인인증',
+                      style: AppTextStyles.bodyLarge.copyWith(
+                        color: Theme.of(context).colorScheme.onSurface,
+                        fontWeight: FontWeight.w500,
+                      ),
+                    ),
+                    if (!isVerified) ...[
+                      const SizedBox(height: 2),
+                      Text(
+                        '모임 참여를 위해 본인인증이 필요합니다',
+                        style: AppTextStyles.bodySmall.copyWith(
+                          color: Colors.orange[600],
+                        ),
+                      ),
+                    ] else ...[
+                      const SizedBox(height: 2),
+                      Text(
+                        '인증 완료',
+                        style: AppTextStyles.bodySmall.copyWith(
+                          color: AppDesignTokens.primary,
+                        ),
+                      ),
+                    ],
+                  ],
+                ),
+              ),
+              if (!isVerified) ...[
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                  decoration: BoxDecoration(
+                    color: AppDesignTokens.primary,
+                    borderRadius: BorderRadius.circular(16),
+                  ),
+                  child: Text(
+                    '인증하기',
+                    style: AppTextStyles.labelSmall.copyWith(
+                      color: Colors.white,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                ),
+              ] else ...[
+                Icon(
+                  Icons.check_circle,
+                  size: 20,
+                  color: AppDesignTokens.primary,
+                ),
+              ],
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildBusinessInfoRow(String label, String value) {
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        SizedBox(
+          width: 120,
+          child: Text(
+            label,
+            style: AppTextStyles.bodySmall.copyWith(
+              color: const Color(0xFF666666),
+              fontWeight: FontWeight.w500,
+            ),
+          ),
+        ),
+        Expanded(
+          child: SelectableText(
+            value,
+            style: AppTextStyles.bodySmall.copyWith(
+              color: const Color(0xFF333333),
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
+  Future<void> _joinMeeting(Meeting meeting) async {
+    final currentUserId = AuthService.currentUserId;
+    if (currentUserId == null) {
+      _showErrorSnackBar('로그인이 필요합니다');
+      return;
+    }
+
+    try {
+      // 현재 사용자 정보 가져오기
+      final currentUser = await UserService.getUser(currentUserId);
+      if (currentUser == null) {
+        _showErrorSnackBar('사용자 정보를 찾을 수 없습니다');
+        return;
+      }
+
+      // 본인인증 필수 체크
+      if (!currentUser.isAdultVerified) {
+        _showJoinVerificationRequiredDialog();
+        return;
+      }
+
+      // 모임 참석 로직 (기존 구현)
+      await MeetingService.joinMeeting(meeting.id, currentUserId);
+      
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('${meeting.restaurantName ?? meeting.location} 모임에 참석했습니다!'),
+            backgroundColor: Colors.green,
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        _showErrorSnackBar('모임 참석 중 오류가 발생했습니다: $e');
+      }
+    }
+  }
+
+  void _showJoinVerificationRequiredDialog() {
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (context) => AlertDialog(
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(12),
+        ),
+        title: Row(
+          children: [
+            Icon(
+              Icons.verified_user,
+              color: Theme.of(context).colorScheme.primary,
+              size: 24,
+            ),
+            const SizedBox(width: 8),
+            const Text('본인인증이 필요합니다'),
+          ],
+        ),
+        content: const Text(
+          '모임에 참석하려면 본인인증을 완료해야 합니다.\n마이페이지에서 본인인증을 진행해주세요.',
+          style: TextStyle(height: 1.4),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(),
+            child: Text(
+              '확인',
+              style: TextStyle(
+                color: Theme.of(context).colorScheme.primary,
+                fontWeight: FontWeight.w500,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _showErrorSnackBar(String message) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(message),
+        backgroundColor: Colors.red,
+        behavior: SnackBarBehavior.floating,
       ),
     );
   }

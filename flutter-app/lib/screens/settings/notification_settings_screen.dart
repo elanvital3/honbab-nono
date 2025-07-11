@@ -17,6 +17,7 @@ class _NotificationSettingsScreenState extends State<NotificationSettingsScreen>
   bool _chatNotification = true;
   bool _meetingReminderNotification = true;
   bool _participantNotification = true;
+  bool _favoriteRestaurantNotification = true;
   
   
   // 방해금지 모드
@@ -43,6 +44,7 @@ class _NotificationSettingsScreenState extends State<NotificationSettingsScreen>
       _chatNotification = prefs.getBool('chatNotification') ?? true;
       _meetingReminderNotification = prefs.getBool('meetingReminderNotification') ?? true;
       _participantNotification = prefs.getBool('participantNotification') ?? true;
+      _favoriteRestaurantNotification = prefs.getBool('favoriteRestaurantNotification') ?? true;
       _doNotDisturbEnabled = prefs.getBool('doNotDisturbEnabled') ?? false;
       _reminderMinutes = prefs.getInt('reminderMinutes') ?? 60;
       
@@ -66,6 +68,7 @@ class _NotificationSettingsScreenState extends State<NotificationSettingsScreen>
     await prefs.setBool('chatNotification', _chatNotification);
     await prefs.setBool('meetingReminderNotification', _meetingReminderNotification);
     await prefs.setBool('participantNotification', _participantNotification);
+    await prefs.setBool('favoriteRestaurantNotification', _favoriteRestaurantNotification);
     await prefs.setBool('doNotDisturbEnabled', _doNotDisturbEnabled);
     await prefs.setInt('reminderMinutes', _reminderMinutes);
     
@@ -243,7 +246,7 @@ class _NotificationSettingsScreenState extends State<NotificationSettingsScreen>
           
           _buildSwitchTile(
             '새 모임 알림',
-            '내 근처에 새로운 모임이 생성될 때 알림을 받습니다',
+            '내 근처 5km 이내에 새로운 모임이 생성될 때 알림을 받습니다',
             _newMeetingNotification,
             (value) {
               setState(() => _newMeetingNotification = value);
@@ -309,6 +312,16 @@ class _NotificationSettingsScreenState extends State<NotificationSettingsScreen>
             _participantNotification,
             (value) {
               setState(() => _participantNotification = value);
+              _saveSettings();
+            },
+          ),
+          
+          _buildSwitchTile(
+            '즐겨찾기 식당 알림',
+            '즐겨찾기한 식당에 새로운 모임이 생성될 때 알림을 받습니다',
+            _favoriteRestaurantNotification,
+            (value) {
+              setState(() => _favoriteRestaurantNotification = value);
               _saveSettings();
             },
           ),

@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import '../../styles/text_styles.dart';
+import '../../constants/app_design_tokens.dart';
 
 class CommonConfirmDialog extends StatelessWidget {
   final String title;
@@ -9,6 +10,9 @@ class CommonConfirmDialog extends StatelessWidget {
   final Color? confirmTextColor;
   final VoidCallback? onCancel;
   final VoidCallback? onConfirm;
+  final IconData? icon;
+  final Color? iconColor;
+  final bool showCancelButton;
 
   const CommonConfirmDialog({
     super.key,
@@ -19,27 +23,130 @@ class CommonConfirmDialog extends StatelessWidget {
     this.confirmTextColor,
     this.onCancel,
     this.onConfirm,
+    this.icon,
+    this.iconColor,
+    this.showCancelButton = true,
   });
 
   @override
   Widget build(BuildContext context) {
     return AlertDialog(
-      title: Text(title, style: AppTextStyles.titleLarge),
-      content: Text(content, style: AppTextStyles.bodyLarge),
-      actions: [
-        TextButton(
-          onPressed: onCancel ?? () => Navigator.pop(context, false),
-          child: Text(cancelText, style: AppTextStyles.labelLarge),
-        ),
-        TextButton(
-          onPressed: onConfirm ?? () => Navigator.pop(context, true),
-          child: Text(
-            confirmText,
-            style: AppTextStyles.labelLarge.copyWith(
-              color: confirmTextColor ?? Theme.of(context).colorScheme.primary,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(16),
+      ),
+      contentPadding: const EdgeInsets.all(24),
+      titlePadding: const EdgeInsets.fromLTRB(24, 24, 24, 16),
+      actionsPadding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+      title: Row(
+        children: [
+          if (icon != null) ...[
+            Container(
+              width: 32,
+              height: 32,
+              decoration: BoxDecoration(
+                color: (iconColor ?? AppDesignTokens.primary).withOpacity(0.1),
+                shape: BoxShape.circle,
+              ),
+              child: Icon(
+                icon,
+                color: iconColor ?? AppDesignTokens.primary,
+                size: 18,
+              ),
+            ),
+            const SizedBox(width: 12),
+          ],
+          Expanded(
+            child: Text(
+              title,
+              style: AppTextStyles.headlineMedium.copyWith(
+                fontWeight: FontWeight.w600,
+                color: AppDesignTokens.onSurface,
+              ),
+              textAlign: TextAlign.left,
             ),
           ),
+        ],
+      ),
+      content: Text(
+        content,
+        style: AppTextStyles.bodyLarge.copyWith(
+          color: AppDesignTokens.onSurfaceVariant,
+          height: 1.5,
         ),
+        textAlign: TextAlign.left,
+      ),
+      actions: [
+        if (showCancelButton)
+          Row(
+            children: [
+              Expanded(
+                child: TextButton(
+                  onPressed: onCancel ?? () => Navigator.pop(context, false),
+                  style: TextButton.styleFrom(
+                    padding: const EdgeInsets.symmetric(vertical: 14),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(12),
+                      side: BorderSide(
+                        color: AppDesignTokens.outline.withOpacity(0.3),
+                      ),
+                    ),
+                  ),
+                  child: Text(
+                    cancelText,
+                    style: AppTextStyles.labelLarge.copyWith(
+                      color: AppDesignTokens.onSurfaceVariant,
+                      fontWeight: FontWeight.w500,
+                    ),
+                  ),
+                ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: ElevatedButton(
+                  onPressed: onConfirm ?? () => Navigator.pop(context, true),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: confirmTextColor ?? AppDesignTokens.primary,
+                    foregroundColor: Colors.white,
+                    padding: const EdgeInsets.symmetric(vertical: 14),
+                    elevation: 0,
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                  ),
+                  child: Text(
+                    confirmText,
+                    style: AppTextStyles.labelLarge.copyWith(
+                      color: Colors.white,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                ),
+              ),
+            ],
+          )
+        else
+          SizedBox(
+            width: double.infinity,
+            child: ElevatedButton(
+              onPressed: onConfirm ?? () => Navigator.pop(context, true),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: confirmTextColor ?? AppDesignTokens.primary,
+                foregroundColor: Colors.white,
+                padding: const EdgeInsets.symmetric(vertical: 14),
+                elevation: 0,
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(12),
+                ),
+              ),
+              child: Text(
+                confirmText,
+                style: AppTextStyles.labelLarge.copyWith(
+                  color: Colors.white,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+            ),
+          ),
       ],
     );
   }

@@ -4,6 +4,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
+import 'package:cloud_functions/cloud_functions.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:timezone/timezone.dart' as tz;
@@ -291,6 +292,14 @@ class NotificationService {
   /// 근처 사용자들에게 새 모임 생성 알림 발송
   Future<void> notifyNearbyUsersOfNewMeeting(Meeting meeting) async {
     try {
+      // 방해금지 모드 확인
+      if (await _isDoNotDisturbActive()) {
+        if (kDebugMode) {
+          print('🔕 방해금지 모드로 인해 근처 모임 알림 스킵');
+        }
+        return;
+      }
+      
       // 모임 생성자의 위치 정보 조회
       final hostUser = await UserService.getUser(meeting.hostId);
       if (hostUser?.lastLatitude == null || hostUser?.lastLongitude == null) {
@@ -526,6 +535,16 @@ class NotificationService {
     return prefs.getBool(key) ?? true;
   }
 
+  /// 즐겨찾기 식당 알림이 활성화되어 있는지 확인 (공개 메서드)
+  Future<bool> isFavoriteRestaurantNotificationEnabled() async {
+    return await _isNotificationEnabled('favoriteRestaurantNotification');
+  }
+
+  /// 방해금지 모드가 활성화되어 있는지 확인 (공개 메서드)
+  Future<bool> isDoNotDisturbActive() async {
+    return await _isDoNotDisturbActive();
+  }
+
   /// 방해금지 모드가 활성화되어 있는지 확인
   Future<bool> _isDoNotDisturbActive() async {
     final prefs = await SharedPreferences.getInstance();
@@ -608,6 +627,14 @@ class NotificationService {
     required String applicantName,
   }) async {
     try {
+      // 방해금지 모드 확인
+      if (await _isDoNotDisturbActive()) {
+        if (kDebugMode) {
+          print('🔕 방해금지 모드로 인해 모임 신청 알림 스킵');
+        }
+        return;
+      }
+      
       if (kDebugMode) {
         print('📬 모임 신청 알림 발송 시작: ${meeting.id}');
       }
@@ -631,12 +658,36 @@ class NotificationService {
       final title = '🙋‍♀️ 새로운 참여 신청';
       final body = '$applicantName님이 "${meeting.description}" 모임에 참여 신청했습니다';
 
-      // 임시로 로컬 알림으로 대체 (FCM Functions 문제 해결용)
-      // Firebase Functions 제거됨 - 로컬 알림만 사용
+      // 호스트에게 실제 FCM 발송 (로컬/원격 구분 없이 항상 FCM)
       if (kDebugMode) {
-        print('🔔 로컬 알림으로 대체: $title');
+        print('📨 호스트에게 FCM 알림 발송');
+        print('  - 호스트 ID: ${meeting.hostId}');
+        print('  - FCM 토큰: ${hostUser?.fcmToken?.substring(0, 20) ?? '없음'}...');
       }
-      await showTestNotification(title, body);
+      
+      try {
+        // Firebase Functions를 통한 실제 FCM 발송
+        await _sendSingleFCMMessage(
+          token: hostUser!.fcmToken!,
+          title: title,
+          body: body,
+          data: {
+            'type': 'meeting_application',
+            'meetingId': meeting.id,
+            'applicantUserId': applicantUserId,
+            'applicantName': applicantName,
+          },
+        );
+        
+        if (kDebugMode) {
+          print('✅ 호스트에게 FCM 알림 발송 완료');
+        }
+      } catch (fcmError) {
+        if (kDebugMode) {
+          print('❌ FCM 발송 실패: $fcmError');
+        }
+        rethrow;
+      }
 
       if (kDebugMode) {
         print('✅ 모임 신청 알림 발송 완료');
@@ -656,6 +707,14 @@ class NotificationService {
     required String applicantName,
   }) async {
     try {
+      // 방해금지 모드 확인
+      if (await _isDoNotDisturbActive()) {
+        if (kDebugMode) {
+          print('🔕 방해금지 모드로 인해 모임 승인 알림 스킵');
+        }
+        return;
+      }
+      
       if (kDebugMode) {
         print('🎉 모임 승인 알림 발송 시작: ${meeting.id}');
       }
@@ -672,8 +731,35 @@ class NotificationService {
       final title = '🎉 참여 승인 완료!';
       final body = '"${meeting.description}" 모임 참여가 승인되었습니다. 채팅방에 입장하세요!';
 
-      // Firebase Functions 제거됨 - 로컬 알림만 사용
-      await showTestNotification(title, body);
+      // 신청자에게 실제 FCM 발송 (로컬/원격 구분 없이 항상 FCM)
+      if (kDebugMode) {
+        print('📨 신청자에게 FCM 알림 발송');
+        print('  - 신청자 ID: $applicantUserId');
+        print('  - FCM 토큰: ${applicantUser?.fcmToken?.substring(0, 20) ?? '없음'}...');
+      }
+      
+      try {
+        // Firebase Functions를 통한 실제 FCM 발송
+        await _sendSingleFCMMessage(
+          token: applicantUser!.fcmToken!,
+          title: title,
+          body: body,
+          data: {
+            'type': 'meeting_approval',
+            'meetingId': meeting.id,
+            'hostUserId': meeting.hostId,
+          },
+        );
+        
+        if (kDebugMode) {
+          print('✅ 신청자에게 FCM 알림 발송 완료');
+        }
+      } catch (fcmError) {
+        if (kDebugMode) {
+          print('❌ FCM 발송 실패: $fcmError');
+        }
+        rethrow;
+      }
 
       if (kDebugMode) {
         print('✅ 모임 승인 알림 발송 완료');
@@ -693,6 +779,14 @@ class NotificationService {
     required String applicantName,
   }) async {
     try {
+      // 방해금지 모드 확인
+      if (await _isDoNotDisturbActive()) {
+        if (kDebugMode) {
+          print('🔕 방해금지 모드로 인해 모임 거절 알림 스킵');
+        }
+        return;
+      }
+      
       if (kDebugMode) {
         print('😔 모임 거절 알림 발송 시작: ${meeting.id}');
       }
@@ -709,8 +803,35 @@ class NotificationService {
       final title = '😔 참여 신청이 거절되었습니다';
       final body = '"${meeting.description}" 모임 참여 신청이 거절되었습니다. 다른 모임을 찾아보세요!';
 
-      // Firebase Functions 제거됨 - 로컬 알림만 사용
-      await showTestNotification(title, body);
+      // 신청자에게 실제 FCM 발송 (로컬/원격 구분 없이 항상 FCM)
+      if (kDebugMode) {
+        print('📨 신청자에게 FCM 알림 발송');
+        print('  - 신청자 ID: $applicantUserId');
+        print('  - FCM 토큰: ${applicantUser?.fcmToken?.substring(0, 20) ?? '없음'}...');
+      }
+      
+      try {
+        // Firebase Functions를 통한 실제 FCM 발송
+        await _sendSingleFCMMessage(
+          token: applicantUser!.fcmToken!,
+          title: title,
+          body: body,
+          data: {
+            'type': 'meeting_rejection',
+            'meetingId': meeting.id,
+            'hostUserId': meeting.hostId,
+          },
+        );
+        
+        if (kDebugMode) {
+          print('✅ 신청자에게 FCM 알림 발송 완료');
+        }
+      } catch (fcmError) {
+        if (kDebugMode) {
+          print('❌ FCM 발송 실패: $fcmError');
+        }
+        rethrow;
+      }
 
       if (kDebugMode) {
         print('✅ 모임 거절 알림 발송 완료');
@@ -813,6 +934,14 @@ class NotificationService {
     Map<String, String>? data,
   }) async {
     try {
+      // 방해금지 모드 확인
+      if (await _isDoNotDisturbActive()) {
+        if (kDebugMode) {
+          print('🔕 방해금지 모드로 인해 참여자 알림 스킵');
+        }
+        return;
+      }
+      
       if (kDebugMode) {
         print('🔔 모든 참여자에게 알림 발송 시작');
         print('📝 참여자 ID들: $participantIds');
@@ -932,17 +1061,52 @@ class NotificationService {
         print('📨 실제 Firebase Functions FCM 메시지 발송 시도: $title -> ${token.substring(0, 20)}...');
       }
       
-      // Firebase Functions 제거됨 - 로컬 알림으로 대체
-      await showTestNotification(title, body);
+      // Firebase Functions를 통한 FCM 발송
+      final functions = FirebaseFunctions.instance;
+      final callable = functions.httpsCallable('sendNotification');
+      
+      final result = await callable.call({
+        'token': token,
+        'title': title,
+        'body': body,
+        'data': data,
+        'channelId': _participantChannelId,
+      });
       
       if (kDebugMode) {
-        print('✅ 로컬 알림 발송 완료 (Firebase Functions 대체)');
+        print('✅ FCM 메시지 발송 성공: ${result.data}');
       }
       
     } catch (e) {
       if (kDebugMode) {
         print('❌ FCM 메시지 발송 실패: $e');
       }
+      
+      // 실패 시 로컬 알림으로 폴백 (타입별로 구분)
+      final messageType = data['type'] ?? 'general';
+      String fallbackTitle;
+      
+      switch (messageType) {
+        case 'chat_message':
+          fallbackTitle = '💬 [채팅 알림 - FCM 실패] $title';
+          break;
+        case 'meeting_application':
+          fallbackTitle = '🙋‍♀️ [모임 신청 - FCM 실패] $title';
+          break;
+        case 'meeting_approval':
+          fallbackTitle = '🎉 [참여 승인 - FCM 실패] $title';
+          break;
+        case 'meeting_rejection':
+          fallbackTitle = '😔 [참여 거절 - FCM 실패] $title';
+          break;
+        case 'favorite_restaurant_meeting':
+          fallbackTitle = '❤️ [즐겨찾기 식당 - FCM 실패] $title';
+          break;
+        default:
+          fallbackTitle = '🔔 [알림 - FCM 실패] $title';
+      }
+      
+      await showTestNotification(fallbackTitle, '$body (FCM 실패, 로컬 표시)');
     }
   }
   
@@ -1046,6 +1210,14 @@ class NotificationService {
     required String joinerUserId,
     required String joinerName,
   }) async {
+    // 방해금지 모드 확인
+    if (await _isDoNotDisturbActive()) {
+      if (kDebugMode) {
+        print('🔕 방해금지 모드로 인해 모임 참여 알림 스킵');
+      }
+      return;
+    }
+    
     await notifyAllParticipants(
       participantIds: meeting.participantIds,
       excludeUserId: joinerUserId,
@@ -1065,6 +1237,14 @@ class NotificationService {
     required String leaverUserId,
     required String leaverName,
   }) async {
+    // 방해금지 모드 확인
+    if (await _isDoNotDisturbActive()) {
+      if (kDebugMode) {
+        print('🔕 방해금지 모드로 인해 모임 탈퇴 알림 스킵');
+      }
+      return;
+    }
+    
     await notifyAllParticipants(
       participantIds: meeting.participantIds,
       excludeUserId: leaverUserId,
@@ -1085,6 +1265,14 @@ class NotificationService {
     required String senderName,
     required String message,
   }) async {
+    // 방해금지 모드 확인
+    if (await _isDoNotDisturbActive()) {
+      if (kDebugMode) {
+        print('🔕 방해금지 모드로 인해 채팅 메시지 알림 스킵');
+      }
+      return;
+    }
+    
     if (kDebugMode) {
       print('💬 채팅 메시지 알림 발송 시작');
       print('📝 모임: ${meeting.restaurantName ?? meeting.location}');
@@ -1112,6 +1300,14 @@ class NotificationService {
     required String hostUserId,
     required String hostName,
   }) async {
+    // 방해금지 모드 확인
+    if (await _isDoNotDisturbActive()) {
+      if (kDebugMode) {
+        print('🔕 방해금지 모드로 인해 모임 취소 알림 스킵');
+      }
+      return;
+    }
+    
     await notifyAllParticipants(
       participantIds: meeting.participantIds,
       excludeUserId: hostUserId,
