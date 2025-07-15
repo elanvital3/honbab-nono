@@ -9,6 +9,7 @@ import '../../constants/app_design_tokens.dart';
 import '../../styles/text_styles.dart';
 import '../../components/common/common_card.dart';
 import '../../components/common/common_button.dart';
+import '../../components/common/common_confirm_dialog.dart';
 
 class ApplicantManagementScreen extends StatefulWidget {
   final Meeting meeting;
@@ -142,26 +143,12 @@ class _ApplicantManagementScreenState extends State<ApplicantManagementScreen> {
   }
 
   Future<void> _rejectApplicant(app_user.User applicant) async {
-    final confirmed = await showDialog<bool>(
+    final confirmed = await CommonConfirmDialog.showDelete(
       context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('신청 거절'),
-        content: Text('${applicant.name}님의 참여 신청을 거절하시겠습니까?'),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context, false),
-            child: const Text('취소'),
-          ),
-          TextButton(
-            onPressed: () => Navigator.pop(context, true),
-            style: TextButton.styleFrom(
-              foregroundColor: Colors.red,
-            ),
-            child: const Text('거절'),
-          ),
-        ],
-      ),
-    ) ?? false;
+      title: '신청 거절',
+      content: '${applicant.name}님의 참여 신청을 거절하시겠습니까?',
+      confirmText: '거절',
+    );
 
     if (!confirmed) return;
 

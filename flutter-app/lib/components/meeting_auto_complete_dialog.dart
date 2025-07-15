@@ -6,16 +6,18 @@ import '../components/common/common_button.dart';
 class MeetingAutoCompleteDialog extends StatefulWidget {
   final String meetingName;
   final VoidCallback onComplete;
-  final VoidCallback onPostpone;
   final VoidCallback onCancel;
+  final VoidCallback onPostpone;
+  final VoidCallback onCancelMeeting; // 모임 취소 콜백 추가
   final bool isManualCompletion; // 수동 완료 여부
 
   const MeetingAutoCompleteDialog({
     super.key,
     required this.meetingName,
     required this.onComplete,
-    required this.onPostpone,
     required this.onCancel,
+    required this.onPostpone,
+    required this.onCancelMeeting,
     this.isManualCompletion = false,
   });
 
@@ -24,6 +26,7 @@ class MeetingAutoCompleteDialog extends StatefulWidget {
     required String meetingName,
     required VoidCallback onComplete,
     required VoidCallback onPostpone,
+    required VoidCallback onCancelMeeting,
     bool isManualCompletion = false,
   }) async {
     return showDialog<String>(
@@ -32,8 +35,9 @@ class MeetingAutoCompleteDialog extends StatefulWidget {
       builder: (context) => MeetingAutoCompleteDialog(
         meetingName: meetingName,
         onComplete: onComplete,
-        onPostpone: onPostpone,
         onCancel: () => Navigator.pop(context, 'cancel'),
+        onPostpone: onPostpone,
+        onCancelMeeting: onCancelMeeting,
         isManualCompletion: isManualCompletion,
       ),
     );
@@ -99,7 +103,7 @@ class _MeetingAutoCompleteDialogState extends State<MeetingAutoCompleteDialog> {
             Text(
               widget.isManualCompletion
                   ? '모임을 완료하시겠습니까?\n\n완료 후 참여자들에게 평가 요청 알림이 발송됩니다.'
-                  : '예정된 모임 시간이 2시간 전에 지났습니다.\n모임을 완료하시겠습니까?',
+                  : '모임이 완료되었나요?',
               style: AppTextStyles.bodyMedium.copyWith(
                 color: Colors.grey[600],
               ),
@@ -157,7 +161,7 @@ class _MeetingAutoCompleteDialogState extends State<MeetingAutoCompleteDialog> {
             // 버튼들
             Column(
               children: [
-                // 모임 완료 버튼
+                // 모임 완료 버튼 (primary)
                 CommonButton(
                   text: '모임 완료',
                   onPressed: () {
@@ -168,38 +172,30 @@ class _MeetingAutoCompleteDialogState extends State<MeetingAutoCompleteDialog> {
                   fullWidth: true,
                 ),
                 
-                if (!widget.isManualCompletion) ...[
-                  const SizedBox(height: 12),
-                  
-                  // 1시간 후 다시 알림 (자동 완료에서만 표시)
-                  CommonButton(
-                    text: '1시간 후 다시 알림',
-                    onPressed: () {
-                      Navigator.pop(context, 'postpone');
-                      widget.onPostpone();
-                    },
-                    variant: ButtonVariant.outline,
-                    fullWidth: true,
-                  ),
-                  
-                  const SizedBox(height: 8),
-                ],
+                const SizedBox(height: 12),
                 
-                if (widget.isManualCompletion) 
-                  const SizedBox(height: 12),
-                
-                // 나중에 하기 / 취소
-                TextButton(
+                // 아직 모임중이에요 버튼 (outline)
+                CommonButton(
+                  text: '아직 모임중이에요',
                   onPressed: () {
-                    Navigator.pop(context, 'cancel');
+                    Navigator.pop(context, 'still_ongoing');
                     widget.onCancel();
                   },
-                  child: Text(
-                    widget.isManualCompletion ? '취소' : '나중에 하기',
-                    style: AppTextStyles.bodyMedium.copyWith(
-                      color: Colors.grey[600],
-                    ),
-                  ),
+                  variant: ButtonVariant.outline,
+                  fullWidth: true,
+                ),
+                
+                const SizedBox(height: 12),
+                
+                // 모임 취소 버튼 (destructive)
+                CommonButton(
+                  text: '모임 취소',
+                  onPressed: () {
+                    Navigator.pop(context, 'cancel_meeting');
+                    widget.onCancelMeeting();
+                  },
+                  variant: ButtonVariant.destructive,
+                  fullWidth: true,
                 ),
               ],
             ),

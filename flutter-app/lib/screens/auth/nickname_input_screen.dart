@@ -8,6 +8,8 @@ import '../home/home_screen.dart';
 import '../../models/user_badge.dart';
 import '../../components/user_badge_chip.dart';
 import '../../constants/app_design_tokens.dart';
+import '../../styles/text_styles.dart';
+import '../../components/common/common_button.dart';
 
 class NicknameInputScreen extends StatefulWidget {
   final String userId;
@@ -346,21 +348,19 @@ class _NicknameInputScreenState extends State<NicknameInputScreen> {
                       ),
                     ),
                     const SizedBox(height: 16),
-                    const Text(
+                    Text(
                       '환영합니다!',
-                      style: TextStyle(
+                      style: AppTextStyles.displayLarge.copyWith(
                         fontSize: 28,
-                        fontWeight: FontWeight.bold,
-                        color: Color(0xFF333333),
+                        color: AppDesignTokens.onSurface,
                       ),
                     ),
                     const SizedBox(height: 16),
-                    const Text(
+                    Text(
                       '혼밥노노에서 사용할\n기본 정보를 입력해주세요',
                       textAlign: TextAlign.center,
-                      style: TextStyle(
-                        fontSize: 16,
-                        color: Color(0xFF666666),
+                      style: AppTextStyles.bodyLarge.copyWith(
+                        color: AppDesignTokens.onSurfaceVariant,
                         height: 1.5,
                       ),
                     ),
@@ -412,41 +412,14 @@ class _NicknameInputScreenState extends State<NicknameInputScreen> {
                     const SizedBox(height: 24),
                     
                     // 완료 버튼
-                    SizedBox(
-                      width: double.infinity,
-                      child: ElevatedButton(
-                        onPressed: (_isFormValid() && !_isLoading) 
-                            ? _checkNicknameAvailability 
-                            : null,
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: const Color(0xFFD2B48C),
-                          disabledBackgroundColor: const Color(0xFFE0E0E0),
-                          padding: const EdgeInsets.symmetric(vertical: 16),
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(12),
-                          ),
-                          elevation: 0,
-                        ),
-                        child: _isLoading
-                            ? const SizedBox(
-                                width: 20,
-                                height: 20,
-                                child: CircularProgressIndicator(
-                                  strokeWidth: 2,
-                                  valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
-                                ),
-                              )
-                            : Text(
-                                '시작하기',
-                                style: TextStyle(
-                                  fontSize: 16,
-                                  fontWeight: FontWeight.w600,
-                                  color: (_isFormValid() && !_isLoading) 
-                                      ? Colors.white 
-                                      : const Color(0xFF999999),
-                                ),
-                              ),
-                      ),
+                    CommonButton(
+                      text: '시작하기',
+                      onPressed: (_isFormValid() && !_isLoading) 
+                          ? _checkNicknameAvailability 
+                          : null,
+                      isLoading: _isLoading,
+                      fullWidth: true,
+                      size: ButtonSize.large,
                     ),
                   ],
                     ),

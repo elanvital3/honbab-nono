@@ -1,4 +1,6 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:cloud_functions/cloud_functions.dart';
+import 'package:firebase_auth/firebase_auth.dart' as firebase_auth;
 import 'package:flutter/foundation.dart';
 import '../models/meeting.dart';
 import 'notification_service.dart';
@@ -7,6 +9,7 @@ import 'meeting_auto_completion_service.dart';
 
 class MeetingService {
   static final FirebaseFirestore _firestore = FirebaseFirestore.instance;
+  static final FirebaseFunctions _functions = FirebaseFunctions.instance;
   static const String _collection = 'meetings';
 
   // 모임 생성
@@ -46,13 +49,15 @@ class MeetingService {
         // 알림 실패는 모임 생성을 방해하지 않음
       }
       
-      // 호스트에게 자동 완료 알림 예약
+      // Firebase Functions에 자동 완료 알림 스케줄 등록
       try {
-        final createdMeeting = meeting.copyWith(id: docRef.id);
-        await MeetingAutoCompletionService.scheduleMeetingAutoCompletion(createdMeeting);
+        await _scheduleAutoCompletion(docRef.id, meeting.dateTime);
+        if (kDebugMode) {
+          print('✅ Firebase Functions 자동 완료 알림 스케줄 등록 완료');
+        }
       } catch (autoCompleteError) {
         if (kDebugMode) {
-          print('⚠️ 자동 완료 알림 예약 실패: $autoCompleteError');
+          print('⚠️ Firebase Functions 자동 완료 알림 스케줄 등록 실패: $autoCompleteError');
         }
         // 알림 실패는 모임 생성을 방해하지 않음
       }
@@ -149,6 +154,8 @@ class MeetingService {
   }
 
   // 모임 완료 (호스트만)
+  /// 모임을 완료 상태로 변경하고 백그라운드에서 평가 요청 발송
+
   static Future<void> completeMeeting(String meetingId, {bool keepChatActive = false}) async {
     try {
       // 모임 정보 먼저 조회
@@ -269,6 +276,50 @@ class MeetingService {
     } catch (e) {
       if (kDebugMode) {
         print('❌ Error deleting meeting: $e');
+      }
+      rethrow;
+    }
+  }
+
+  // 모임 취소 (상태를 cancelled로 변경)
+  static Future<void> cancelMeeting(String id) async {
+    try {
+      // 모임 정보를 먼저 가져와서 호스트 정보 확인
+      final meetingDoc = await _firestore.collection(_collection).doc(id).get();
+      if (!meetingDoc.exists) {
+        throw Exception('Meeting not found');
+      }
+
+      final meeting = Meeting.fromFirestore(meetingDoc);
+      
+      // 현재 사용자가 호스트인지 확인
+      final currentUser = firebase_auth.FirebaseAuth.instance.currentUser;
+      if (currentUser?.uid != meeting.hostId) {
+        throw Exception('Only host can cancel the meeting');
+      }
+
+      // 모임 상태를 cancelled로 변경
+      await _firestore.collection(_collection).doc(id).update({
+        'status': 'cancelled',
+        'updatedAt': FieldValue.serverTimestamp(),
+      });
+
+      // 자동 완료 알림 취소
+      try {
+        await MeetingAutoCompletionService.cancelMeetingAutoCompletion(id);
+      } catch (autoCompleteError) {
+        if (kDebugMode) {
+          print('⚠️ 자동 완료 알림 취소 실패: $autoCompleteError');
+        }
+        // 알림 취소 실패해도 모임 취소는 계속 진행
+      }
+      
+      if (kDebugMode) {
+        print('✅ Meeting cancelled: $id');
+      }
+    } catch (e) {
+      if (kDebugMode) {
+        print('❌ Error cancelling meeting: $e');
       }
       rethrow;
     }
@@ -690,6 +741,53 @@ class MeetingService {
     });
   }
 
+  // 사용자의 모든 모임 (참여 + 주최) 가져오기 (Future)
+  static Future<List<Meeting>> getUserMeetings(String userId) async {
+    try {
+      // 참여한 모임과 주최한 모임을 병렬로 가져오기
+      final results = await Future.wait([
+        _firestore
+            .collection(_collection)
+            .where('participantIds', arrayContains: userId)
+            .get(),
+        _firestore
+            .collection(_collection)
+            .where('hostId', isEqualTo: userId)
+            .get(),
+      ]);
+
+      final participatedMeetings = results[0].docs
+          .map((doc) => Meeting.fromFirestore(doc))
+          .toList();
+      
+      final hostedMeetings = results[1].docs
+          .map((doc) => Meeting.fromFirestore(doc))
+          .toList();
+
+      // 중복 제거 (호스트이면서 participantIds에도 포함된 경우)
+      final allMeetings = <String, Meeting>{};
+      
+      for (final meeting in participatedMeetings) {
+        allMeetings[meeting.id] = meeting;
+      }
+      
+      for (final meeting in hostedMeetings) {
+        allMeetings[meeting.id] = meeting;
+      }
+
+      // 날짜순 정렬
+      final sortedMeetings = allMeetings.values.toList()
+        ..sort((a, b) => a.dateTime.compareTo(b.dateTime));
+
+      return sortedMeetings;
+    } catch (e) {
+      if (kDebugMode) {
+        print('❌ 사용자 모임 조회 실패: $e');
+      }
+      return [];
+    }
+  }
+
   // 호스트의 모임 목록 가져오기 (스트림)
   static Stream<List<Meeting>> getHostedMeetingsStream(String hostId) {
     return _firestore
@@ -749,22 +847,8 @@ class MeetingService {
   /// 즐겨찾기 식당 사용자들에게 새 모임 알림 발송
   static Future<void> _notifyFavoriteRestaurantUsers(Meeting meeting) async {
     try {
-      // 즐겨찾기 식당 알림 설정 확인
-      final notificationService = NotificationService();
-      if (!await notificationService.isFavoriteRestaurantNotificationEnabled()) {
-        if (kDebugMode) {
-          print('🔕 즐겨찾기 식당 알림이 비활성화되어 있어 스킵합니다');
-        }
-        return;
-      }
-      
-      // 방해금지 모드 확인
-      if (await notificationService.isDoNotDisturbActive()) {
-        if (kDebugMode) {
-          print('🔕 방해금지 모드로 인해 즐겨찾기 식당 알림 스킵');
-        }
-        return;
-      }
+      // 방해금지 모드는 수신자 기준으로 FCM 서버에서 처리됨
+      // 발송자가 방해금지여도 즐겨찾기 사용자들은 알림을 받아야 함
       
       // restaurantId가 없으면 알림 발송 스킨
       if (meeting.restaurantId == null || meeting.restaurantId!.isEmpty) {
@@ -825,7 +909,7 @@ class MeetingService {
           }
           
           // Firebase Functions를 통한 실제 FCM 발송
-          await notificationService.sendDirectTestMessage(
+          await NotificationService().sendDirectTestMessage(
             targetToken: token,
             title: title,
             body: body,
@@ -1113,6 +1197,73 @@ class MeetingService {
         print('❌ 모임 데이터 처리 실패: $e');
       }
       rethrow;
+    }
+  }
+
+  /// Firebase Functions에 모임 자동 완료 알림 스케줄 등록
+  static Future<void> _scheduleAutoCompletion(String meetingId, DateTime dateTime) async {
+    try {
+      final HttpsCallable callable = _functions.httpsCallable('scheduleMeetingAutoCompletion');
+      
+      final result = await callable.call({
+        'meetingId': meetingId,
+        'dateTime': dateTime.toIso8601String(),
+      });
+      
+      if (kDebugMode) {
+        print('✅ Firebase Functions 자동 완료 스케줄 등록 성공: ${result.data}');
+      }
+    } catch (e) {
+      if (kDebugMode) {
+        print('❌ Firebase Functions 자동 완료 스케줄 등록 실패: $e');
+      }
+      rethrow;
+    }
+  }
+
+  /// 참여자가 없는 모임의 4시간 후 자동 취소 스케줄 등록
+  static Future<void> scheduleAutoCancellation(String meetingId, {int delayHours = 4}) async {
+    try {
+      final HttpsCallable callable = _functions.httpsCallable('scheduleMeetingAutoCancellation');
+      
+      final scheduleTime = DateTime.now().add(Duration(hours: delayHours));
+      
+      final result = await callable.call({
+        'meetingId': meetingId,
+        'scheduleTime': scheduleTime.toIso8601String(),
+        'delayHours': delayHours,
+      });
+      
+      if (kDebugMode) {
+        print('✅ Firebase Functions 자동 취소 스케줄 등록 성공: ${result.data}');
+        print('   - 모임 ID: $meetingId');
+        print('   - 예약 시간: ${scheduleTime.toString()}');
+      }
+    } catch (e) {
+      if (kDebugMode) {
+        print('❌ Firebase Functions 자동 취소 스케줄 등록 실패: $e');
+      }
+      rethrow;
+    }
+  }
+
+  /// 모임 자동 취소 스케줄 해제
+  static Future<void> cancelAutoScheduledCancellation(String meetingId) async {
+    try {
+      final HttpsCallable callable = _functions.httpsCallable('cancelMeetingAutoCancellation');
+      
+      final result = await callable.call({
+        'meetingId': meetingId,
+      });
+      
+      if (kDebugMode) {
+        print('✅ Firebase Functions 자동 취소 스케줄 해제 성공: ${result.data}');
+      }
+    } catch (e) {
+      if (kDebugMode) {
+        print('❌ Firebase Functions 자동 취소 스케줄 해제 실패: $e');
+      }
+      // 실패해도 크리티컬하지 않음
     }
   }
 }

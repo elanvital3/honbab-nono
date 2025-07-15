@@ -159,6 +159,7 @@ class CommonConfirmDialog extends StatelessWidget {
     String cancelText = '취소',
     String confirmText = '확인',
     Color? confirmTextColor,
+    bool showCancelButton = true,
   }) async {
     final result = await showDialog<bool>(
       context: context,
@@ -168,6 +169,7 @@ class CommonConfirmDialog extends StatelessWidget {
         cancelText: cancelText,
         confirmText: confirmText,
         confirmTextColor: confirmTextColor,
+        showCancelButton: showCancelButton,
       ),
     );
     
@@ -179,14 +181,18 @@ class CommonConfirmDialog extends StatelessWidget {
     required BuildContext context,
     required String title,
     required String content,
+    String cancelText = '취소',
     String confirmText = '삭제',
+    bool showCancelButton = true,
   }) async {
     return show(
       context: context,
       title: title,
       content: content,
+      cancelText: cancelText,
       confirmText: confirmText,
       confirmTextColor: Colors.red[400],
+      showCancelButton: showCancelButton,
     );
   }
 
@@ -196,6 +202,7 @@ class CommonConfirmDialog extends StatelessWidget {
     required String title,
     required String content,
     String confirmText = '완료',
+    bool showCancelButton = true,
   }) async {
     return show(
       context: context,
@@ -203,6 +210,7 @@ class CommonConfirmDialog extends StatelessWidget {
       content: content,
       confirmText: confirmText,
       confirmTextColor: Colors.green[600],
+      showCancelButton: showCancelButton,
     );
   }
 

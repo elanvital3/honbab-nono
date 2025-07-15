@@ -118,17 +118,26 @@ class KakaoWebViewMapState extends State<KakaoWebViewMap> {
     _controller = WebViewController()
       ..setJavaScriptMode(JavaScriptMode.unrestricted)
       ..setBackgroundColor(Colors.transparent)
+      // WebView 성능 최적화 설정
+      ..enableZoom(false)
+      ..setUserAgent('Mozilla/5.0 (Linux; Android 10) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.120 Mobile Safari/537.36')
       ..setNavigationDelegate(
         NavigationDelegate(
           onProgress: (int progress) {
-            // 진행률 로그 최소화
-            if (progress == 100) print('✅ 지도 로딩 완료');
+            // 진행률 로그 완전 제거 (WebView 노이즈 방지)
+            if (kDebugMode && progress == 100) {
+              print('✅ 지도 로딩 완료');
+            }
           },
           onPageStarted: (String url) {
-            print('🚀 지도 페이지 로딩 시작');
+            if (kDebugMode) {
+              print('🚀 지도 페이지 로딩 시작');
+            }
           },
           onPageFinished: (String url) {
-            print('✅ 지도 페이지 로딩 완료');
+            if (kDebugMode) {
+              print('✅ 지도 페이지 로딩 완료');
+            }
             _checkJavaScriptExecution();
             if (!_isMapLoaded) {
               _isMapLoaded = true;
@@ -192,11 +201,15 @@ class KakaoWebViewMapState extends State<KakaoWebViewMap> {
   void _checkJavaScriptExecution() async {
     try {
       await _controller.runJavaScript('''
-        console.log('JavaScript 실행 테스트');
-        FlutterLog.postMessage('JavaScript 채널 연결 성공');
+        // JavaScript 실행 테스트 (로그 제거)
+        if (window.FlutterLog) {
+          FlutterLog.postMessage('JavaScript 채널 연결 성공');
+        }
       ''');
     } catch (e) {
-      print('❌ JavaScript 실행 실패: $e');
+      if (kDebugMode) {
+        print('❌ JavaScript 실행 실패: $e');
+      }
     }
   }
 
@@ -240,11 +253,35 @@ class KakaoWebViewMapState extends State<KakaoWebViewMap> {
 <html>
 <head>
     <meta charset="utf-8">
-    <title>카카오맵</title>
     <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+    <meta name="renderer" content="webkit">
+    <meta http-equiv="X-UA-Compatible" content="IE=edge">
+    <!-- WebView 렌더링 최적화 -->
+    <meta name="format-detection" content="telephone=no">
+    <meta name="msapplication-tap-highlight" content="no">
+    <title>카카오맵</title>
     <style>
-        html, body { margin: 0; padding: 0; width: 100%; height: 100%; }
-        #map { width: 100%; height: 100%; }
+        html, body { 
+            margin: 0; 
+            padding: 0; 
+            width: 100%; 
+            height: 100%; 
+            /* WebView 렌더링 최적화 */
+            -webkit-tap-highlight-color: transparent;
+            -webkit-touch-callout: none;
+            -webkit-user-select: none;
+            user-select: none;
+        }
+        #map { 
+            width: 100%; 
+            height: 100%; 
+            /* 하드웨어 가속 및 렌더링 최적화 */
+            transform: translateZ(0);
+            -webkit-transform: translateZ(0);
+            will-change: transform;
+            backface-visibility: hidden;
+            -webkit-backface-visibility: hidden;
+        }
         .loading { 
             display: flex; 
             justify-content: center; 
@@ -307,7 +344,7 @@ class KakaoWebViewMapState extends State<KakaoWebViewMap> {
         // SDK 로딩 완료 후 실행할 함수
         function initializeMap() {
             try {
-                FlutterLog.postMessage('카카오맵 초기화 시작');
+                // 카카오맵 초기화 시작 (로그 최소화)
                 
                 if (typeof kakao === 'undefined') {
                     throw new Error('카카오 SDK가 로드되지 않았습니다');
@@ -320,7 +357,7 @@ class KakaoWebViewMapState extends State<KakaoWebViewMap> {
                 };
                 
                 var map = new kakao.maps.Map(container, options);
-                FlutterLog.postMessage('✅ 카카오맵 생성 완료');
+                // 카카오맵 생성 완료 (로그 최소화)
                 
                 // 전역 변수들
                 window.mapInstance = map;
@@ -437,17 +474,17 @@ class KakaoWebViewMapState extends State<KakaoWebViewMap> {
         
         // SDK 로딩 및 초기화
         function loadKakaoSDK() {
-            FlutterLog.postMessage('카카오 SDK 로딩 시작');
+            // 카카오 SDK 로딩 시작 (로그 최소화)
             
             var script = document.createElement('script');
             script.type = 'text/javascript';
             script.src = 'https://dapi.kakao.com/v2/maps/sdk.js?appkey=72f1d70089c36f4a8c9fabe7dc6be080&autoload=false';
             
             script.onload = function() {
-                FlutterLog.postMessage('카카오 SDK 로드 완료');
+                // 카카오 SDK 로드 완료 (로그 최소화)
                 // autoload=false이므로 수동으로 로드
                 kakao.maps.load(function() {
-                    FlutterLog.postMessage('카카오 maps 로드 완료');
+                    // 카카오 maps 로드 완료 (로그 최소화)
                     initializeMap();
                 });
             };

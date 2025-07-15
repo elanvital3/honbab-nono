@@ -1183,6 +1183,7 @@ class UltimateRestaurantCrawler {
       });
 
       if (!searchResponse.data.results || searchResponse.data.results.length === 0) {
+        console.log(`   ❌ Google Nearby Search: 결과 없음 (${kakaoPlace.place_name})`);
         return null;
       }
 
@@ -1192,11 +1193,16 @@ class UltimateRestaurantCrawler {
       const detailsResponse = await axios.get('https://maps.googleapis.com/maps/api/place/details/json', {
         params: {
           place_id: googlePlace.place_id,
-          fields: 'place_id,name,rating,user_ratings_total,photos,regular_opening_hours,current_opening_hours,business_status,reviews,formatted_phone_number,website,price_level',
+          fields: 'place_id,name,rating,user_ratings_total,photos,opening_hours,business_status,reviews,formatted_phone_number,website,price_level',
           key: this.googleApiKey,
           language: 'ko'
         }
       });
+
+      if (detailsResponse.data.status !== 'OK') {
+        console.log(`   ❌ Google Place Details 에러: ${detailsResponse.data.status} (${kakaoPlace.place_name})`);
+        return null;
+      }
 
       if (detailsResponse.data.result) {
         return detailsResponse.data.result;
@@ -1715,8 +1721,7 @@ class UltimateRestaurantCrawler {
             rating: googleDetails.rating || null,
             userRatingsTotal: googleDetails.user_ratings_total || null,
             photos: photoUrls, // 🔥 실제 사용 가능한 이미지 URL들
-            regularOpeningHours: googleDetails.regular_opening_hours || googleDetails.opening_hours || null,
-            currentOpeningHours: googleDetails.current_opening_hours || null,
+            regularOpeningHours: googleDetails.opening_hours || null,
             businessStatus: googleDetails.business_status || null,
             reviews: googleDetails.reviews || [],
             phoneNumber: googleDetails.formatted_phone_number || null,

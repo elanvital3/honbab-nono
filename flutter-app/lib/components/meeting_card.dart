@@ -16,21 +16,30 @@ class MeetingCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),  // 당근마켓 스타일
-      child: Material(
-        color: Theme.of(context).colorScheme.surface,
-        borderRadius: BorderRadius.circular(8),  // 당근마켓 스타일
-        elevation: 0.5,  // 당근마켓 스타일 미약한 그림자
-        shadowColor: Theme.of(context).colorScheme.shadow.withOpacity(0.1),
-        child: InkWell(
-          onTap: onTap,
-          borderRadius: BorderRadius.circular(8),
-          splashColor: Theme.of(context).colorScheme.primary.withOpacity(0.1),
-          highlightColor: Theme.of(context).colorScheme.primary.withOpacity(0.05),
+    return GestureDetector(
+      behavior: HitTestBehavior.opaque,
+      onTap: () {
+        debugPrint('🔥 MeetingCard GestureDetector 클릭됨');
+        debugPrint('🔥 onTap 함수: ${onTap != null ? "존재함" : "null"}');
+        if (onTap != null) {
+          debugPrint('🔥 onTap 함수 호출 시작');
+          onTap!();
+          debugPrint('🔥 onTap 함수 호출 완료');
+        } else {
+          debugPrint('❌ onTap 함수가 null입니다');
+        }
+      },
+      child: Container(
+        width: double.infinity,
+        margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),  // 당근마켓 스타일
+        child: Material(
+          color: Theme.of(context).colorScheme.surface,
+          borderRadius: BorderRadius.circular(8),  // 당근마켓 스타일
+          elevation: 0.5,  // 당근마켓 스타일 미약한 그림자
+          shadowColor: Theme.of(context).colorScheme.shadow.withOpacity(0.1),
           child: Padding(
             padding: const EdgeInsets.all(12),  // 당근마켓 스타일 더 촘촘한 패딩
-          child: Row(
+            child: Row(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               // 왼쪽 이미지 영역 (당근마켓 스타일)
@@ -380,7 +389,7 @@ class MeetingCard extends StatelessWidget {
                 ),
               ),
             ],
-          ),
+            ),
           ),
         ),
       ),

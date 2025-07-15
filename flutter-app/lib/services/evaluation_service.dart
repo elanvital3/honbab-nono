@@ -3,6 +3,7 @@ import 'package:flutter/foundation.dart';
 import '../models/user_evaluation.dart';
 import '../models/meeting.dart';
 import 'user_service.dart';
+import 'meeting_service.dart';
 
 class EvaluationService {
   static final FirebaseFirestore _firestore = FirebaseFirestore.instance;
@@ -29,6 +30,9 @@ class EvaluationService {
 
       // 평가받은 사용자의 평점 업데이트
       await _updateUserRating(evaluation.evaluatedUserId);
+
+      // 모든 평가가 완료되었는지 확인
+      await _checkAndCompleteMeetingIfAllEvaluationsFinished(evaluation.meetingId);
 
       if (kDebugMode) {
         print('✅ 사용자 평가 제출 완료: ${evaluation.evaluatedUserId}');
@@ -140,6 +144,31 @@ class EvaluationService {
     } catch (e) {
       if (kDebugMode) {
         print('❌ 사용자 평가 목록 조회 실패: $e');
+      }
+      return [];
+    }
+  }
+
+  /// 사용자가 받은 코멘트만 조회 (익명화)
+  static Future<List<Map<String, dynamic>>> getUserComments(String userId) async {
+    try {
+      final evaluations = await getUserEvaluations(userId);
+      
+      // 코멘트가 있는 평가만 필터링하고 익명화
+      return evaluations
+          .where((evaluation) => evaluation.comment != null && evaluation.comment!.trim().isNotEmpty)
+          .map((evaluation) => {
+            'comment': evaluation.comment!,
+            'meetingLocation': evaluation.meetingLocation ?? '알 수 없는 장소',
+            'meetingRestaurant': evaluation.meetingRestaurant,
+            'meetingDateTime': evaluation.meetingDateTime,
+            'createdAt': evaluation.createdAt,
+            'averageRating': evaluation.averageRating,
+          })
+          .toList();
+    } catch (e) {
+      if (kDebugMode) {
+        print('❌ 사용자 코멘트 조회 실패: $e');
       }
       return [];
     }
@@ -296,6 +325,60 @@ class EvaluationService {
         print('❌ 평가 데이터 삭제 실패: $e');
       }
       rethrow;
+    }
+  }
+
+  /// 모든 평가가 완료되었는지 확인하고, 완료되면 모임을 최종 완료 상태로 변경
+  static Future<void> _checkAndCompleteMeetingIfAllEvaluationsFinished(String meetingId) async {
+    try {
+      // 모임 정보 조회
+      final meetingDoc = await FirebaseFirestore.instance
+          .collection('meetings')
+          .doc(meetingId)
+          .get();
+
+      if (!meetingDoc.exists) {
+        return;
+      }
+
+      final meeting = Meeting.fromFirestore(meetingDoc);
+      final participantCount = meeting.participantIds.length;
+      
+      // 상호 평가이므로 총 필요한 평가 수는 n * (n-1)
+      final totalRequired = participantCount * (participantCount - 1);
+
+      // 완료된 평가 수 조회
+      final completedEvaluations = await _firestore
+          .collection(_collection)
+          .where('meetingId', isEqualTo: meetingId)
+          .get();
+
+      final completed = completedEvaluations.docs.length;
+
+      if (kDebugMode) {
+        print('📊 모임 평가 진행률 확인: $meetingId');
+        print('   - 필요한 평가 수: $totalRequired');
+        print('   - 완료된 평가 수: $completed');
+      }
+
+      // 모든 평가가 완료되었으면 모임을 최종 완료 상태로 변경
+      if (completed >= totalRequired && totalRequired > 0) {
+        // 현재 채팅방 설정 유지 (평가 시작 시 설정된 값)
+        final currentMeeting = Meeting.fromFirestore(meetingDoc);
+        bool keepChatActive = currentMeeting.chatActive;
+        
+        await MeetingService.completeMeeting(meetingId, keepChatActive: keepChatActive);
+        
+        if (kDebugMode) {
+          print('🎉 모든 평가 완료! 모임 최종 완료 처리: $meetingId');
+          print('   - 채팅방 유지: $keepChatActive');
+        }
+      }
+    } catch (e) {
+      if (kDebugMode) {
+        print('❌ 모임 평가 완료 확인 실패: $e');
+      }
+      // 에러 시에도 평가 제출은 계속 진행
     }
   }
 }

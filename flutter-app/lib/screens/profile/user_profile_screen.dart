@@ -5,6 +5,8 @@ import '../../models/meeting.dart';
 import '../../models/restaurant.dart';
 import '../../services/meeting_service.dart';
 import '../../services/restaurant_service.dart';
+import '../../services/evaluation_service.dart';
+import 'user_comments_screen.dart';
 import '../../constants/app_design_tokens.dart';
 import '../../styles/text_styles.dart';
 import '../../components/common/common_card.dart';
@@ -65,6 +67,7 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
             _buildProfileHeader(),
             _buildStats(),
             _buildRatings(),
+            _buildComments(),
             if (widget.isCurrentUser) _buildFavoriteRestaurants(),
             const SizedBox(height: AppDesignTokens.spacing4),
           ],
@@ -124,7 +127,10 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
           // 특성 뱃지를 Row 밑에 배치
           if (widget.user.badges.isNotEmpty) ...[
             const SizedBox(height: AppDesignTokens.spacing3),
-            UserBadgesList(badgeIds: widget.user.badges),
+            Align(
+              alignment: Alignment.centerLeft,
+              child: UserBadgesList(badgeIds: widget.user.badges),
+            ),
           ],
         ],
       ),
@@ -133,19 +139,25 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
 
 
   Widget _buildStats() {
-    return CommonCard(
-      padding: AppPadding.all20,
-      margin: const EdgeInsets.fromLTRB(16, 0, 16, 8),
+    return Container(
+      margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+      padding: const EdgeInsets.all(20),
+      decoration: BoxDecoration(
+        color: Theme.of(context).colorScheme.surface,
+        borderRadius: BorderRadius.circular(12),
+        boxShadow: [
+          BoxShadow(
+            color: Theme.of(context).colorScheme.shadow.withOpacity(0.1),
+            blurRadius: 8,
+            offset: const Offset(0, 2),
+          ),
+        ],
+      ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text(
-            '활동 통계',
-            style: AppTextStyles.titleLarge.copyWith(
-              fontWeight: AppDesignTokens.fontWeightBold,
-            ),
-          ),
-          const SizedBox(height: AppDesignTokens.spacing4),
+          Text('활동 통계', style: AppTextStyles.titleLarge),
+          const SizedBox(height: 16),
           StreamBuilder<List<Meeting>>(
             stream: MeetingService.getUserMeetingsStream(widget.user.id),
             builder: (context, snapshot) {
@@ -156,8 +168,10 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
               
               if (snapshot.hasData) {
                 final meetings = snapshot.data!;
-                participatedCount = meetings.length;
-                hostedCount = meetings.where((m) => m.hostId == widget.user.id).length;
+                // 완료된 모임만 카운팅
+                final completedMeetings = meetings.where((m) => m.status == 'completed').toList();
+                participatedCount = completedMeetings.length;
+                hostedCount = completedMeetings.where((m) => m.hostId == widget.user.id).length;
               }
               
               return Row(
@@ -169,7 +183,11 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
                       Icons.group,
                     ),
                   ),
-                  const StatsDivider(),
+                  Container(
+                    width: 1,
+                    height: 40,
+                    color: Theme.of(context).colorScheme.outline.withOpacity(0.3),
+                  ),
                   Expanded(
                     child: _buildStatItem(
                       '주최한 모임',
@@ -177,7 +195,11 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
                       Icons.star,
                     ),
                   ),
-                  const StatsDivider(),
+                  Container(
+                    width: 1,
+                    height: 40,
+                    color: Theme.of(context).colorScheme.outline.withOpacity(0.3),
+                  ),
                   Expanded(
                     child: _buildStatItem(
                       '평균 별점',
@@ -197,24 +219,22 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
   Widget _buildStatItem(String label, String value, IconData icon) {
     return Column(
       children: [
-        Icon(
-          icon,
-          color: AppDesignTokens.primary,
-          size: 24,
-        ),
-        const SizedBox(height: AppDesignTokens.spacing2),
+        Icon(icon, size: 24, color: Theme.of(context).colorScheme.primary),
+        const SizedBox(height: 8),
         Text(
           value,
-          style: AppTextStyles.titleLarge.copyWith(
-            fontWeight: AppDesignTokens.fontWeightBold,
-            color: AppDesignTokens.onSurface,
+          style: TextStyle(
+            fontSize: 16,
+            fontWeight: FontWeight.bold,
+            color: Theme.of(context).colorScheme.onSurface,
           ),
         ),
-        const SizedBox(height: AppDesignTokens.spacing1),
+        const SizedBox(height: 4),
         Text(
           label,
-          style: AppTextStyles.labelMedium.copyWith(
-            color: AppDesignTokens.onSurfaceVariant,
+          style: TextStyle(
+            fontSize: 12,
+            color: Theme.of(context).colorScheme.outline,
           ),
           textAlign: TextAlign.center,
         ),
@@ -223,23 +243,30 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
   }
 
   Widget _buildRatings() {
-    return CommonCard(
-      padding: AppPadding.all20,
-      margin: const EdgeInsets.fromLTRB(16, 0, 16, 8),
+    return Container(
+      margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+      padding: const EdgeInsets.all(20),
+      decoration: BoxDecoration(
+        color: Theme.of(context).colorScheme.surface,
+        borderRadius: BorderRadius.circular(12),
+        boxShadow: [
+          BoxShadow(
+            color: Theme.of(context).colorScheme.shadow.withOpacity(0.1),
+            blurRadius: 8,
+            offset: const Offset(0, 2),
+          ),
+        ],
+      ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text(
-            '받은 평가',
-            style: AppTextStyles.titleLarge.copyWith(
-              fontWeight: AppDesignTokens.fontWeightBold,
-            ),
-          ),
-          const SizedBox(height: AppDesignTokens.spacing3),
+          Text('받은 평가', style: AppTextStyles.titleLarge),
+          const SizedBox(height: 16),
+
           _buildRatingItem('⏰ 시간 준수', widget.user.rating),
-          const SizedBox(height: AppDesignTokens.spacing2),
+          const SizedBox(height: 12),
           _buildRatingItem('💬 대화 매너', widget.user.rating),
-          const SizedBox(height: AppDesignTokens.spacing2),
+          const SizedBox(height: 12),
           _buildRatingItem('🤝 재만남 의향', widget.user.rating),
         ],
       ),
@@ -249,31 +276,192 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
   Widget _buildRatingItem(String label, double rating) {
     return Row(
       children: [
-        SizedBox(
-          width: 100,
-          child: Text(label, style: AppTextStyles.bodyMedium),
+        Expanded(
+          flex: 2,
+          child: Text(
+            label,
+            style: TextStyle(
+              fontSize: 14,
+              color: Theme.of(context).colorScheme.onSurface,
+            ),
+          ),
         ),
-        const SizedBox(width: AppDesignTokens.spacing2),
-        Row(
-          children: List.generate(5, (index) {
-            return Icon(
-              index < rating ? Icons.star : Icons.star_border,
-              color: AppDesignTokens.primary,
-              size: 16,
-            );
-          }),
+        Expanded(
+          flex: 3,
+          child: Row(
+            children: List.generate(5, (index) {
+              return Icon(
+                index < rating ? Icons.star : Icons.star_border,
+                size: 20,
+                color: Theme.of(context).colorScheme.primary,
+              );
+            }),
+          ),
         ),
-        const SizedBox(width: AppDesignTokens.spacing2),
         Text(
           rating.toStringAsFixed(1),
-          style: AppTextStyles.labelMedium.copyWith(
-            color: Theme.of(context).colorScheme.outline,
+          style: TextStyle(
+            fontSize: 16, // 14에서 16으로 증가 (평점 숫자 크기 개선)
+            fontWeight: FontWeight.bold,
+            color: Theme.of(context).colorScheme.onSurface,
           ),
         ),
       ],
     );
   }
 
+  Widget _buildComments() {
+    return CommonCard(
+      padding: AppPadding.all20,
+      margin: const EdgeInsets.fromLTRB(16, 0, 16, 8),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Text('받은 코멘트', style: AppTextStyles.titleLarge),
+              GestureDetector(
+                onTap: () => _navigateToCommentsDetail(),
+                child: Text(
+                  '전체보기',
+                  style: AppTextStyles.bodySmall.copyWith(
+                    color: Theme.of(context).colorScheme.primary,
+                  ),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 16),
+          FutureBuilder<List<Map<String, dynamic>>>(
+            future: EvaluationService.getUserComments(widget.user.id),
+            builder: (context, snapshot) {
+              if (snapshot.connectionState == ConnectionState.waiting) {
+                return const Center(
+                  child: Padding(
+                    padding: EdgeInsets.all(20),
+                    child: CircularProgressIndicator(),
+                  ),
+                );
+              }
+              
+              if (snapshot.hasError) {
+                return Text(
+                  '코멘트를 불러올 수 없습니다',
+                  style: AppTextStyles.bodyMedium.copyWith(
+                    color: Colors.grey[600],
+                  ),
+                );
+              }
+              
+              final comments = snapshot.data ?? [];
+              
+              if (comments.isEmpty) {
+                return Text(
+                  widget.isCurrentUser 
+                    ? '아직 받은 코멘트가 없습니다'
+                    : '아직 작성된 코멘트가 없습니다',
+                  style: AppTextStyles.bodyMedium.copyWith(
+                    color: Colors.grey[600],
+                  ),
+                );
+              }
+              
+              // 최근 2개 코멘트만 표시
+              final recentComments = comments.take(2).toList();
+              
+              return Column(
+                children: recentComments.map((comment) => _buildCommentPreview(comment)).toList(),
+              );
+            },
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildCommentPreview(Map<String, dynamic> comment) {
+    final String? restaurantName = comment['meetingRestaurant'] as String?;
+    final String meetingLocation = comment['meetingLocation'] as String? ?? '알 수 없는 장소';
+    final String commentText = comment['comment'] as String;
+    final double rating = comment['averageRating'] as double? ?? 0.0;
+    
+    return Container(
+      margin: const EdgeInsets.only(bottom: 12),
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: Colors.grey[50],
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: Colors.grey[200]!),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          // 모임 정보
+          Row(
+            children: [
+              Icon(
+                Icons.location_on,
+                size: 14,
+                color: Colors.grey[600],
+              ),
+              const SizedBox(width: 4),
+              Expanded(
+                child: Text(
+                  restaurantName ?? meetingLocation,
+                  style: AppTextStyles.bodySmall.copyWith(
+                    color: Colors.grey[600],
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ),
+              // 평점
+              if (rating > 0) ...[
+                Row(
+                  children: [
+                    Icon(
+                      Icons.star,
+                      size: 14,
+                      color: Theme.of(context).colorScheme.primary,
+                    ),
+                    const SizedBox(width: 2),
+                    Text(
+                      rating.toStringAsFixed(1),
+                      style: AppTextStyles.bodySmall.copyWith(
+                        color: Theme.of(context).colorScheme.primary,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ],
+                ),
+              ],
+            ],
+          ),
+          const SizedBox(height: 8),
+          
+          // 코멘트 내용 (2줄까지만)
+          Text(
+            commentText,
+            style: AppTextStyles.bodyMedium,
+            maxLines: 2,
+            overflow: TextOverflow.ellipsis,
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _navigateToCommentsDetail() {
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (context) => UserCommentsScreen(
+          userId: widget.user.id,
+          isMyComments: widget.isCurrentUser,
+        ),
+      ),
+    );
+  }
 
   Future<void> _loadFavoriteRestaurants() async {
     if (!widget.isCurrentUser) return;

@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:math' as math;
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:kakao_maps_flutter/kakao_maps_flutter.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
@@ -13,27 +14,32 @@ import '../../components/kakao_webview_map.dart';
 import '../../components/kakao_web_map.dart';
 import '../../components/hierarchical_location_picker.dart';
 import '../../components/common/common_confirm_dialog.dart';
+import '../../components/common/common_loading_dialog.dart';
+import '../../components/common/common_card.dart';
 import '../../services/meeting_service.dart';
 import '../../services/auth_service.dart';
+import '../../services/evaluation_service.dart';
 import '../../services/user_service.dart';
+import '../profile/user_comments_screen.dart';
 import '../../services/location_service.dart';
 import '../../services/chat_service.dart';
+import '../../services/notification_service.dart';
+import '../../styles/text_styles.dart';
+import '../../constants/app_design_tokens.dart';
 import '../../services/restaurant_service.dart';
 import '../../services/google_places_service.dart';
 import '../../services/kakao_search_service.dart';
 import '../../models/message.dart';
 import '../../models/restaurant.dart';
 import '../chat/chat_room_screen.dart';
-import '../../constants/app_design_tokens.dart';
-import '../../styles/text_styles.dart';
 import '../profile/profile_edit_screen.dart';
 import '../settings/notification_settings_screen.dart';
 import '../settings/account_deletion_screen.dart';
 import '../../components/participant_profile_widget.dart';
-import '../../components/common/common_confirm_dialog.dart';
 import '../../components/user_badge_chip.dart';
 import '../restaurant/restaurant_list_screen.dart';
 import '../auth/existing_user_adult_verification_screen.dart';
+import '../profile/my_meetings_history_screen.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -55,9 +61,6 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   // _totalUnreadCount 제거 - 이제 ValueNotifier로 관리
   // Timer _unreadCountDebounceTimer 제거 - ValueNotifier로 대체됨
   
-  // FAB 스크롤 상태 관리
-  bool _isScrolled = false;
-  final ScrollController _fabScrollController = ScrollController();
 
   @override
   void initState() {
@@ -65,21 +68,50 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     WidgetsBinding.instance.addObserver(this);
     _initializeCurrentLocation();
     
-    // FAB 스크롤 리스너 설정
-    _fabScrollController.addListener(_onScroll);
+    // 알림 클릭으로 인한 네비게이션 처리
+    _handlePendingNotification();
+    
+    // 평가 요청 스트림 구독 (포그라운드에서 즉시 다이얼로그 표시용)
+    _listenToEvaluationRequests();
   }
   
-  void _onScroll() {
-    if (_fabScrollController.offset > 50 && !_isScrolled) {
-      setState(() {
-        _isScrolled = true;
-      });
-    } else if (_fabScrollController.offset <= 50 && _isScrolled) {
-      setState(() {
-        _isScrolled = false;
-      });
-    }
+  /// 대기 중인 알림 처리
+  void _handlePendingNotification() {
+    print('🔔 [NOTIFICATION] HomeScreen: _handlePendingNotification 호출됨');
+    
+    // 앱이 완전히 로드된 후 즉시 처리
+    Future.delayed(const Duration(milliseconds: 300), () {
+      if (mounted) {
+        print('🔔 [NOTIFICATION] HomeScreen: 알림 처리 서비스 호출 (mounted=$mounted)');
+        NotificationService().processPendingNotification(context);
+      } else {
+        print('🔔 [NOTIFICATION] HomeScreen: 위젯이 마운트되지 않아 알림 처리 건너뜀');
+      }
+    });
   }
+  
+  /// 평가 요청 스트림 구독 (포그라운드에서 즉시 다이얼로그 표시용)
+  void _listenToEvaluationRequests() {
+    NotificationService.evaluationRequestStream.listen((meetingId) {
+      if (mounted) {
+        if (kDebugMode) {
+          print('⭐ HomeScreen: 평가 요청 이벤트 수신 - meetingId: $meetingId');
+        }
+        
+        // 짧은 지연 후 처리 (현재 프레임 완료 후)
+        Future.delayed(const Duration(milliseconds: 100), () {
+          if (mounted) {
+            NotificationService().processPendingNotification(context);
+          }
+        });
+      }
+    }).onError((error) {
+      if (kDebugMode) {
+        print('❌ HomeScreen: 평가 요청 스트림 에러: $error');
+      }
+    });
+  }
+  
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
@@ -93,6 +125,9 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       Future.delayed(const Duration(milliseconds: 500), () {
         _chatListKey.currentState?.refreshUnreadCounts();
       });
+      
+      // 대기 중인 알림 처리 (백그라운드에서 포그라운드로 복귀 시)
+      _handlePendingNotification();
     }
   }
 
@@ -216,7 +251,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       builder:
           (context) => Container(
             height: MediaQuery.of(context).size.height * 0.8,
-            padding: const EdgeInsets.all(20),
+            padding: AppPadding.all20,
             child: Column(
               children: [
                 Text('개발자 도구', style: AppTextStyles.titleLarge),
@@ -224,6 +259,82 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                 Expanded(
                   child: ListView(
                     children: [
+                      // 🧪 알림 테스트 섹션
+                      Text(
+                        '🧪 알림 테스트',
+                        style: AppTextStyles.titleMedium.copyWith(
+                          color: Colors.purple,
+                        ),
+                      ),
+                      const SizedBox(height: 8),
+                      ListTile(
+                        leading: const Icon(
+                          Icons.notifications_active,
+                          color: Colors.purple,
+                        ),
+                        title: const Text('📱 채팅 알림 테스트'),
+                        subtitle: const Text('테스트 채팅 알림을 생성하고 탭하여 이동 확인'),
+                        onTap: () async {
+                          Navigator.pop(context);
+                          
+                          // 알림 서비스 초기화 확인
+                          final notificationService = NotificationService();
+                          await notificationService.initialize();
+                          
+                          // 첫 번째 모임 ID 가져오기
+                          final meetingsStream = MeetingService.getMeetingsStream();
+                          final allMeetings = await meetingsStream.first;
+                          if (allMeetings.isNotEmpty) {
+                            final testMeeting = allMeetings.first;
+                            await notificationService.showTestChatNotification(
+                              testMeeting.id,
+                              testMeeting.description,
+                            );
+                            
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              const SnackBar(
+                                content: Text('🧪 테스트 알림이 생성되었습니다. 알림을 탭해보세요!'),
+                              ),
+                            );
+                          } else {
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              const SnackBar(
+                                content: Text('❌ 테스트할 모임이 없습니다.'),
+                                backgroundColor: Colors.red,
+                              ),
+                            );
+                          }
+                        },
+                      ),
+                      const SizedBox(height: 8),
+                      ListTile(
+                        leading: const Icon(
+                          Icons.bug_report,
+                          color: Colors.green,
+                        ),
+                        title: const Text('🔔 기본 알림 테스트'),
+                        subtitle: const Text('간단한 알림 탭 테스트 (payload: test:simple_test)'),
+                        onTap: () async {
+                          Navigator.pop(context);
+                          
+                          // 알림 서비스 초기화 확인
+                          final notificationService = NotificationService();
+                          await notificationService.initialize();
+                          
+                          await notificationService.showTestNotification(
+                            '🧪 기본 알림 테스트',
+                            '알림을 탭하면 로그에 "테스트 알림 탭 감지 성공"이 출력됩니다.',
+                          );
+                          
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            const SnackBar(
+                              content: Text('🧪 기본 테스트 알림이 생성되었습니다. 알림을 탭하고 로그를 확인하세요!'),
+                            ),
+                          );
+                        },
+                      ),
+                      const SizedBox(height: 16),
+                      
                       // 🗂️ 데이터 삭제 섹션
                       Text(
                         '🗂️ 데이터 삭제',
@@ -354,25 +465,15 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   Future<void> _cleanupAllTestData() async {
     try {
       // 로딩 다이얼로그 표시
-      showDialog(
+      CommonLoadingDialog.show(
         context: context,
-        barrierDismissible: false,
-        builder:
-            (context) => const AlertDialog(
-              content: Row(
-                children: [
-                  CircularProgressIndicator(),
-                  SizedBox(width: 16),
-                  Text('데이터 삭제 중...'),
-                ],
-              ),
-            ),
+        message: '데이터 삭제 중...',
       );
 
       await _cleanupTestDataCollections();
 
       if (mounted) {
-        Navigator.pop(context); // 로딩 다이얼로그 닫기
+        CommonLoadingDialog.hide(context); // 로딩 다이얼로그 닫기
 
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
@@ -384,7 +485,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       }
     } catch (e) {
       if (mounted) {
-        Navigator.pop(context); // 로딩 다이얼로그 닫기
+        CommonLoadingDialog.hide(context); // 로딩 다이얼로그 닫기
 
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
@@ -511,7 +612,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       }
 
       if (mounted) {
-        Navigator.pop(context); // 로딩 다이얼로그 닫기
+        CommonLoadingDialog.hide(context); // 로딩 다이얼로그 닫기
 
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
@@ -523,7 +624,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       }
     } catch (e) {
       if (mounted) {
-        Navigator.pop(context); // 로딩 다이얼로그 닫기
+        CommonLoadingDialog.hide(context); // 로딩 다이얼로그 닫기
 
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
@@ -600,7 +701,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       await _cleanupCollection(firestore, 'restaurants', '🍽️ 레스토랑');
 
       if (mounted) {
-        Navigator.pop(context); // 로딩 다이얼로그 닫기
+        CommonLoadingDialog.hide(context); // 로딩 다이얼로그 닫기
 
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
@@ -612,7 +713,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       }
     } catch (e) {
       if (mounted) {
-        Navigator.pop(context); // 로딩 다이얼로그 닫기
+        CommonLoadingDialog.hide(context); // 로딩 다이얼로그 닫기
 
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text('❌ 삭제 실패: $e'), backgroundColor: Colors.red),
@@ -634,9 +735,8 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
           isLabelVisible: totalUnreadCount > 0,
           label: Text(
             totalUnreadCount > 99 ? '99+' : '$totalUnreadCount',
-            style: const TextStyle(
+            style: AppTextStyles.labelSmall.copyWith(
               color: Colors.white,
-              fontSize: 10,
               fontWeight: FontWeight.bold,
             ),
           ),
@@ -648,6 +748,11 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   }
 
   List<Meeting> _filterMeetings(List<Meeting> meetings) {
+    if (kDebugMode) {
+      print('🔍 필터링 시작: 전체 모임 수: ${meetings.length}');
+      print('🔍 현재 필터: 지역=$_selectedLocationFilter, 상태=$_selectedStatusFilter, 시간=$_selectedTimeFilter');
+    }
+    
     // 1. 시간 필터 적용
     final now = DateTime.now();
     final today = DateTime(now.year, now.month, now.day);
@@ -686,34 +791,89 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     } else if (_selectedTimeFilter == '전체') {
       meetings =
           meetings.where((meeting) => meeting.dateTime.isAfter(now)).toList();
+    } else if (_selectedTimeFilter == '지난모임') {
+      // 완료된 모임만 표시 (날짜 무관)
+      meetings =
+          meetings.where((meeting) => 
+            meeting.status == 'completed').toList();
     }
 
-    // 2. 상태 필터 적용
-    if (_selectedStatusFilter == '모집중') {
-      meetings =
-          meetings
-              .where(
-                (meeting) => meeting.isAvailable && meeting.status == 'active',
-              )
-              .toList();
-    } else if (_selectedStatusFilter == '모집완료') {
-      meetings =
-          meetings.where((meeting) => meeting.status == 'completed').toList();
+    // 2. 상태 필터 적용 (지난모임일 때는 상태 필터 무시)
+    if (_selectedTimeFilter != '지난모임') {
+      if (_selectedStatusFilter == '모집중') {
+        meetings =
+            meetings
+                .where(
+                  (meeting) => meeting.isAvailable && meeting.status == 'active',
+                )
+                .toList();
+      } else if (_selectedStatusFilter == '모집완료') {
+        // 인원이 꽉 찬 활성 모임만 표시 (모임완료된 것 제외)
+        meetings =
+            meetings.where((meeting) => !meeting.isAvailable && meeting.status == 'active').toList();
+      } else if (_selectedStatusFilter == '전체') {
+        // 전체에서는 완료된 모임 제외, 활성 모임만 표시
+        meetings =
+            meetings.where((meeting) => meeting.status == 'active').toList();
+      }
     }
 
     // 2.5. 지역 필터 적용
     if (_selectedLocationFilter != '전체지역') {
-      // 특정 도시 선택 시 해당 도시명으로 필터링
+      // 특정 도시 선택 시 해당 도시명으로 필터링 (더 유연한 매칭)
+      final filterKeyword = _selectedLocationFilter.replaceAll('시', '').replaceAll('도', '');
+      
+      if (kDebugMode) {
+        print('🔍 지역 필터링: $_selectedLocationFilter -> 키워드: $filterKeyword');
+        print('🔍 필터링 전 모임 수: ${meetings.length}');
+      }
+      
       meetings =
           meetings
               .where(
-                (meeting) =>
-                    meeting.city == _selectedLocationFilter ||
-                    meeting.location.contains(_selectedLocationFilter) ||
-                    meeting.restaurantName?.contains(_selectedLocationFilter) ==
-                        true,
+                (meeting) {
+                  if (kDebugMode) {
+                    print('🔍 모임 체크: ${meeting.description}');
+                    print('   - city: ${meeting.city}');
+                    print('   - location: ${meeting.location}');
+                    print('   - fullAddress: ${meeting.fullAddress}');
+                    print('   - restaurantName: ${meeting.restaurantName}');
+                  }
+                  // city 필드 확인
+                  if (meeting.city != null && 
+                      (meeting.city!.contains(filterKeyword) || 
+                       meeting.city! == _selectedLocationFilter)) {
+                    return true;
+                  }
+                  
+                  // location 필드 확인 (더 유연한 매칭)
+                  if (meeting.location.contains(filterKeyword) ||
+                      meeting.location.contains(_selectedLocationFilter)) {
+                    return true;
+                  }
+                  
+                  // fullAddress 필드 확인
+                  if (meeting.fullAddress != null &&
+                      (meeting.fullAddress!.contains(filterKeyword) ||
+                       meeting.fullAddress!.contains(_selectedLocationFilter))) {
+                    return true;
+                  }
+                  
+                  // restaurantName 확인
+                  if (meeting.restaurantName != null &&
+                      (meeting.restaurantName!.contains(filterKeyword) ||
+                       meeting.restaurantName!.contains(_selectedLocationFilter))) {
+                    return true;
+                  }
+                  
+                  return false;
+                },
               )
               .toList();
+              
+      if (kDebugMode) {
+        print('🔍 지역 필터링 후 모임 수: ${meetings.length}');
+      }
     }
     // '전체지역'만 모든 모임 표시
 
@@ -758,6 +918,10 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       }
     });
 
+    if (kDebugMode) {
+      print('🔍 최종 필터링 결과: ${meetings.length}개 모임');
+    }
+
     return meetings;
   }
 
@@ -779,7 +943,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
               children: [
                 // 핸들
                 Container(
-                  margin: const EdgeInsets.only(top: 12),
+                  margin: const EdgeInsets.only(top: AppDesignTokens.spacing3),
                   width: 40,
                   height: 4,
                   decoration: BoxDecoration(
@@ -792,14 +956,12 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
 
                 // 헤더
                 Padding(
-                  padding: const EdgeInsets.all(20),
+                  padding: AppPadding.all20,
                   child: Row(
                     children: [
                       Text(
                         '지역 선택',
-                        style: TextStyle(
-                          fontSize: 20,
-                          fontWeight: FontWeight.bold,
+                        style: AppTextStyles.headlineMedium.copyWith(
                           color: Theme.of(context).colorScheme.onSurface,
                         ),
                       ),
@@ -829,7 +991,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                           },
                           borderRadius: BorderRadius.circular(8),
                           child: Container(
-                            padding: const EdgeInsets.all(16),
+                            padding: AppPadding.all16,
                             decoration: BoxDecoration(
                               borderRadius: BorderRadius.circular(8),
                               color:
@@ -921,7 +1083,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                           },
                           borderRadius: BorderRadius.circular(8),
                           child: Container(
-                            padding: const EdgeInsets.all(16),
+                            padding: AppPadding.all16,
                             decoration: BoxDecoration(
                               borderRadius: BorderRadius.circular(8),
                               color: Colors.transparent,
@@ -987,7 +1149,6 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
     _searchController.dispose();
-    _fabScrollController.dispose();
     // _unreadCountDebounceTimer?.cancel(); 제거
     super.dispose();
   }
@@ -1012,7 +1173,13 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       confirmTextColor: Colors.red[400],
     );
 
-    return shouldExit;
+    if (shouldExit) {
+      // 앱을 완전히 종료
+      SystemNavigator.pop();
+      return true;
+    }
+    
+    return false;
   }
 
   @override
@@ -1021,10 +1188,9 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       canPop: false, // 항상 뒤로가기 처리 함수를 통해 처리
       onPopInvoked: (didPop) async {
         if (!didPop) {
-          final shouldPop = await _handleBackPress();
-          if (shouldPop && context.mounted) {
-            Navigator.of(context).pop();
-          }
+          // _handleBackPress()에서 SystemNavigator.pop() 호출하므로
+          // 별도의 Navigator.pop() 호출 불필요
+          await _handleBackPress();
         }
       },
       child: StreamBuilder<List<Meeting>>(
@@ -1061,8 +1227,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                         padding: const EdgeInsets.all(16.0),
                         child: Text(
                           '에러: ${snapshot.error}',
-                          style: const TextStyle(
-                            fontSize: 12,
+                          style: AppTextStyles.caption.copyWith(
                             color: Colors.red,
                           ),
                           textAlign: TextAlign.center,
@@ -1187,7 +1352,6 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                   onStatusFilterChanged: _updateStatusFilter,
                   onTimeFilterChanged: _updateTimeFilter,
                   onLocationFilterChanged: _updateLocationFilter,
-                  scrollController: _fabScrollController,
                 ),
                 _MapTab(
                   key: _mapKey,
@@ -1292,17 +1456,12 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                       },
                       backgroundColor: Theme.of(context).colorScheme.primary,
                       icon: const Icon(Icons.add, color: Colors.white),
-                      label: AnimatedSwitcher(
-                        duration: const Duration(milliseconds: 200),
-                        child: _isScrolled
-                            ? const SizedBox.shrink()
-                            : const Text(
-                                '모임 만들기',
-                                style: TextStyle(
-                                  color: Colors.white,
-                                  fontWeight: FontWeight.w600,
-                                ),
-                              ),
+                      label: const Text(
+                        '모임 만들기',
+                        style: TextStyle(
+                          color: Colors.white,
+                          fontWeight: FontWeight.w600,
+                        ),
                       ),
                     )
                     : null,
@@ -1373,49 +1532,31 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   }
 
   void _showManualProcessInfo(String title, String description) {
-    showDialog(
+    CommonConfirmDialog.show(
       context: context,
-      builder: (context) => AlertDialog(
-        title: Text(title),
-        content: Text(description),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('확인'),
-          ),
-        ],
-      ),
+      title: title,
+      content: description,
+      confirmText: '확인',
+      showCancelButton: false,
     );
   }
 
   Future<void> _runGooglePlacesEnhancement() async {
     // 확인 다이얼로그 표시
-    final shouldProceed = await showDialog<bool>(
+    final shouldProceed = await CommonConfirmDialog.show(
       context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('Google Places 데이터 추가'),
-        content: const Text(
-          '기존 레스토랑 데이터에 Google Places 정보를 추가합니다:\n\n'
+      title: 'Google Places 데이터 추가',
+      content: '기존 레스토랑 데이터에 Google Places 정보를 추가합니다:\n\n'
           '• 사진 (최대 10장)\n'
           '• 상세 영업시간\n'
           '• 별점 및 리뷰 수\n\n'
           '이 작업은 시간이 오래 걸릴 수 있습니다.\n\n'
-          '계속하시겠습니까?'
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context, false),
-            child: const Text('취소'),
-          ),
-          TextButton(
-            onPressed: () => Navigator.pop(context, true),
-            child: const Text('확인'),
-          ),
-        ],
-      ),
+          '계속하시겠습니까?',
+      cancelText: '취소',
+      confirmText: '확인',
     );
 
-    if (shouldProceed != true) return;
+    if (!shouldProceed) return;
 
     // 실제 Google Places 테스트 실행
     await _runGooglePlacesTest();
@@ -1516,29 +1657,17 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
 
   void _addYoutubeDataToAllRestaurants() async {
     // 확인 다이얼로그 표시
-    final shouldProceed = await showDialog<bool>(
+    final shouldProceed = await CommonConfirmDialog.show(
       context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('유튜브 데이터 추가'),
-        content: const Text(
-          'DB에 저장된 모든 식당들에 유튜브 정보를 추가합니다.\n'
+      title: '유튜브 데이터 추가',
+      content: 'DB에 저장된 모든 식당들에 유튜브 정보를 추가합니다.\n'
           '이 작업은 시간이 오래 걸릴 수 있습니다.\n\n'
-          '계속하시겠습니까?'
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context, false),
-            child: const Text('취소'),
-          ),
-          TextButton(
-            onPressed: () => Navigator.pop(context, true),
-            child: const Text('확인'),
-          ),
-        ],
-      ),
+          '계속하시겠습니까?',
+      cancelText: '취소',
+      confirmText: '확인',
     );
 
-    if (shouldProceed != true) return;
+    if (!shouldProceed) return;
 
     // 로딩 다이얼로그 표시
     showDialog(
@@ -1616,7 +1745,6 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     required Function(String) onStatusFilterChanged,
     required Function(String) onTimeFilterChanged,
     required Function(String) onLocationFilterChanged,
-    required ScrollController scrollController,
   }) {
     return _MeetingListTab(
       meetings: meetings,
@@ -1626,7 +1754,6 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       onStatusFilterChanged: onStatusFilterChanged,
       onTimeFilterChanged: onTimeFilterChanged,
       onLocationFilterChanged: onLocationFilterChanged,
-      scrollController: scrollController,
     );
   }
 }
@@ -1639,7 +1766,6 @@ class _MeetingListTab extends StatefulWidget {
   final Function(String) onStatusFilterChanged;
   final Function(String) onTimeFilterChanged;
   final Function(String) onLocationFilterChanged;
-  final ScrollController scrollController;
 
   const _MeetingListTab({
     required this.meetings,
@@ -1649,7 +1775,6 @@ class _MeetingListTab extends StatefulWidget {
     required this.onStatusFilterChanged,
     required this.onTimeFilterChanged,
     required this.onLocationFilterChanged,
-    required this.scrollController,
   });
 
   @override
@@ -1659,7 +1784,7 @@ class _MeetingListTab extends StatefulWidget {
 class _MeetingListTabState extends State<_MeetingListTab>
     with AutomaticKeepAliveClientMixin {
   final List<String> _statusFilters = ['전체', '모집중', '모집완료'];
-  final List<String> _timeFilters = ['오늘', '내일', '일주일', '전체'];
+  final List<String> _timeFilters = ['오늘', '내일', '일주일', '전체', '지난모임'];
   final List<String> _locationFilters = [
     '전체',
     '서울시 중구',
@@ -1679,7 +1804,7 @@ class _MeetingListTabState extends State<_MeetingListTab>
       children: [
         // 필터 칩들 (두 줄로 배치)
         Container(
-          padding: const EdgeInsets.symmetric(vertical: 4, horizontal: 16),
+          padding: const EdgeInsets.symmetric(vertical: AppDesignTokens.spacing1, horizontal: AppDesignTokens.spacing4),
           decoration: BoxDecoration(
             color: Theme.of(context).colorScheme.background,
             border: Border(
@@ -1754,17 +1879,16 @@ class _MeetingListTabState extends State<_MeetingListTab>
                             ),
                           ),
                           const SizedBox(height: 8),
-                          const Text(
+                          Text(
                             '다른 필터를 선택하거나 첫 모임을 만들어보세요!',
-                            style: TextStyle(fontSize: 14, color: Colors.grey),
+                            style: AppTextStyles.bodyMedium.copyWith(color: Colors.grey),
                             textAlign: TextAlign.center,
                           ),
                         ],
                       ),
                     )
                     : ListView.builder(
-                      controller: widget.scrollController,
-                      padding: const EdgeInsets.symmetric(vertical: 8),
+                      padding: AppPadding.vertical8,
                       itemCount: widget.meetings.length,
                       itemBuilder: (context, index) {
                         final meeting = widget.meetings[index];
@@ -1815,10 +1939,9 @@ class _MeetingListTabState extends State<_MeetingListTab>
               padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
               child: Text(
                 label,
-                style: TextStyle(
+                style: AppTextStyles.bodyMedium.copyWith(
                   color: isSelected ? Colors.white : Colors.grey[700],
                   fontWeight: isSelected ? FontWeight.bold : FontWeight.w500,
-                  fontSize: 13,
                 ),
               ),
             ),
@@ -1856,10 +1979,9 @@ class _MeetingListTabState extends State<_MeetingListTab>
               padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
               child: Text(
                 label,
-                style: TextStyle(
+                style: AppTextStyles.bodyMedium.copyWith(
                   color: isSelected ? Colors.white : Colors.grey[700],
                   fontWeight: isSelected ? FontWeight.bold : FontWeight.w500,
-                  fontSize: 13,
                 ),
               ),
             ),
@@ -1893,7 +2015,7 @@ class _MapTab extends StatefulWidget {
 class _MapTabState extends State<_MapTab> with AutomaticKeepAliveClientMixin {
   final TextEditingController _searchController = TextEditingController();
   final List<String> _statusFilters = ['전체', '모집중', '모집완료'];
-  final List<String> _timeFilters = ['오늘', '내일', '일주일', '전체'];
+  final List<String> _timeFilters = ['오늘', '내일', '일주일', '전체', '지난모임'];
   KakaoMapController? _mapController;
 
   // 지도 탭 독립적인 필터 상태
@@ -1950,19 +2072,31 @@ class _MapTabState extends State<_MapTab> with AutomaticKeepAliveClientMixin {
     } else if (_localTimeFilter == '전체') {
       filtered =
           filtered.where((meeting) => meeting.dateTime.isAfter(now)).toList();
+    } else if (_localTimeFilter == '지난모임') {
+      // 완료된 모임만 표시 (날짜 무관)
+      filtered =
+          filtered.where((meeting) => 
+            meeting.status == 'completed').toList();
     }
 
-    // 2. 상태 필터 적용
-    if (_localStatusFilter == '모집중') {
-      filtered =
-          filtered
-              .where(
-                (meeting) => meeting.isAvailable && meeting.status == 'active',
-              )
-              .toList();
-    } else if (_localStatusFilter == '모집완료') {
-      filtered =
-          filtered.where((meeting) => meeting.status == 'completed').toList();
+    // 2. 상태 필터 적용 (지난모임일 때는 상태 필터 무시)
+    if (_localTimeFilter != '지난모임') {
+      if (_localStatusFilter == '모집중') {
+        filtered =
+            filtered
+                .where(
+                  (meeting) => meeting.isAvailable && meeting.status == 'active',
+                )
+                .toList();
+      } else if (_localStatusFilter == '모집완료') {
+        // 인원이 꽉 찬 활성 모임만 표시 (모임완료된 것 제외)
+        filtered =
+            filtered.where((meeting) => !meeting.isAvailable && meeting.status == 'active').toList();
+      } else if (_localStatusFilter == '전체') {
+        // 전체에서는 완료된 모임 제외, 활성 모임만 표시
+        filtered =
+            filtered.where((meeting) => meeting.status == 'active').toList();
+      }
     }
 
     return filtered;
@@ -2677,9 +2811,8 @@ class _MapTabState extends State<_MapTab> with AutomaticKeepAliveClientMixin {
                       controller: _searchController,
                       decoration: InputDecoration(
                         hintText: '지역과 식당이름 검색 (예: 천안 맘스터치)',
-                        hintStyle: TextStyle(
+                        hintStyle: AppTextStyles.bodyLarge.copyWith(
                           color: Theme.of(context).colorScheme.outline,
-                          fontSize: 16,
                         ),
                         prefixIcon:
                             _isSearching
@@ -3032,7 +3165,7 @@ class _MapTabState extends State<_MapTab> with AutomaticKeepAliveClientMixin {
 
             // 모임 정보
             Padding(
-              padding: const EdgeInsets.all(20),
+              padding: AppPadding.all20,
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
@@ -3685,7 +3818,7 @@ class _MapTabState extends State<_MapTab> with AutomaticKeepAliveClientMixin {
                 top: Radius.circular(20),
               ),
             ),
-            padding: const EdgeInsets.all(20),
+            padding: AppPadding.all20,
             child: Column(
               mainAxisSize: MainAxisSize.min,
               crossAxisAlignment: CrossAxisAlignment.start,
@@ -3865,10 +3998,9 @@ class _MapTabState extends State<_MapTab> with AutomaticKeepAliveClientMixin {
               padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
               child: Text(
                 label,
-                style: TextStyle(
+                style: AppTextStyles.bodyMedium.copyWith(
                   color: isSelected ? Colors.white : Colors.grey[700],
                   fontWeight: isSelected ? FontWeight.bold : FontWeight.w500,
-                  fontSize: 13,
                 ),
               ),
             ),
@@ -4718,12 +4850,11 @@ class _ProfileTabState extends State<_ProfileTab>
         _hostedMeetings =
             myMeetings.where((m) => m.hostId == _currentUserId).length;
 
-        // 예정/완료 모임 분류
-        final now = DateTime.now();
+        // 예정/완료 모임 분류 - status 기준으로 변경
         _upcomingMeetings =
-            myMeetings.where((m) => m.dateTime.isAfter(now)).toList();
+            myMeetings.where((m) => m.status != 'completed').toList();
         _completedMeetings =
-            myMeetings.where((m) => m.dateTime.isBefore(now)).toList();
+            myMeetings.where((m) => m.status == 'completed').toList();
 
         setState(() {
           _currentUser = user;
@@ -4761,6 +4892,9 @@ class _ProfileTabState extends State<_ProfileTab>
 
           // 받은 평가 (기본값)
           _buildRatingsSection(),
+
+          // 받은 코멘트
+          _buildCommentsSection(),
 
           // 내 모임 히스토리
           _buildMyMeetingsSection(),
@@ -4830,8 +4964,8 @@ class _ProfileTabState extends State<_ProfileTab>
           Row(
             children: [
               CircleAvatar(
-                radius: 30,
-                backgroundColor: Theme.of(context).colorScheme.primary,
+                radius: 40,
+                backgroundColor: AppDesignTokens.primary.withOpacity(0.1),
                 backgroundImage:
                     _currentUser!.profileImageUrl != null
                         ? NetworkImage(_currentUser!.profileImageUrl!)
@@ -4842,10 +4976,8 @@ class _ProfileTabState extends State<_ProfileTab>
                           _currentUser!.name.isNotEmpty
                               ? _currentUser!.name[0]
                               : '?',
-                          style: const TextStyle(
-                            fontSize: 24,
-                            fontWeight: FontWeight.bold,
-                            color: Colors.white,
+                          style: AppTextStyles.headlineLarge.copyWith(
+                            color: AppDesignTokens.primary,
                           ),
                         )
                         : null,
@@ -4857,11 +4989,7 @@ class _ProfileTabState extends State<_ProfileTab>
                   children: [
                     Text(
                       _currentUser!.name,
-                      style: TextStyle(
-                        fontSize: 20,
-                        fontWeight: FontWeight.bold,
-                        color: Theme.of(context).colorScheme.onSurface,
-                      ),
+                      style: AppTextStyles.headlineMedium,
                     ),
                   ],
                 ),
@@ -4879,7 +5007,10 @@ class _ProfileTabState extends State<_ProfileTab>
           // 사용자의 실제 뱃지 표시
           if (_currentUser!.badges.isNotEmpty) ...[
             const SizedBox(height: 16),
-            UserBadgesList(badgeIds: _currentUser!.badges),
+            Align(
+              alignment: Alignment.centerLeft,
+              child: UserBadgesList(badgeIds: _currentUser!.badges),
+            ),
           ],
         ],
       ),
@@ -5024,7 +5155,7 @@ class _ProfileTabState extends State<_ProfileTab>
             children: List.generate(5, (index) {
               return Icon(
                 index < rating ? Icons.star : Icons.star_border,
-                size: 16,
+                size: 20,
                 color: Theme.of(context).colorScheme.primary,
               );
             }),
@@ -5033,12 +5164,178 @@ class _ProfileTabState extends State<_ProfileTab>
         Text(
           rating.toStringAsFixed(1),
           style: TextStyle(
-            fontSize: 14,
+            fontSize: 16, // 14에서 16으로 증가 (평점 숫자 크기 개선)
             fontWeight: FontWeight.bold,
             color: Theme.of(context).colorScheme.onSurface,
           ),
         ),
       ],
+    );
+  }
+
+  Widget _buildCommentsSection() {
+    return Container(
+      margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+      padding: const EdgeInsets.all(20),
+      decoration: BoxDecoration(
+        color: Theme.of(context).colorScheme.surface,
+        borderRadius: BorderRadius.circular(12),
+        boxShadow: [
+          BoxShadow(
+            color: Theme.of(context).colorScheme.shadow.withOpacity(0.1),
+            blurRadius: 8,
+            offset: const Offset(0, 2),
+          ),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Text('받은 코멘트', style: AppTextStyles.titleLarge),
+              GestureDetector(
+                onTap: () => _navigateToCommentsDetail(_currentUserId!),
+                child: Text(
+                  '전체보기',
+                  style: AppTextStyles.bodySmall.copyWith(
+                    color: Theme.of(context).colorScheme.primary,
+                  ),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 16),
+          FutureBuilder<List<Map<String, dynamic>>>(
+            future: EvaluationService.getUserComments(_currentUserId!),
+            builder: (context, snapshot) {
+              if (snapshot.connectionState == ConnectionState.waiting) {
+                return const Center(child: CircularProgressIndicator());
+              }
+              
+              if (snapshot.hasError) {
+                return Text(
+                  '코멘트를 불러올 수 없습니다',
+                  style: AppTextStyles.bodyMedium.copyWith(
+                    color: Colors.grey[600],
+                  ),
+                );
+              }
+              
+              final comments = snapshot.data ?? [];
+              
+              if (comments.isEmpty) {
+                return Text(
+                  '아직 받은 코멘트가 없습니다',
+                  style: AppTextStyles.bodyMedium.copyWith(
+                    color: Colors.grey[600],
+                  ),
+                );
+              }
+              
+              // 최근 3개 코멘트만 표시
+              final recentComments = comments.take(3).toList();
+              
+              return Column(
+                children: recentComments.map((comment) => _buildCommentItem(comment)).toList(),
+              );
+            },
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildCommentItem(Map<String, dynamic> comment) {
+    final DateTime? meetingDate = comment['meetingDateTime'] as DateTime?;
+    final String meetingLocation = comment['meetingLocation'] as String? ?? '알 수 없는 장소';
+    final String? restaurantName = comment['meetingRestaurant'] as String?;
+    final String commentText = comment['comment'] as String;
+    final double rating = comment['averageRating'] as double? ?? 0.0;
+    
+    return Container(
+      margin: const EdgeInsets.only(bottom: 12),
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: Colors.grey[50],
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: Colors.grey[200]!),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          // 모임 정보
+          Row(
+            children: [
+              Icon(
+                Icons.location_on,
+                size: 14,
+                color: Colors.grey[600],
+              ),
+              const SizedBox(width: 4),
+              Expanded(
+                child: Text(
+                  restaurantName ?? meetingLocation,
+                  style: AppTextStyles.bodySmall.copyWith(
+                    color: Colors.grey[600],
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ),
+              if (meetingDate != null) ...[
+                Text(
+                  '${meetingDate.month}/${meetingDate.day}',
+                  style: AppTextStyles.bodySmall.copyWith(
+                    color: Colors.grey[500],
+                  ),
+                ),
+              ],
+            ],
+          ),
+          const SizedBox(height: 8),
+          
+          // 코멘트 내용
+          Text(
+            commentText,
+            style: AppTextStyles.bodyMedium,
+            maxLines: 3,
+            overflow: TextOverflow.ellipsis,
+          ),
+          
+          // 평점
+          if (rating > 0) ...[
+            const SizedBox(height: 8),
+            Row(
+              children: [
+                ...List.generate(5, (index) {
+                  return Icon(
+                    index < rating ? Icons.star : Icons.star_border,
+                    size: 14,
+                    color: Theme.of(context).colorScheme.primary,
+                  );
+                }),
+                const SizedBox(width: 4),
+                Text(
+                  rating.toStringAsFixed(1),
+                  style: AppTextStyles.bodySmall.copyWith(
+                    color: Colors.grey[600],
+                  ),
+                ),
+              ],
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+
+  void _navigateToCommentsDetail(String userId) {
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (context) => UserCommentsScreen(userId: userId),
+      ),
     );
   }
 
@@ -5163,16 +5460,26 @@ class _ProfileTabState extends State<_ProfileTab>
 
   Widget _buildMeetingItem(Meeting meeting) {
     final isHost = meeting.hostId == _currentUserId;
-    final isUpcoming = meeting.dateTime.isAfter(DateTime.now());
+    final isUpcoming = meeting.status != 'completed';  // status 기준으로 변경
 
-    return Container(
-      margin: const EdgeInsets.only(bottom: 8),
-      padding: const EdgeInsets.all(12),
-      decoration: BoxDecoration(
-        color: Theme.of(context).colorScheme.surfaceContainer,
-        borderRadius: BorderRadius.circular(8),
-      ),
-      child: Row(
+    return GestureDetector(
+      behavior: HitTestBehavior.opaque,
+      onTap: () {
+        debugPrint('🔥 ProfileTab: 모임 아이템 클릭됨 - ${meeting.id}');
+        Navigator.pushNamed(
+          context,
+          '/meeting-detail',
+          arguments: meeting,
+        );
+      },
+      child: Container(
+        margin: const EdgeInsets.only(bottom: 8),
+        padding: const EdgeInsets.all(12),
+        decoration: BoxDecoration(
+          color: Theme.of(context).colorScheme.surfaceContainer,
+          borderRadius: BorderRadius.circular(8),
+        ),
+        child: Row(
         children: [
           Container(
             width: 40,
@@ -5278,6 +5585,7 @@ class _ProfileTabState extends State<_ProfileTab>
             ),
           ),
         ],
+        ),
       ),
     );
   }
@@ -5333,7 +5641,7 @@ class _ProfileTabState extends State<_ProfileTab>
           const SizedBox(height: 32),
           Container(
             width: double.infinity,
-            padding: const EdgeInsets.all(20),
+            padding: AppPadding.all20,
             decoration: BoxDecoration(
               color: const Color(0xFFF9F9F9),
               borderRadius: BorderRadius.circular(12),
@@ -5528,10 +5836,10 @@ class _ProfileTabState extends State<_ProfileTab>
   }
 
   void _showAllMeetings() {
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: const Text('전체 모임 히스토리 화면으로 이동'),
-        backgroundColor: Theme.of(context).colorScheme.primary,
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (context) => const MyMeetingsHistoryScreen(),
       ),
     );
   }
@@ -5590,30 +5898,21 @@ class _ProfileTabState extends State<_ProfileTab>
     }
   }
 
-  void _showLogoutDialog() {
-    showDialog(
+  void _showLogoutDialog() async {
+    final confirmed = await CommonConfirmDialog.show(
       context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('로그아웃'),
-        content: const Text('정말 로그아웃하시겠습니까?'),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('취소'),
-          ),
-          TextButton(
-            onPressed: () async {
-              Navigator.pop(context);
-              await AuthService.signOut();
-              if (mounted) {
-                Navigator.pushReplacementNamed(context, '/login');
-              }
-            },
-            child: const Text('로그아웃'),
-          ),
-        ],
-      ),
+      title: '로그아웃',
+      content: '정말 로그아웃하시겠습니까?',
+      confirmText: '로그아웃',
+      cancelText: '취소',
     );
+    
+    if (confirmed) {
+      await AuthService.signOut();
+      if (mounted) {
+        Navigator.pushReplacementNamed(context, '/login');
+      }
+    }
   }
 
   void _showDeleteAccountDialog() {

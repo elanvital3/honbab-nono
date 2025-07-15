@@ -9,6 +9,12 @@ class UserEvaluation {
   final int friendlinessRating; // 대화매너 (1-5)
   final int communicationRating; // 재만남의향 (1-5)
   final String? comment; // 추가 코멘트 (선택사항)
+  
+  // 모임 정보 (코멘트와 함께 저장)
+  final String? meetingLocation; // 모임 장소 주소
+  final String? meetingRestaurant; // 식당명
+  final DateTime? meetingDateTime; // 모임 일시
+  
   final DateTime createdAt;
 
   UserEvaluation({
@@ -20,6 +26,9 @@ class UserEvaluation {
     required this.friendlinessRating,
     required this.communicationRating,
     this.comment,
+    this.meetingLocation,
+    this.meetingRestaurant,
+    this.meetingDateTime,
     DateTime? createdAt,
   }) : createdAt = createdAt ?? DateTime.now();
 
@@ -34,6 +43,9 @@ class UserEvaluation {
       friendlinessRating: data['friendlinessRating'] ?? 5,
       communicationRating: data['communicationRating'] ?? 5,
       comment: data['comment'],
+      meetingLocation: data['meetingLocation'],
+      meetingRestaurant: data['meetingRestaurant'],
+      meetingDateTime: (data['meetingDateTime'] as Timestamp?)?.toDate(),
       createdAt: (data['createdAt'] as Timestamp?)?.toDate() ?? DateTime.now(),
     );
   }
@@ -47,6 +59,9 @@ class UserEvaluation {
       'friendlinessRating': friendlinessRating,
       'communicationRating': communicationRating,
       'comment': comment,
+      'meetingLocation': meetingLocation,
+      'meetingRestaurant': meetingRestaurant,
+      'meetingDateTime': meetingDateTime != null ? Timestamp.fromDate(meetingDateTime!) : null,
       'createdAt': Timestamp.fromDate(createdAt),
     };
   }
@@ -64,6 +79,9 @@ class UserEvaluation {
     int? friendlinessRating,
     int? communicationRating,
     String? comment,
+    String? meetingLocation,
+    String? meetingRestaurant,
+    DateTime? meetingDateTime,
     DateTime? createdAt,
   }) {
     return UserEvaluation(
@@ -75,6 +93,9 @@ class UserEvaluation {
       friendlinessRating: friendlinessRating ?? this.friendlinessRating,
       communicationRating: communicationRating ?? this.communicationRating,
       comment: comment ?? this.comment,
+      meetingLocation: meetingLocation ?? this.meetingLocation,
+      meetingRestaurant: meetingRestaurant ?? this.meetingRestaurant,
+      meetingDateTime: meetingDateTime ?? this.meetingDateTime,
       createdAt: createdAt ?? this.createdAt,
     );
   }

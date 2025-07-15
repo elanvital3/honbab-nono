@@ -3,13 +3,18 @@ import 'package:flutter/foundation.dart';
 import '../../models/user_evaluation.dart';
 import '../../models/user.dart';
 import '../../models/meeting.dart';
+import '../../models/restaurant_evaluation.dart';
 import '../../services/evaluation_service.dart';
 import '../../services/user_service.dart';
 import '../../services/auth_service.dart';
+import '../../services/notification_service.dart';
+import '../../services/restaurant_evaluation_service.dart';
 import '../../constants/app_design_tokens.dart';
 import '../../styles/text_styles.dart';
 import '../../components/common/common_card.dart';
 import '../../components/common/common_button.dart';
+import '../../components/common/common_confirm_dialog.dart';
+import '../../components/participant_evaluation_card.dart';
 
 class UserEvaluationScreen extends StatefulWidget {
   final String meetingId;
@@ -28,27 +33,24 @@ class UserEvaluationScreen extends StatefulWidget {
 class _UserEvaluationScreenState extends State<UserEvaluationScreen> {
   List<String> _pendingEvaluationUserIds = [];
   List<User> _pendingEvaluationUsers = [];
-  int _currentUserIndex = 0;
   bool _isLoading = true;
   bool _isSubmitting = false;
   String? _currentUserId;
 
-  // 현재 평가 중인 사용자의 평점
-  int _punctualityRating = 5;
-  int _mannersRating = 5;
-  int _meetAgainRating = 5;
-  final TextEditingController _commentController = TextEditingController();
+  // 각 사용자별 평가 데이터
+  Map<String, int> _punctualityRatings = {};
+  Map<String, int> _mannersRatings = {};
+  Map<String, int> _meetAgainRatings = {};
+  Map<String, String> _comments = {};
+
+  // 식당 평가 데이터
+  int _restaurantRating = 5;
+  String _restaurantComment = '';
 
   @override
   void initState() {
     super.initState();
     _loadPendingEvaluations();
-  }
-
-  @override
-  void dispose() {
-    _commentController.dispose();
-    super.dispose();
   }
 
   Future<void> _loadPendingEvaluations() async {
@@ -76,6 +78,11 @@ class _UserEvaluationScreenState extends State<UserEvaluationScreen> {
         final user = await UserService.getUser(userId);
         if (user != null) {
           users.add(user);
+          // 기본값 설정
+          _punctualityRatings[userId] = 5;
+          _mannersRatings[userId] = 5;
+          _meetAgainRatings[userId] = 5;
+          _comments[userId] = '';
         }
       }
 
@@ -100,18 +107,17 @@ class _UserEvaluationScreenState extends State<UserEvaluationScreen> {
     showDialog(
       context: context,
       barrierDismissible: false,
-      builder: (context) => AlertDialog(
-        title: const Text('평가 완료'),
-        content: const Text('모든 참여자에 대한 평가가 완료되었습니다.\n참여해주셔서 감사합니다! 🎉'),
-        actions: [
-          TextButton(
-            onPressed: () {
-              Navigator.pop(context); // Dialog 닫기
-              Navigator.pop(context); // Screen 닫기
-            },
-            child: const Text('확인'),
-          ),
-        ],
+      builder: (context) => CommonConfirmDialog(
+        title: '평가 완료',
+        content: '모든 참여자에 대한 평가가 완료되었습니다.\n참여해주셔서 감사합니다! 🎉',
+        icon: Icons.celebration,
+        iconColor: AppDesignTokens.primary,
+        confirmText: '확인',
+        showCancelButton: false,
+        onConfirm: () {
+          Navigator.pop(context); // Dialog 닫기
+          Navigator.popUntil(context, (route) => route.isFirst); // 홈으로 이동
+        },
       ),
     );
   }
@@ -119,60 +125,96 @@ class _UserEvaluationScreenState extends State<UserEvaluationScreen> {
   void _showErrorAndClose(String message) {
     showDialog(
       context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('오류'),
-        content: Text(message),
-        actions: [
-          TextButton(
-            onPressed: () {
-              Navigator.pop(context); // Dialog 닫기
-              Navigator.pop(context); // Screen 닫기
-            },
-            child: const Text('확인'),
-          ),
-        ],
+      builder: (context) => CommonConfirmDialog(
+        title: '오류',
+        content: message,
+        icon: Icons.error_outline,
+        iconColor: Colors.red[400],
+        confirmText: '확인',
+        confirmTextColor: Colors.red[400],
+        showCancelButton: false,
+        onConfirm: () {
+          Navigator.pop(context); // Dialog 닫기
+          Navigator.pop(context); // Screen 닫기
+        },
       ),
     );
   }
 
-  Future<void> _submitCurrentEvaluation() async {
-    if (_currentUserIndex >= _pendingEvaluationUsers.length) return;
+  Future<bool> _onWillPop() async {
+    // 평가가 완료되지 않았다면 경고 다이얼로그 표시
+    return await CommonConfirmDialog.showWarning(
+      context: context,
+      title: '평가 미완료',
+      content: '참여자 평가를 완료해야 모임이 완료됩니다.\n\n정말로 나가시겠습니까?\n나중에 다시 평가할 수 있습니다.',
+      cancelText: '계속 평가하기',
+      confirmText: '나중에 하기',
+    );
+  }
 
+  Future<void> _submitAllEvaluations() async {
     setState(() {
       _isSubmitting = true;
     });
 
     try {
-      final currentUser = _pendingEvaluationUsers[_currentUserIndex];
-      
-      final evaluation = UserEvaluation(
-        id: '',
-        meetingId: widget.meetingId,
-        evaluatorId: _currentUserId!,
-        evaluatedUserId: currentUser.id,
-        punctualityRating: _punctualityRating,
-        friendlinessRating: _mannersRating,
-        communicationRating: _meetAgainRating,
-        comment: _commentController.text.trim().isEmpty ? null : _commentController.text.trim(),
-      );
+      // 식당 평가 제출 (식당 ID가 있는 경우에만)
+      if (widget.meeting.restaurantId != null && widget.meeting.restaurantId!.isNotEmpty) {
+        final restaurantEvaluation = RestaurantEvaluation(
+          id: '',
+          restaurantId: widget.meeting.restaurantId!,
+          restaurantName: widget.meeting.restaurantName ?? widget.meeting.location,
+          evaluatorId: _currentUserId!,
+          meetingId: widget.meetingId,
+          rating: _restaurantRating,
+          comment: _restaurantComment.trim().isEmpty ? null : _restaurantComment.trim(),
+        );
 
-      await EvaluationService.submitEvaluation(evaluation);
+        await RestaurantEvaluationService.submitRestaurantEvaluation(restaurantEvaluation);
+        if (kDebugMode) {
+          print('✅ 식당 평가 제출 완료');
+        }
+      }
+
+      // 모든 사용자 평가 제출
+      for (final user in _pendingEvaluationUsers) {
+        final evaluation = UserEvaluation(
+          id: '',
+          meetingId: widget.meetingId,
+          evaluatorId: _currentUserId!,
+          evaluatedUserId: user.id,
+          punctualityRating: _punctualityRatings[user.id] ?? 5,
+          friendlinessRating: _mannersRatings[user.id] ?? 5,
+          communicationRating: _meetAgainRatings[user.id] ?? 5,
+          comment: _comments[user.id]?.trim().isEmpty == true ? null : _comments[user.id]?.trim(),
+          // 모임 정보 추가
+          meetingLocation: widget.meeting.location,
+          meetingRestaurant: widget.meeting.restaurantName,
+          meetingDateTime: widget.meeting.dateTime,
+        );
+
+        await EvaluationService.submitEvaluation(evaluation);
+      }
 
       if (kDebugMode) {
-        print('✅ 평가 제출 완료: ${currentUser.name}');
+        print('✅ 모든 평가 제출 완료: ${_pendingEvaluationUsers.length}명');
       }
 
-      // 다음 사용자로 이동 또는 완료
-      if (_currentUserIndex + 1 < _pendingEvaluationUsers.length) {
-        setState(() {
-          _currentUserIndex++;
-          _resetRatings();
-          _isSubmitting = false;
-        });
-      } else {
-        // 모든 평가 완료
-        _showCompletionDialog();
+      // 평가 완료 시 재알림 취소
+      try {
+        await NotificationService().cancelEvaluationReminder(widget.meetingId);
+        if (kDebugMode) {
+          print('✅ 평가 재알림 취소 완료');
+        }
+      } catch (e) {
+        if (kDebugMode) {
+          print('⚠️ 평가 재알림 취소 실패: $e');
+        }
+        // 재알림 취소 실패해도 평가 완료 처리는 계속 진행
       }
+
+      // 완료 다이얼로그 표시
+      _showCompletionDialog();
     } catch (e) {
       setState(() {
         _isSubmitting = false;
@@ -187,316 +229,291 @@ class _UserEvaluationScreenState extends State<UserEvaluationScreen> {
           content: Text('평가 제출에 실패했습니다: ${e.toString()}'),
           backgroundColor: Colors.red,
           behavior: SnackBarBehavior.floating,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(12),
+          ),
         ),
       );
     }
   }
 
-  void _resetRatings() {
-    _punctualityRating = 5;
-    _mannersRating = 5;
-    _meetAgainRating = 5;
-    _commentController.clear();
-  }
-
-  void _skipCurrentEvaluation() {
-    if (_currentUserIndex + 1 < _pendingEvaluationUsers.length) {
-      setState(() {
-        _currentUserIndex++;
-        _resetRatings();
-      });
-    } else {
-      _showCompletionDialog();
-    }
+  int get _completedEvaluationsCount {
+    return _pendingEvaluationUsers.where((user) {
+      return _punctualityRatings[user.id] != null &&
+             _mannersRatings[user.id] != null &&
+             _meetAgainRatings[user.id] != null;
+    }).length;
   }
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(
-        title: const Text('참여자 평가'),
-        backgroundColor: Colors.white,
-        foregroundColor: Colors.black,
-        elevation: 0,
-        actions: [
-          if (!_isLoading && _pendingEvaluationUsers.isNotEmpty)
-            Padding(
-              padding: const EdgeInsets.only(right: 16),
-              child: Center(
-                child: Text(
-                  '${_currentUserIndex + 1}/${_pendingEvaluationUsers.length}',
-                  style: AppTextStyles.bodyMedium.copyWith(
-                    color: AppDesignTokens.primary,
-                    fontWeight: FontWeight.w600,
+    return WillPopScope(
+      onWillPop: _onWillPop,
+      child: Scaffold(
+        backgroundColor: AppDesignTokens.surfaceContainer,
+        appBar: AppBar(
+          title: Text(
+            '모임 평가',
+            style: AppTextStyles.titleLarge,
+          ),
+          backgroundColor: AppDesignTokens.background,
+          foregroundColor: AppDesignTokens.onSurface,
+          elevation: 0,
+          actions: [
+            if (!_isLoading && _pendingEvaluationUsers.isNotEmpty)
+              Padding(
+                padding: const EdgeInsets.only(right: 16),
+                child: Center(
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                    decoration: BoxDecoration(
+                      color: AppDesignTokens.primary.withOpacity(0.1),
+                      borderRadius: BorderRadius.circular(16),
+                    ),
+                    child: Text(
+                      '$_completedEvaluationsCount/${_pendingEvaluationUsers.length}',
+                      style: AppTextStyles.bodyMedium.copyWith(
+                        color: AppDesignTokens.primary,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
                   ),
                 ),
               ),
-            ),
-        ],
-      ),
-      body: SafeArea(
-        child: _isLoading
-            ? const Center(
-                child: CircularProgressIndicator(
-                  color: AppDesignTokens.primary,
-                ),
-              )
-            : _pendingEvaluationUsers.isEmpty
-                ? const Center(
-                    child: Text('평가할 사용자가 없습니다'),
-                  )
-                : _buildEvaluationForm(),
+          ],
+        ),
+        body: SafeArea(
+          child: _isLoading
+              ? const Center(
+                  child: CircularProgressIndicator(
+                    color: AppDesignTokens.primary,
+                  ),
+                )
+              : _pendingEvaluationUsers.isEmpty
+                  ? const Center(
+                      child: Text('평가할 사용자가 없습니다'),
+                    )
+                  : _buildEvaluationForm(),
+        ),
       ),
     );
   }
 
   Widget _buildEvaluationForm() {
-    final currentUser = _pendingEvaluationUsers[_currentUserIndex];
+    return Column(
+      children: [
+        // 평가 리스트 (모임 정보 + 평가 카드들)
+        Expanded(
+          child: ListView.builder(
+            padding: const EdgeInsets.all(16),
+            itemCount: _pendingEvaluationUsers.length + 2, // +1 for meeting info, +1 for restaurant evaluation
+            itemBuilder: (context, index) {
+              // 첫 번째 아이템: 모임 정보
+              if (index == 0) {
+                return CommonCard(
+                  margin: const EdgeInsets.only(bottom: 16),
+                  padding: const EdgeInsets.all(16),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        children: [
+                          Icon(
+                            Icons.restaurant,
+                            color: AppDesignTokens.primary,
+                            size: 20,
+                          ),
+                          const SizedBox(width: 8),
+                          Text(
+                            '모임 정보',
+                            style: AppTextStyles.titleMedium.copyWith(
+                              fontWeight: FontWeight.bold,
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 8),
+                      Text(
+                        widget.meeting.description,
+                        style: AppTextStyles.bodyLarge,
+                      ),
+                      const SizedBox(height: 4),
+                      Text(
+                        '📍 ${widget.meeting.restaurantName}',
+                        style: AppTextStyles.bodyMedium.copyWith(
+                          color: Colors.grey[600],
+                        ),
+                      ),
+                    ],
+                  ),
+                );
+              }
+              
+              // 두 번째 아이템: 식당 평가
+              if (index == 1) {
+                return _buildRestaurantEvaluationCard();
+              }
+              
+              // 나머지 아이템들: 사용자 평가 카드들
+              final userIndex = index - 2; // -2 because of meeting info and restaurant evaluation
+              final user = _pendingEvaluationUsers[userIndex];
+              return ParticipantEvaluationCard(
+                user: user,
+                punctualityRating: _punctualityRatings[user.id] ?? 5,
+                mannersRating: _mannersRatings[user.id] ?? 5,
+                meetAgainRating: _meetAgainRatings[user.id] ?? 5,
+                comment: _comments[user.id] ?? '',
+                onPunctualityChanged: (rating) {
+                  setState(() {
+                    _punctualityRatings[user.id] = rating;
+                  });
+                },
+                onMannersChanged: (rating) {
+                  setState(() {
+                    _mannersRatings[user.id] = rating;
+                  });
+                },
+                onMeetAgainChanged: (rating) {
+                  setState(() {
+                    _meetAgainRatings[user.id] = rating;
+                  });
+                },
+                onCommentChanged: (comment) {
+                  setState(() {
+                    _comments[user.id] = comment;
+                  });
+                },
+              );
+            },
+          ),
+        ),
+        
+        // 제출 버튼
+        Container(
+          width: double.infinity,
+          color: AppDesignTokens.background,
+          padding: const EdgeInsets.all(16),
+          child: CommonButton(
+            text: _isSubmitting ? '제출 중...' : '전체 평가 제출',
+            onPressed: _isSubmitting ? null : _submitAllEvaluations,
+            variant: ButtonVariant.primary,
+            isLoading: _isSubmitting,
+            fullWidth: true,
+          ),
+        ),
+      ],
+    );
+  }
 
-    return SingleChildScrollView(
+  Widget _buildRestaurantEvaluationCard() {
+    return CommonCard(
+      margin: const EdgeInsets.only(bottom: 16),
       padding: const EdgeInsets.all(16),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // 모임 정보
-          CommonCard(
-            child: Padding(
-              padding: const EdgeInsets.all(16),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    '모임 정보',
-                    style: AppTextStyles.headlineSmall,
-                  ),
-                  const SizedBox(height: 8),
-                  Text(
-                    widget.meeting.description,
-                    style: AppTextStyles.bodyLarge,
-                  ),
-                  const SizedBox(height: 4),
-                  Text(
-                    '📍 ${widget.meeting.restaurantName}',
-                    style: AppTextStyles.bodyMedium.copyWith(
-                      color: Colors.grey[600],
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ),
-
-          const SizedBox(height: 24),
-
-          // 평가 대상자 정보
-          CommonCard(
-            child: Padding(
-              padding: const EdgeInsets.all(16),
-              child: Row(
-                children: [
-                  CircleAvatar(
-                    radius: 30,
-                    backgroundImage: currentUser.profileImageUrl != null
-                        ? NetworkImage(currentUser.profileImageUrl!)
-                        : null,
-                    backgroundColor: AppDesignTokens.primary.withOpacity(0.2),
-                    child: currentUser.profileImageUrl == null
-                        ? Text(
-                            currentUser.name.isNotEmpty 
-                                ? currentUser.name[0].toUpperCase()
-                                : '?',
-                            style: AppTextStyles.headlineMedium.copyWith(
-                              color: AppDesignTokens.primary,
-                            ),
-                          )
-                        : null,
-                  ),
-                  const SizedBox(width: 16),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          currentUser.name,
-                          style: AppTextStyles.headlineSmall,
-                        ),
-                        const SizedBox(height: 4),
-                        if (currentUser.rating > 0)
-                          Row(
-                            children: [
-                              const Icon(
-                                Icons.star,
-                                color: Colors.amber,
-                                size: 16,
-                              ),
-                              const SizedBox(width: 4),
-                              Text(
-                                currentUser.rating.toStringAsFixed(1),
-                                style: AppTextStyles.bodyMedium.copyWith(
-                                  color: Colors.grey[600],
-                                ),
-                              ),
-                            ],
-                          ),
-                      ],
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ),
-
-          const SizedBox(height: 24),
-
-          // 평가 항목들
-          Text(
-            '평가 항목',
-            style: AppTextStyles.headlineSmall,
-          ),
-          const SizedBox(height: 16),
-
-          _buildRatingSection(
-            title: '시간준수',
-            subtitle: '약속한 시간에 맞춰 도착했나요?',
-            rating: _punctualityRating,
-            onChanged: (rating) => setState(() => _punctualityRating = rating),
-          ),
-
-          const SizedBox(height: 20),
-
-          _buildRatingSection(
-            title: '대화매너',
-            subtitle: '대화하기 편하고 예의바른가요?',
-            rating: _mannersRating,
-            onChanged: (rating) => setState(() => _mannersRating = rating),
-          ),
-
-          const SizedBox(height: 20),
-
-          _buildRatingSection(
-            title: '재만남의향',
-            subtitle: '다음에 또 만나고 싶나요?',
-            rating: _meetAgainRating,
-            onChanged: (rating) => setState(() => _meetAgainRating = rating),
-          ),
-
-          const SizedBox(height: 24),
-
-          // 추가 코멘트
-          Text(
-            '추가 코멘트 (선택사항)',
-            style: AppTextStyles.bodyLarge.copyWith(
-              fontWeight: FontWeight.w600,
-            ),
-          ),
-          const SizedBox(height: 8),
-          TextField(
-            controller: _commentController,
-            maxLines: 3,
-            maxLength: 200,
-            decoration: InputDecoration(
-              hintText: '좋았던 점이나 개선할 점을 자유롭게 작성해주세요',
-              border: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(12),
-              ),
-              filled: true,
-              fillColor: Colors.grey[50],
-            ),
-          ),
-
-          const SizedBox(height: 32),
-
-          // 버튼들
           Row(
             children: [
-              Expanded(
-                child: CommonButton(
-                  text: '건너뛰기',
-                  onPressed: _isSubmitting ? null : _skipCurrentEvaluation,
-                  variant: ButtonVariant.outline,
-                ),
+              Icon(
+                Icons.star,
+                color: AppDesignTokens.primary,
+                size: 20,
               ),
-              const SizedBox(width: 16),
-              Expanded(
-                flex: 2,
-                child: CommonButton(
-                  text: _isSubmitting ? '제출 중...' : '평가 제출',
-                  onPressed: _isSubmitting ? null : _submitCurrentEvaluation,
-                  variant: ButtonVariant.primary,
-                  isLoading: _isSubmitting,
+              const SizedBox(width: 8),
+              Text(
+                '식당 평가',
+                style: AppTextStyles.titleMedium.copyWith(
+                  fontWeight: FontWeight.bold,
                 ),
               ),
             ],
           ),
-
-          const SizedBox(height: 20),
+          const SizedBox(height: 8),
+          Text(
+            widget.meeting.restaurantName ?? widget.meeting.location,
+            style: AppTextStyles.bodyLarge.copyWith(
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+          const SizedBox(height: 16),
+          
+          // 별점 평가
+          Row(
+            children: [
+              Text(
+                '평점',
+                style: AppTextStyles.bodyMedium.copyWith(
+                  fontWeight: FontWeight.w500,
+                ),
+              ),
+              const SizedBox(width: 16),
+              Row(
+                children: List.generate(5, (index) {
+                  final starIndex = index + 1;
+                  return GestureDetector(
+                    onTap: () {
+                      setState(() {
+                        _restaurantRating = starIndex;
+                      });
+                    },
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 2),
+                      child: Icon(
+                        starIndex <= _restaurantRating ? Icons.star : Icons.star_border,
+                        color: starIndex <= _restaurantRating 
+                          ? AppDesignTokens.primary 
+                          : Colors.grey[300],
+                        size: 28,
+                      ),
+                    ),
+                  );
+                }),
+              ),
+              const SizedBox(width: 12),
+              Text(
+                '$_restaurantRating점',
+                style: AppTextStyles.bodyMedium.copyWith(
+                  color: AppDesignTokens.primary,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 16),
+          
+          // 코멘트 입력
+          Text(
+            '한줄평 (선택사항)',
+            style: AppTextStyles.bodyMedium.copyWith(
+              fontWeight: FontWeight.w500,
+            ),
+          ),
+          const SizedBox(height: 8),
+          TextField(
+            maxLines: 2,
+            maxLength: 100,
+            onChanged: (value) {
+              _restaurantComment = value;
+            },
+            decoration: InputDecoration(
+              hintText: '식당에 대한 솔직한 후기를 남겨주세요',
+              hintStyle: AppTextStyles.bodyMedium.copyWith(
+                color: Colors.grey[400],
+              ),
+              filled: true,
+              fillColor: AppDesignTokens.surfaceContainer.withOpacity(0.3),
+              border: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(12),
+                borderSide: BorderSide.none,
+              ),
+              contentPadding: const EdgeInsets.all(12),
+              counterStyle: AppTextStyles.caption.copyWith(
+                color: Colors.grey[400],
+              ),
+            ),
+            style: AppTextStyles.bodyMedium,
+          ),
         ],
-      ),
-    );
-  }
-
-  Widget _buildRatingSection({
-    required String title,
-    required String subtitle,
-    required int rating,
-    required Function(int) onChanged,
-  }) {
-    return CommonCard(
-      child: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(
-              title,
-              style: AppTextStyles.bodyLarge.copyWith(
-                fontWeight: FontWeight.w600,
-              ),
-            ),
-            const SizedBox(height: 4),
-            Text(
-              subtitle,
-              style: AppTextStyles.bodyMedium.copyWith(
-                color: Colors.grey[600],
-              ),
-            ),
-            const SizedBox(height: 12),
-            Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: List.generate(5, (index) {
-                final starValue = index + 1;
-                return GestureDetector(
-                  onTap: () => onChanged(starValue),
-                  child: Icon(
-                    Icons.star,
-                    size: 36,
-                    color: starValue <= rating
-                        ? Colors.amber
-                        : Colors.grey[300],
-                  ),
-                );
-              }),
-            ),
-            const SizedBox(height: 8),
-            Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                Text(
-                  '매우 아쉬워요',
-                  style: AppTextStyles.bodySmall.copyWith(
-                    color: Colors.grey[600],
-                  ),
-                ),
-                Text(
-                  '매우 좋았어요',
-                  style: AppTextStyles.bodySmall.copyWith(
-                    color: Colors.grey[600],
-                  ),
-                ),
-              ],
-            ),
-          ],
-        ),
       ),
     );
   }

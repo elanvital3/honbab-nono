@@ -5,6 +5,7 @@ import '../../models/user.dart' as app_user;
 import '../../services/user_service.dart';
 import '../../services/meeting_service.dart';
 import '../../services/chat_service.dart';
+import '../../components/common/common_confirm_dialog.dart';
 
 class ParticipantManagementScreen extends StatefulWidget {
   final Meeting meeting;
@@ -105,26 +106,12 @@ class _ParticipantManagementScreenState extends State<ParticipantManagementScree
   }
 
   Future<bool> _showConfirmDialog(String title, String content) async {
-    return await showDialog<bool>(
+    return await CommonConfirmDialog.showDelete(
       context: context,
-      builder: (context) => AlertDialog(
-        title: Text(title),
-        content: Text(content),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context, false),
-            child: const Text('취소'),
-          ),
-          TextButton(
-            onPressed: () => Navigator.pop(context, true),
-            style: TextButton.styleFrom(
-              foregroundColor: Colors.red,
-            ),
-            child: const Text('확인'),
-          ),
-        ],
-      ),
-    ) ?? false;
+      title: title,
+      content: content,
+      confirmText: '제거',
+    );
   }
 
   void _showErrorMessage(String message) {

@@ -12,6 +12,12 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart' as firebase_auth;
 import '../models/meeting.dart';
 import 'user_service.dart';
+import 'meeting_service.dart';
+import 'meeting_auto_completion_service.dart';
+import '../screens/chat/chat_room_screen.dart';
+import '../screens/meeting/meeting_detail_screen.dart';
+import '../components/evaluation_request_dialog.dart';
+import '../components/meeting_auto_complete_dialog.dart';
 
 class NotificationService {
   static final NotificationService _instance = NotificationService._internal();
@@ -25,12 +31,21 @@ class NotificationService {
   
   bool _isInitialized = false;
   String? _fcmToken;
+  Map<String, dynamic>? _pendingNotificationData;
+  
+  // 평가 요청 이벤트 스트림 컨트롤러
+  static final StreamController<String> _evaluationRequestController = 
+      StreamController<String>.broadcast();
+  
+  // 평가 요청 이벤트 스트림 getter
+  static Stream<String> get evaluationRequestStream => _evaluationRequestController.stream;
   
   // 알림 채널 ID들
   static const String _newMeetingChannelId = 'new_meeting';
   static const String _chatChannelId = 'chat_message';
   static const String _reminderChannelId = 'meeting_reminder';
   static const String _participantChannelId = 'participant_update';
+  static const String _evaluationChannelId = 'evaluation_request';
   
 
   /// 알림 서비스 초기화
@@ -102,8 +117,8 @@ class NotificationService {
 
   /// 로컬 알림 초기화
   Future<void> _initializeLocalNotifications() async {
-    // Android 초기화 설정
-    const androidSettings = AndroidInitializationSettings('@mipmap/ic_launcher');
+    // Android 초기화 설정 - 알림 아이콘 확인
+    const androidSettings = AndroidInitializationSettings('@mipmap/launcher_icon');
     
     // iOS 초기화 설정
     const iosSettings = DarwinInitializationSettings(
@@ -117,10 +132,13 @@ class NotificationService {
       iOS: iosSettings,
     );
     
-    await _localNotifications.initialize(
+    final initialized = await _localNotifications.initialize(
       initializationSettings,
       onDidReceiveNotificationResponse: _onNotificationTapped,
     );
+    
+    print('🔔 [NOTIFICATION] 로컬 알림 초기화 결과: $initialized');
+    print('🔔 [NOTIFICATION] 콜백 함수 등록됨: ${_onNotificationTapped != null}');
     
     // Android 알림 채널 생성
     if (Platform.isAndroid) {
@@ -137,16 +155,18 @@ class NotificationService {
         '새 모임 알림',
         description: '내 근처에 새로운 모임이 생성될 때 알림',
         importance: Importance.high,
-        sound: RawResourceAndroidNotificationSound('notification'),
+        enableVibration: true,
+        showBadge: true,
       ),
       
-      // 채팅 메시지 채널
+      // 채팅 메시지 채널 - 탭 액션 중요!
       const AndroidNotificationChannel(
         _chatChannelId,
         '채팅 메시지',
         description: '참여한 모임의 새 메시지 알림',
         importance: Importance.high,
-        sound: RawResourceAndroidNotificationSound('notification'),
+        enableVibration: true,
+        showBadge: true,
       ),
       
       // 모임 리마인더 채널
@@ -155,7 +175,8 @@ class NotificationService {
         '모임 리마인더',
         description: '참여한 모임 시작 전 알림',
         importance: Importance.max,
-        sound: RawResourceAndroidNotificationSound('notification'),
+        enableVibration: true,
+        showBadge: true,
       ),
       
       // 참여자 업데이트 채널
@@ -164,7 +185,18 @@ class NotificationService {
         '참여 알림',
         description: '모임 참여 승인/거절 및 참여자 변동사항 알림',
         importance: Importance.high,
-        sound: RawResourceAndroidNotificationSound('notification'),
+        enableVibration: true,
+        showBadge: true,
+      ),
+      
+      // 평가 요청 채널
+      const AndroidNotificationChannel(
+        _evaluationChannelId,
+        '평가 요청',
+        description: '모임 완료 후 참여자 평가 요청 알림',
+        importance: Importance.high,
+        enableVibration: true,
+        showBadge: true,
       ),
     ];
     
@@ -224,7 +256,27 @@ class NotificationService {
       return;
     }
     
-    // 사용자 설정에 따른 알림 표시
+    final messageType = message.data['type'] ?? '';
+    
+    // 평가 요청 메시지는 바로 다이얼로그로 표시
+    if (messageType == 'evaluation_request') {
+      final meetingId = message.data['meetingId'];
+      if (meetingId != null && meetingId.isNotEmpty) {
+        // 평가 요청 데이터를 임시 저장하여 앱 컨텍스트에서 다이얼로그 표시
+        _pendingNotificationData = {
+          'type': 'evaluation_request',
+          'meetingId': meetingId,
+          'showDialog': 'true', // 다이얼로그 즉시 표시 플래그
+        };
+        
+        if (kDebugMode) {
+          print('⭐ 평가 요청 메시지 수신 - 다이얼로그 표시 예약');
+        }
+        return;
+      }
+    }
+    
+    // 일반적인 알림 표시
     await _showLocalNotification(message);
   }
 
@@ -232,9 +284,248 @@ class NotificationService {
   Future<void> _handleBackgroundMessage(RemoteMessage message) async {
     if (kDebugMode) {
       print('백그라운드 메시지로 앱 열림: ${message.notification?.title}');
+      print('메시지 데이터: ${message.data}');
     }
     
-    // TODO: 메시지 타입에 따른 네비게이션 처리
+    // 메시지 타입에 따른 네비게이션 처리
+    await handleNotificationNavigation(message.data);
+  }
+
+  /// 알림 클릭 시 네비게이션 처리 (전역에서 접근 가능하도록 수정)
+  static Future<void> handleNotificationNavigation(Map<String, dynamic> data) async {
+    try {
+      final type = data['type'] ?? '';
+      final meetingId = data['meetingId'];
+      
+      if (kDebugMode) {
+        print('📱 알림 네비게이션 처리: type=$type, meetingId=$meetingId');
+      }
+      
+      if (meetingId == null || meetingId.isEmpty) {
+        if (kDebugMode) {
+          print('❌ meetingId가 없어 네비게이션 처리 불가');
+        }
+        return;
+      }
+      
+      // 알림 클릭 데이터를 임시 저장하여 앱 시작 시 처리
+      _instance._pendingNotificationData = {
+        'type': type,
+        'meetingId': meetingId,
+      };
+      
+      if (kDebugMode) {
+        print('💾 알림 데이터 임시 저장 완료');
+      }
+    } catch (e) {
+      if (kDebugMode) {
+        print('❌ 알림 네비게이션 처리 실패: $e');
+      }
+    }
+  }
+  
+  /// 목적지로 네비게이션
+  static Future<void> _navigateToDestination(BuildContext context, String type, String meetingId) async {
+    try {
+      print('🔔 [NOTIFICATION] 목적지 네비게이션 시작: type=$type, meetingId=$meetingId');
+      print('🔔 [NOTIFICATION] Context 마운트 상태: ${context.mounted}');
+      
+      switch (type) {
+        case 'chat_message':
+        case 'chat':
+          print('🔔 [NOTIFICATION] 💬 채팅방 네비게이션 선택됨');
+          await _navigateToChatRoom(context, meetingId);
+          break;
+        case 'meeting_application':
+        case 'meeting_approval':
+        case 'meeting_rejection':
+        case 'new_meeting':
+        case 'nearby_meeting':
+        case 'favorite_restaurant_meeting':
+          if (kDebugMode) {
+            print('📝 모임상세 네비게이션 선택됨');
+          }
+          await _navigateToMeetingDetail(context, meetingId);
+          break;
+        case 'test':
+          print('🔔 [NOTIFICATION] 🧪 테스트 알림 탭 감지 성공! meetingId=$meetingId');
+          // 테스트 알림은 네비게이션하지 않고 로그만 출력
+          break;
+        case 'auto_complete':
+          print('🔔 [NOTIFICATION] ⏰ 모임 자동 완료 알림 탭 감지: meetingId=$meetingId');
+          await _navigateToMeetingDetail(context, meetingId);
+          break;
+        case 'meeting_auto_complete':
+          print('🔔 [NOTIFICATION] 🍽️ Firebase Functions 모임 자동 완료 알림: meetingId=$meetingId');
+          await _showAutoCompleteDialog(context, meetingId);
+          break;
+        case 'evaluation_request':
+          print('🔔 [NOTIFICATION] ⭐ 평가 요청 알림 탭 감지: meetingId=$meetingId');
+          await _showEvaluationRequestDialog(context, meetingId);
+          break;
+        default:
+          if (kDebugMode) {
+            print('⚠️ 알 수 없는 알림 타입: $type');
+          }
+          break;
+      }
+      
+      print('🔔 [NOTIFICATION] ✅ 목적지 네비게이션 완료');
+    } catch (e) {
+      print('🔔 [NOTIFICATION] ❌ 목적지 네비게이션 실패: $e');
+      print('🔔 [NOTIFICATION] ❌ 스택 트레이스: ${StackTrace.current}');
+    }
+  }
+  
+  /// 앱 시작 시 대기 중인 알림 처리
+  Future<void> processPendingNotification(BuildContext context) async {
+    print('🔔 [NOTIFICATION] processPendingNotification 호출됨');
+    print('🔔 [NOTIFICATION] 대기 데이터: $_pendingNotificationData');
+    
+    if (_pendingNotificationData == null) {
+      print('🔔 [NOTIFICATION] 대기 중인 알림 데이터 없음');
+      return;
+    }
+    
+    try {
+      final type = _pendingNotificationData!['type'] ?? '';
+      final meetingId = _pendingNotificationData!['meetingId'];
+      final showDialog = _pendingNotificationData!['showDialog'] ?? 'false';
+      
+      print('🔔 [NOTIFICATION] 대기 알림 처리 시작: type=$type, meetingId=$meetingId, showDialog=$showDialog');
+      print('🔔 [NOTIFICATION] Context 상태: mounted=${context.mounted}');
+      
+      if (meetingId == null || meetingId.isEmpty) {
+        print('🔔 [NOTIFICATION] ❌ meetingId가 비어있어서 처리 중단');
+        _pendingNotificationData = null;
+        return;
+      }
+      
+      // 처리 후 데이터 삭제
+      _pendingNotificationData = null;
+      
+      // 평가 요청이고 즉시 다이얼로그 표시가 필요한 경우
+      if (type == 'evaluation_request' && showDialog == 'true') {
+        print('🔔 [NOTIFICATION] ⭐ 평가 요청 다이얼로그 즉시 표시');
+        await _showEvaluationRequestDialog(context, meetingId);
+      } else {
+        // 일반적인 네비게이션 처리
+        await _navigateToDestination(context, type, meetingId);
+      }
+    } catch (e) {
+      print('🔔 [NOTIFICATION] ❌ 대기 중인 알림 처리 실패: $e');
+      print('🔔 [NOTIFICATION] ❌ 스택 트레이스: ${StackTrace.current}');
+      _pendingNotificationData = null; // 오류 발생 시에도 데이터 삭제
+    }
+  }
+  
+  /// 채팅방으로 이동
+  static Future<void> _navigateToChatRoom(BuildContext context, String meetingId) async {
+    try {
+      print('🔔 [NOTIFICATION] 💬 채팅방으로 이동 시작: meetingId=$meetingId');
+      print('🔔 [NOTIFICATION] Context 마운트 상태: ${context.mounted}');
+      
+      // MeetingService를 통해 모임 정보 가져오기
+      print('🔔 [NOTIFICATION] 모임 정보 조회 중...');
+      
+      final meeting = await MeetingService.getMeeting(meetingId);
+      if (meeting == null) {
+        print('🔔 [NOTIFICATION] ❌ 모임을 찾을 수 없음: $meetingId');
+        return;
+      }
+      
+      print('🔔 [NOTIFICATION] ✅ 모임 정보 조회 성공: ${meeting.description}');
+      print('🔔 [NOTIFICATION] 네비게이션 실행 전 Context 상태: ${context.mounted}');
+      
+      if (context.mounted) {
+        print('🔔 [NOTIFICATION] 🚀 채팅방 화면으로 네비게이션 실행');
+        
+        Navigator.of(context).push(
+          MaterialPageRoute(
+            builder: (context) => ChatRoomScreen(meeting: meeting),
+          ),
+        );
+        
+        print('🔔 [NOTIFICATION] ✅ 채팅방 네비게이션 완료');
+      } else {
+        print('🔔 [NOTIFICATION] ❌ Context가 마운트되지 않아 네비게이션 실패');
+      }
+    } catch (e) {
+      print('🔔 [NOTIFICATION] ❌ 채팅방 이동 실패: $e');
+      print('🔔 [NOTIFICATION] ❌ 스택 트레이스: ${StackTrace.current}');
+    }
+  }
+  
+  /// 모임 상세로 이동
+  static Future<void> _navigateToMeetingDetail(BuildContext context, String meetingId) async {
+    try {
+      if (kDebugMode) {
+        print('📝 모임 상세로 이동: $meetingId');
+      }
+      
+      // MeetingService를 통해 모임 정보 가져오기
+      final meeting = await MeetingService.getMeeting(meetingId);
+      if (meeting == null) {
+        if (kDebugMode) {
+          print('❌ 모임을 찾을 수 없음: $meetingId');
+        }
+        return;
+      }
+      
+      if (context.mounted) {
+        Navigator.of(context).push(
+          MaterialPageRoute(
+            builder: (context) => MeetingDetailScreen(meeting: meeting),
+          ),
+        );
+        
+        if (kDebugMode) {
+          print('✅ 모임 상세 이동 완료');
+        }
+      }
+    } catch (e) {
+      if (kDebugMode) {
+        print('❌ 모임 상세 이동 실패: $e');
+      }
+    }
+  }
+
+  /// 평가 요청 다이얼로그 표시
+  static Future<void> _showEvaluationRequestDialog(BuildContext context, String meetingId) async {
+    try {
+      if (kDebugMode) {
+        print('⭐ 평가 요청 다이얼로그 표시: $meetingId');
+      }
+      
+      // MeetingService를 통해 모임 정보 가져오기
+      final meeting = await MeetingService.getMeeting(meetingId);
+      if (meeting == null) {
+        if (kDebugMode) {
+          print('❌ 모임을 찾을 수 없음: $meetingId');
+        }
+        return;
+      }
+      
+      if (context.mounted) {
+        await EvaluationRequestDialog.show(
+          context: context,
+          meeting: meeting,
+          onEvaluationCompleted: () {
+            if (kDebugMode) {
+              print('✅ 평가 완료 콜백 호출됨');
+            }
+          },
+        );
+        
+        if (kDebugMode) {
+          print('✅ 평가 요청 다이얼로그 표시 완료');
+        }
+      }
+    } catch (e) {
+      if (kDebugMode) {
+        print('❌ 평가 요청 다이얼로그 표시 실패: $e');
+      }
+    }
   }
 
   /// 로컬 알림 표시
@@ -256,6 +547,9 @@ class NotificationService {
       case 'participant':
         channelId = _participantChannelId;
         break;
+      case 'evaluation':
+        channelId = _evaluationChannelId;
+        break;
       default:
         channelId = _newMeetingChannelId;
     }
@@ -266,7 +560,7 @@ class NotificationService {
       channelDescription: _getChannelDescription(channelId),
       importance: Importance.high,
       priority: Priority.high,
-      icon: '@mipmap/ic_launcher',
+      icon: '@mipmap/launcher_icon',
     );
     
     const iosDetails = DarwinNotificationDetails(
@@ -280,25 +574,24 @@ class NotificationService {
       iOS: iosDetails,
     );
     
+    // payload 형태: "type:meetingId"
+    final meetingId = message.data['meetingId'] ?? '';
+    final payload = '$messageType:$meetingId';
+    
     await _localNotifications.show(
       DateTime.now().millisecondsSinceEpoch.remainder(100000),
       notification.title,
       notification.body,
       details,
-      payload: message.data.toString(),
+      payload: payload,
     );
   }
 
   /// 근처 사용자들에게 새 모임 생성 알림 발송
   Future<void> notifyNearbyUsersOfNewMeeting(Meeting meeting) async {
     try {
-      // 방해금지 모드 확인
-      if (await _isDoNotDisturbActive()) {
-        if (kDebugMode) {
-          print('🔕 방해금지 모드로 인해 근처 모임 알림 스킵');
-        }
-        return;
-      }
+      // 방해금지 모드는 수신자 기준으로 FCM 서버에서 처리됨
+      // 발송자가 방해금지여도 근처 사용자들은 알림을 받아야 함
       
       // 모임 생성자의 위치 정보 조회
       final hostUser = await UserService.getUser(meeting.hostId);
@@ -353,7 +646,7 @@ class NotificationService {
       channelDescription: '내 근처에 새로운 모임이 생성될 때 알림',
       importance: Importance.high,
       priority: Priority.high,
-      icon: '@mipmap/ic_launcher',
+      icon: '@mipmap/launcher_icon',
     );
     
     const iosDetails = DarwinNotificationDetails(
@@ -377,7 +670,7 @@ class NotificationService {
   }
 
   /// 채팅 메시지 알림 (로컬)
-  Future<void> showChatNotification(String meetingTitle, String senderName, String message) async {
+  Future<void> showChatNotification(String meetingId, String meetingTitle, String senderName, String message) async {
     if (!await _isNotificationEnabled('chatNotification')) return;
     if (await _isDoNotDisturbActive()) return;
     
@@ -387,7 +680,11 @@ class NotificationService {
       channelDescription: '참여한 모임의 새 메시지 알림',
       importance: Importance.high,
       priority: Priority.high,
-      icon: '@mipmap/ic_launcher',
+      icon: '@mipmap/launcher_icon',
+      autoCancel: true,
+      enableVibration: true,
+      enableLights: true,
+      category: AndroidNotificationCategory.message,
     );
     
     const iosDetails = DarwinNotificationDetails(
@@ -406,7 +703,7 @@ class NotificationService {
       '$meetingTitle',
       '$senderName: $message',
       details,
-      payload: 'chat:$meetingTitle',
+      payload: 'chat_message:$meetingId',
     );
   }
 
@@ -456,7 +753,7 @@ class NotificationService {
       channelDescription: '참여한 모임 시작 전 알림',
       importance: Importance.max,
       priority: Priority.high,
-      icon: '@mipmap/ic_launcher',
+      icon: '@mipmap/launcher_icon',
     );
     
     const iosDetails = DarwinNotificationDetails(
@@ -493,7 +790,7 @@ class NotificationService {
       channelDescription: '모임 참여 승인/거절 및 참여자 변동사항 알림',
       importance: Importance.high,
       priority: Priority.high,
-      icon: '@mipmap/ic_launcher',
+      icon: '@mipmap/launcher_icon',
     );
     
     const iosDetails = DarwinNotificationDetails(
@@ -517,16 +814,41 @@ class NotificationService {
 
   /// 알림 탭 처리
   static void _onNotificationTapped(NotificationResponse response) {
-    final payload = response.payload;
-    if (payload == null) return;
+    // 🔔 중요한 알림 관련 로그만 유지
+    print('🔔 [NOTIFICATION] 로컬 알림 탭됨!');
+    print('🔔 [NOTIFICATION] Payload: ${response.payload}');
+    print('🔔 [NOTIFICATION] ActionId: ${response.actionId}');
+    print('🔔 [NOTIFICATION] Input: ${response.input}');
     
-    if (kDebugMode) {
-      print('알림 탭됨: $payload');
+    final payload = response.payload;
+    if (payload == null) {
+      print('🔔 [NOTIFICATION] ❌ Payload가 null입니다');
+      return;
     }
     
-    // TODO: payload에 따른 네비게이션 처리
-    // 예: meeting:123 -> 모임 상세 화면으로 이동
-    // 예: chat:모임명 -> 채팅방으로 이동
+    try {
+      // payload 파싱: "type:meetingId" 형태
+      final parts = payload.split(':');
+      if (parts.length >= 2) {
+        final type = parts[0];
+        final meetingId = parts[1];
+        
+        print('🔔 [NOTIFICATION] 데이터 파싱 성공: type=$type, meetingId=$meetingId');
+        
+        // 알림 클릭 데이터를 임시 저장하여 앱 시작 시 처리
+        _instance._pendingNotificationData = {
+          'type': type,
+          'meetingId': meetingId,
+        };
+        
+        print('🔔 [NOTIFICATION] 데이터 임시 저장 완료');
+      } else {
+        print('🔔 [NOTIFICATION] ❌ 잘못된 payload 형태: $payload');
+      }
+    } catch (e) {
+      print('🔔 [NOTIFICATION] ❌ 알림 탭 처리 실패: $e');
+      print('🔔 [NOTIFICATION] ❌ 스택 트레이스: ${StackTrace.current}');
+    }
   }
 
   /// 특정 알림 타입이 활성화되어 있는지 확인
@@ -590,6 +912,8 @@ class NotificationService {
         return '모임 리마인더';
       case _participantChannelId:
         return '참여 알림';
+      case _evaluationChannelId:
+        return '평가 요청';
       default:
         return '일반 알림';
     }
@@ -606,6 +930,8 @@ class NotificationService {
         return '참여한 모임 시작 전 알림';
       case _participantChannelId:
         return '모임 참여 승인/거절 및 참여자 변동사항 알림';
+      case _evaluationChannelId:
+        return '모임 완료 후 참여자 평가 요청 알림';
       default:
         return '일반 알림';
     }
@@ -627,13 +953,8 @@ class NotificationService {
     required String applicantName,
   }) async {
     try {
-      // 방해금지 모드 확인
-      if (await _isDoNotDisturbActive()) {
-        if (kDebugMode) {
-          print('🔕 방해금지 모드로 인해 모임 신청 알림 스킵');
-        }
-        return;
-      }
+      // 방해금지 모드는 수신자(호스트) 기준으로 체크하지 않음
+      // FCM 서버에서 각 사용자의 설정에 따라 처리됨
       
       if (kDebugMode) {
         print('📬 모임 신청 알림 발송 시작: ${meeting.id}');
@@ -707,13 +1028,8 @@ class NotificationService {
     required String applicantName,
   }) async {
     try {
-      // 방해금지 모드 확인
-      if (await _isDoNotDisturbActive()) {
-        if (kDebugMode) {
-          print('🔕 방해금지 모드로 인해 모임 승인 알림 스킵');
-        }
-        return;
-      }
+      // 방해금지 모드는 수신자(신청자) 기준으로 체크하지 않음
+      // FCM 서버에서 각 사용자의 설정에 따라 처리됨
       
       if (kDebugMode) {
         print('🎉 모임 승인 알림 발송 시작: ${meeting.id}');
@@ -779,13 +1095,8 @@ class NotificationService {
     required String applicantName,
   }) async {
     try {
-      // 방해금지 모드 확인
-      if (await _isDoNotDisturbActive()) {
-        if (kDebugMode) {
-          print('🔕 방해금지 모드로 인해 모임 거절 알림 스킵');
-        }
-        return;
-      }
+      // 방해금지 모드는 수신자(신청자) 기준으로 체크하지 않음
+      // FCM 서버에서 각 사용자의 설정에 따라 처리됨
       
       if (kDebugMode) {
         print('😔 모임 거절 알림 발송 시작: ${meeting.id}');
@@ -844,6 +1155,118 @@ class NotificationService {
     }
   }
 
+  /// 테스트 채팅 알림 표시 (디버깅용)
+  Future<void> showTestChatNotification(String meetingId, String meetingTitle) async {
+    if (kDebugMode) {
+      print('🧪 테스트 채팅 알림 생성: meetingId=$meetingId, title=$meetingTitle');
+      print('🧪 알림 서비스 초기화 상태: $_isInitialized');
+      print('🧪 _onNotificationTapped 콜백: ${_onNotificationTapped != null}');
+    }
+    
+    const androidDetails = AndroidNotificationDetails(
+      _chatChannelId,
+      '채팅 메시지',
+      channelDescription: '참여한 모임의 새 메시지 알림',
+      importance: Importance.high,
+      priority: Priority.high,
+      icon: '@mipmap/launcher_icon',
+      autoCancel: true,
+      enableVibration: true,
+      enableLights: true,
+      category: AndroidNotificationCategory.message,
+    );
+    
+    const iosDetails = DarwinNotificationDetails(
+      presentAlert: true,
+      presentBadge: true,
+      presentSound: true,
+    );
+    
+    final details = NotificationDetails(
+      android: androidDetails,
+      iOS: iosDetails,
+    );
+    
+    await _localNotifications.show(
+      DateTime.now().millisecondsSinceEpoch.remainder(100000),
+      '$meetingTitle - 새 메시지',
+      '테스트 메시지입니다. 탭하면 채팅방으로 이동합니다.',
+      details,
+      payload: 'chat_message:$meetingId',
+    );
+    
+    if (kDebugMode) {
+      print('🧪 테스트 알림 생성 완료: payload=chat_message:$meetingId');
+    }
+  }
+
+  /// 스케줄된 알림 생성 (MeetingAutoCompletionService용)
+  Future<void> scheduleNotification({
+    required int id,
+    required String title,
+    required String body,
+    required DateTime scheduledTime,
+    required String payload,
+    String? channelId,
+  }) async {
+    if (!_isInitialized) {
+      await initialize();
+    }
+
+    final androidDetails = AndroidNotificationDetails(
+      channelId ?? _reminderChannelId,
+      '모임 자동 완료',
+      channelDescription: '모임 시간 후 자동 완료 알림',
+      importance: Importance.high,
+      priority: Priority.high,
+      icon: '@mipmap/launcher_icon',
+      autoCancel: true,
+      enableVibration: true,
+      enableLights: true,
+    );
+    
+    const iosDetails = DarwinNotificationDetails(
+      presentAlert: true,
+      presentBadge: true,
+      presentSound: true,
+    );
+    
+    final details = NotificationDetails(
+      android: androidDetails,
+      iOS: iosDetails,
+    );
+    
+    final seoul = tz.getLocation('Asia/Seoul');
+    final zonedScheduledTime = tz.TZDateTime.from(scheduledTime, seoul);
+    
+    await _localNotifications.zonedSchedule(
+      id,
+      title,
+      body,
+      zonedScheduledTime,
+      details,
+      payload: payload,
+      uiLocalNotificationDateInterpretation: UILocalNotificationDateInterpretation.absoluteTime,
+    );
+    
+    if (kDebugMode) {
+      print('🔔 [NOTIFICATION] 스케줄된 알림 생성: $title (id: $id, time: $scheduledTime)');
+    }
+  }
+
+  /// 스케줄된 알림 취소
+  Future<void> cancelScheduledNotification(int id) async {
+    if (!_isInitialized) {
+      await initialize();
+    }
+    
+    await _localNotifications.cancel(id);
+    
+    if (kDebugMode) {
+      print('🔔 [NOTIFICATION] 스케줄된 알림 취소: id=$id');
+    }
+  }
+
   /// 범용 로컬 알림 표시 (테스트용)
   Future<void> showTestNotification(String title, String body, {String? channelId}) async {
     try {
@@ -852,7 +1275,10 @@ class NotificationService {
         '테스트 알림',
         importance: Importance.high,
         priority: Priority.high,
-        icon: '@mipmap/ic_launcher',
+        icon: '@mipmap/launcher_icon',
+        autoCancel: true,
+        enableVibration: true,
+        enableLights: true,
       );
       
       const iosDetails = DarwinNotificationDetails(
@@ -871,10 +1297,11 @@ class NotificationService {
         title,
         body,
         details,
+        payload: 'test:simple_test', // 간단한 테스트 payload 추가
       );
       
       if (kDebugMode) {
-        print('✅ 테스트 알림 표시 완료: $title');
+        print('✅ 테스트 알림 표시 완료: $title (payload: test:simple_test)');
       }
     } catch (e) {
       if (kDebugMode) {
@@ -927,29 +1354,27 @@ class NotificationService {
   /// 모든 참여자에게 알림 발송 (FCM)
   Future<void> notifyAllParticipants({
     required List<String> participantIds,
-    required String excludeUserId,
+    String? excludeUserId, // nullable로 변경하여 아무도 제외하지 않을 수 있음
     required String title,
     required String body,
     String? type,
     Map<String, String>? data,
   }) async {
     try {
-      // 방해금지 모드 확인
-      if (await _isDoNotDisturbActive()) {
-        if (kDebugMode) {
-          print('🔕 방해금지 모드로 인해 참여자 알림 스킵');
-        }
-        return;
-      }
+      // 방해금지 모드는 수신자 기준으로 FCM 서버에서 처리됨
+      // 발송자가 방해금지여도 상대방은 알림을 받아야 함
       
       if (kDebugMode) {
         print('🔔 모든 참여자에게 알림 발송 시작');
         print('📝 참여자 ID들: $participantIds');
         print('🚫 제외할 사용자: $excludeUserId');
+        print('📨 알림 타입: $type');
       }
 
-      // 제외할 사용자를 제외한 참여자 목록
-      final targetParticipants = participantIds.where((id) => id != excludeUserId).toList();
+      // 제외할 사용자를 제외한 참여자 목록 (excludeUserId가 null이면 아무도 제외하지 않음)
+      final targetParticipants = excludeUserId != null 
+          ? participantIds.where((id) => id != excludeUserId).toList()
+          : participantIds;
       
       if (targetParticipants.isEmpty) {
         if (kDebugMode) {
@@ -958,8 +1383,17 @@ class NotificationService {
         return;
       }
 
-      // 참여자들의 FCM 토큰 가져오기
-      final fcmTokens = await _getFCMTokensForUsers(targetParticipants);
+      // 채팅 메시지 알림의 경우 현재 채팅방 ID 전달
+      String? currentChatRoomId;
+      if (type == 'chat_message') {
+        currentChatRoomId = data?['meetingId'];
+        if (kDebugMode) {
+          print('💬 채팅 메시지 알림 - 채팅방 활성 사용자 제외 모드 (채팅방: $currentChatRoomId)');
+        }
+      }
+
+      // 참여자들의 FCM 토큰 가져오기 (채팅방 활성 사용자 제외)
+      final fcmTokens = await _getFCMTokensForUsers(targetParticipants, currentChatRoomId: currentChatRoomId);
       
       if (fcmTokens.isEmpty) {
         if (kDebugMode) {
@@ -997,13 +1431,16 @@ class NotificationService {
     }
   }
 
-  /// 사용자들의 FCM 토큰 가져오기 (사용자 ID 기반 제외)
-  Future<List<String>> _getFCMTokensForUsers(List<String> userIds) async {
+  /// 사용자들의 FCM 토큰 가져오기 (사용자 ID 기반 제외 + 채팅방 활성 사용자 제외)
+  Future<List<String>> _getFCMTokensForUsers(List<String> userIds, {String? currentChatRoomId}) async {
     try {
       final tokens = <String>[];
       
       if (kDebugMode) {
         print('🔍 FCM 토큰 조회 시작 - 대상 사용자: $userIds');
+        if (currentChatRoomId != null) {
+          print('📵 채팅방 활성 사용자 제외 모드: $currentChatRoomId');
+        }
       }
       
       // 각 사용자의 문서에서 직접 FCM 토큰 조회
@@ -1017,9 +1454,19 @@ class NotificationService {
         if (userDoc.exists) {
           final userData = userDoc.data() as Map<String, dynamic>;
           final fcmToken = userData['fcmToken'] as String?;
+          final userCurrentChatRoom = userData['currentChatRoom'] as String?;
           
           if (kDebugMode) {
             print('👤 사용자 $userId: FCM 토큰 ${fcmToken != null ? "있음" : "없음"}');
+            print('   현재 채팅방: $userCurrentChatRoom');
+          }
+          
+          // 채팅방 알림의 경우: 현재 해당 채팅방에 있는 사용자는 제외
+          if (currentChatRoomId != null && userCurrentChatRoom == currentChatRoomId) {
+            if (kDebugMode) {
+              print('📵 채팅방 활성 사용자 알림 제외: $userId (채팅방: $currentChatRoomId)');
+            }
+            continue;
           }
           
           // FCM 토큰이 유효하면 추가 (사용자 ID는 이미 notifyAllParticipants에서 제외됨)
@@ -1210,13 +1657,7 @@ class NotificationService {
     required String joinerUserId,
     required String joinerName,
   }) async {
-    // 방해금지 모드 확인
-    if (await _isDoNotDisturbActive()) {
-      if (kDebugMode) {
-        print('🔕 방해금지 모드로 인해 모임 참여 알림 스킵');
-      }
-      return;
-    }
+    // 방해금지 모드는 수신자 기준으로 FCM 서버에서 처리됨
     
     await notifyAllParticipants(
       participantIds: meeting.participantIds,
@@ -1237,13 +1678,7 @@ class NotificationService {
     required String leaverUserId,
     required String leaverName,
   }) async {
-    // 방해금지 모드 확인
-    if (await _isDoNotDisturbActive()) {
-      if (kDebugMode) {
-        print('🔕 방해금지 모드로 인해 모임 탈퇴 알림 스킵');
-      }
-      return;
-    }
+    // 방해금지 모드는 수신자 기준으로 FCM 서버에서 처리됨
     
     await notifyAllParticipants(
       participantIds: meeting.participantIds,
@@ -1265,13 +1700,8 @@ class NotificationService {
     required String senderName,
     required String message,
   }) async {
-    // 방해금지 모드 확인
-    if (await _isDoNotDisturbActive()) {
-      if (kDebugMode) {
-        print('🔕 방해금지 모드로 인해 채팅 메시지 알림 스킵');
-      }
-      return;
-    }
+    // 방해금지 모드는 수신자 기준으로 FCM 서버에서 처리됨
+    // 발송자가 방해금지여도 상대방은 알림을 받아야 함
     
     if (kDebugMode) {
       print('💬 채팅 메시지 알림 발송 시작');
@@ -1300,13 +1730,7 @@ class NotificationService {
     required String hostUserId,
     required String hostName,
   }) async {
-    // 방해금지 모드 확인
-    if (await _isDoNotDisturbActive()) {
-      if (kDebugMode) {
-        print('🔕 방해금지 모드로 인해 모임 취소 알림 스킵');
-      }
-      return;
-    }
+    // 방해금지 모드는 수신자 기준으로 FCM 서버에서 처리됨
     
     await notifyAllParticipants(
       participantIds: meeting.participantIds,
@@ -1344,46 +1768,261 @@ class NotificationService {
     required List<String> participantIds,
   }) async {
     try {
+      // 방해금지 모드는 수신자 기준으로 FCM 서버에서 처리됨
+      
       if (kDebugMode) {
         print('⭐ 평가 요청 알림 발송 시작: ${meeting.id}');
         print('   대상자: ${participantIds.length}명');
       }
 
-      // 각 참여자의 FCM 토큰 조회 및 알림 발송
-      for (final participantId in participantIds) {
+      // 현재 사용자가 참여자인 경우 평가 요청 다이얼로그 표시 (호스트 제외)
+      final currentUserId = firebase_auth.FirebaseAuth.instance.currentUser?.uid;
+      if (currentUserId != null && 
+          participantIds.contains(currentUserId) && 
+          currentUserId != meeting.hostId) {
+        // 평가 요청 데이터를 임시 저장하여 다이얼로그 표시
+        _pendingNotificationData = {
+          'type': 'evaluation_request',
+          'meetingId': meeting.id,
+          'showDialog': 'true', // 다이얼로그 즉시 표시 플래그
+        };
+        
+        if (kDebugMode) {
+          print('⭐ 현재 사용자(참여자)에게 평가 요청 다이얼로그 표시 예약: $currentUserId (호스트 제외됨)');
+        }
+        
+        // 앱이 포그라운드에 있다면 즉시 다이얼로그 표시를 위해 전역 알림 발송
         try {
-          final user = await UserService.getUser(participantId);
-          if (user?.fcmToken == null) {
-            if (kDebugMode) {
-              print('⚠️ FCM 토큰 없음: $participantId');
-            }
-            continue;
-          }
-
-          final title = '⭐ 모임 평가 요청';
-          final body = '"${meeting.description}" 모임이 완료되었습니다. 함께한 멤버들을 평가해주세요!';
-
-          // Firebase Functions 제거됨 - 로컬 알림으로 대체
-          await showTestNotification(title, body, channelId: _participantChannelId);
-
-          if (kDebugMode) {
-            print('✅ 평가 요청 알림 발송 완료: ${user?.name ?? "Unknown"}');
-          }
+          await _triggerImmediateEvaluationDialog(meeting.id);
         } catch (e) {
           if (kDebugMode) {
-            print('❌ 개별 평가 요청 알림 발송 실패 ($participantId): $e');
+            print('⚠️ 즉시 평가 다이얼로그 표시 실패: $e');
           }
         }
       }
 
+      // 모든 참여자에게 FCM 알림 발송 (호스트 포함)
+      final title = '⭐ 모임 평가 요청';
+      final body = '"${meeting.description}" 모임이 완료되었습니다! 🎉\n함께한 멤버들을 평가해주세요.';
+      
+      // FCM으로 참여자들에게만 평가 요청 알림 (호스트 제외)
+      await notifyAllParticipants(
+        participantIds: participantIds,
+        excludeUserId: meeting.hostId, // 호스트 제외 - 호스트는 이미 완료 확인 후 바로 평가로 이동
+        title: title,
+        body: body,
+        type: 'evaluation_request',
+        data: {
+          'meetingId': meeting.id,
+          'hostId': meeting.hostId,
+        },
+      );
+      
+      
       if (kDebugMode) {
-        print('✅ 모든 평가 요청 알림 발송 완료');
+        print('✅ 참여자들에게 평가 요청 알림 발송 완료 (${participantIds.length - 1}명, 호스트 제외)');
+        print('   📱 푸시 알림: 호스트 제외, 참여자들만');
+        print('   💬 즉시 다이얼로그: 호스트 제외, 참여자들만');
+        print('   🎯 호스트는 모임 완료 버튼 → 바로 평가 화면으로 이동');
       }
     } catch (e) {
       if (kDebugMode) {
         print('❌ 평가 요청 알림 발송 실패: $e');
       }
       rethrow;
+    }
+  }
+
+  /// 포그라운드에서 즉시 평가 다이얼로그 표시를 위한 내부 알림 트리거
+  Future<void> _triggerImmediateEvaluationDialog(String meetingId) async {
+    try {
+      if (kDebugMode) {
+        print('⭐ 즉시 평가 다이얼로그 표시 트리거 시작: $meetingId');
+      }
+      
+      // 짧은 지연 후 처리 (UI가 완전히 로드된 후)
+      await Future.delayed(const Duration(milliseconds: 500));
+      
+      // 평가 다이얼로그 즉시 표시를 위한 글로벌 이벤트 발송
+      // 이는 HomeScreen에서 처리될 것임
+      _pendingNotificationData = {
+        'type': 'evaluation_request',
+        'meetingId': meetingId,
+        'showDialog': 'true',
+        'immediate': 'true', // 즉시 표시 플래그
+      };
+      
+      // 전역 이벤트 스트림을 통해 HomeScreen에 알림
+      _evaluationRequestController.add(meetingId);
+      
+      if (kDebugMode) {
+        print('✅ 즉시 평가 다이얼로그 표시 트리거 완료: $meetingId');
+      }
+    } catch (e) {
+      if (kDebugMode) {
+        print('❌ 즉시 평가 다이얼로그 표시 트리거 실패: $e');
+      }
+    }
+  }
+
+  /// Firebase Functions 자동 완료 알림 클릭 시 다이얼로그 표시
+  static Future<void> _showAutoCompleteDialog(BuildContext context, String meetingId) async {
+    try {
+      print('🔔 [NOTIFICATION] 🍽️ 자동 완료 다이얼로그 표시 시작: meetingId=$meetingId');
+      
+      // 모임 정보 조회
+      final meeting = await MeetingService.getMeeting(meetingId);
+      if (meeting == null) {
+        print('🔔 [NOTIFICATION] ❌ 모임을 찾을 수 없음: $meetingId');
+        return;
+      }
+      
+      // 현재 사용자가 호스트인지 확인
+      final currentUserId = firebase_auth.FirebaseAuth.instance.currentUser?.uid;
+      if (currentUserId == null || meeting.hostId != currentUserId) {
+        print('🔔 [NOTIFICATION] ❌ 호스트가 아니어서 자동 완료 다이얼로그 표시 안 함');
+        return;
+      }
+      
+      // 이미 완료된 모임인지 확인
+      if (meeting.status == 'completed') {
+        print('🔔 [NOTIFICATION] ⚠️ 이미 완료된 모임: $meetingId');
+        // 이미 완료된 모임이라도 상세 화면으로 이동
+        if (context.mounted) {
+          await _navigateToMeetingDetail(context, meetingId);
+        }
+        return;
+      }
+      
+      if (!context.mounted) {
+        print('🔔 [NOTIFICATION] ❌ Context가 마운트되지 않음');
+        return;
+      }
+      
+      print('🔔 [NOTIFICATION] 🎯 자동 완료 다이얼로그 표시 중...');
+      
+      // 다이얼로그 표시
+      final result = await MeetingAutoCompleteDialog.show(
+        context: context,
+        meetingName: meeting.restaurantName ?? meeting.location,
+        onComplete: () async {
+          print('🔔 [NOTIFICATION] ✅ 사용자가 모임 완료 선택');
+        },
+        onPostpone: () async {
+          print('🔔 [NOTIFICATION] ⏰ 사용자가 1시간 후 재알림 선택');
+          // 1시간 후 재알림 로직
+          await MeetingAutoCompletionService.postponeMeetingAutoCompletion(
+            meetingId,
+            meeting.restaurantName ?? meeting.location,
+          );
+        },
+        onCancelMeeting: () async {
+          print('🔔 [NOTIFICATION] 🚫 사용자가 모임 취소 선택');
+          // 모임 취소 처리
+          await MeetingService.deleteMeeting(meetingId);
+        },
+      );
+      
+      // 다이얼로그 결과에 따라 처리
+      if (result == 'complete_keep' || result == 'complete_close') {
+        bool keepChatActive = result == 'complete_keep';
+        print('🔔 [NOTIFICATION] 모임 완료 처리 시작 - 채팅방 유지: $keepChatActive');
+        await MeetingService.completeMeeting(meetingId, keepChatActive: keepChatActive);
+      } else if (result == 'still_ongoing') {
+        print('🔔 [NOTIFICATION] 아직 모임중 - 2시간 후 재알림 예약');
+        // 2시간 후 재알림 예약
+        await MeetingAutoCompletionService.postponeMeetingAutoCompletion(
+          meetingId,
+          meeting.restaurantName ?? meeting.location,
+          delayHours: 2,
+        );
+      }
+      
+      print('🔔 [NOTIFICATION] ✅ 자동 완료 다이얼로그 처리 완료');
+      
+    } catch (e) {
+      print('🔔 [NOTIFICATION] ❌ 자동 완료 다이얼로그 표시 실패: $e');
+      print('🔔 [NOTIFICATION] 📱 fallback: 모임 상세 화면으로 이동');
+      
+      // 에러 발생 시 모임 상세 화면으로 이동
+      if (context.mounted) {
+        await _navigateToMeetingDetail(context, meetingId);
+      }
+    }
+  }
+
+  /// 평가 재알림 예약 (24시간 후)
+  Future<void> scheduleEvaluationReminder({
+    required Meeting meeting,
+    int delayHours = 24,
+  }) async {
+    try {
+      if (kDebugMode) {
+        print('⏰ 평가 재알림 예약: ${meeting.id} (${delayHours}시간 후)');
+      }
+      
+      // 현재 시간에서 delayHours 시간 후 계산
+      final scheduledTime = DateTime.now().add(Duration(hours: delayHours));
+      
+      // SharedPreferences에 재알림 정보 저장
+      final prefs = await SharedPreferences.getInstance();
+      final reminderKey = 'evaluation_reminder_${meeting.id}';
+      await prefs.setString(reminderKey, scheduledTime.toIso8601String());
+      
+      // 로컬 알림 예약
+      await _localNotifications.zonedSchedule(
+        meeting.id.hashCode + 2000, // 고유 ID (평가 재알림용)
+        '⭐ 평가 재알림',
+        '${meeting.restaurantName ?? meeting.location} 모임 평가를 완료해주세요',
+        tz.TZDateTime.from(scheduledTime, tz.local),
+        NotificationDetails(
+          android: AndroidNotificationDetails(
+            _evaluationChannelId,
+            _getChannelName(_evaluationChannelId),
+            channelDescription: _getChannelDescription(_evaluationChannelId),
+            importance: Importance.high,
+            priority: Priority.high,
+            icon: '@mipmap/launcher_icon',
+          ),
+          iOS: const DarwinNotificationDetails(
+            presentAlert: true,
+            presentBadge: true,
+            presentSound: true,
+          ),
+        ),
+        payload: 'evaluation_request:${meeting.id}',
+        uiLocalNotificationDateInterpretation: UILocalNotificationDateInterpretation.absoluteTime,
+      );
+      
+      if (kDebugMode) {
+        print('✅ 평가 재알림 예약 완료: ${scheduledTime.toString()}');
+      }
+    } catch (e) {
+      if (kDebugMode) {
+        print('❌ 평가 재알림 예약 실패: $e');
+      }
+      rethrow;
+    }
+  }
+
+  /// 평가 완료 시 재알림 취소
+  Future<void> cancelEvaluationReminder(String meetingId) async {
+    try {
+      // 로컬 알림 취소
+      await _localNotifications.cancel(meetingId.hashCode + 2000);
+      
+      // SharedPreferences에서 재알림 정보 제거
+      final prefs = await SharedPreferences.getInstance();
+      final reminderKey = 'evaluation_reminder_$meetingId';
+      await prefs.remove(reminderKey);
+      
+      if (kDebugMode) {
+        print('✅ 평가 재알림 취소 완료: $meetingId');
+      }
+    } catch (e) {
+      if (kDebugMode) {
+        print('❌ 평가 재알림 취소 실패: $e');
+      }
     }
   }
 

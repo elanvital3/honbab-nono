@@ -61,6 +61,23 @@ class UserService {
     }
   }
 
+  // 현재 로그인된 사용자 가져오기
+  static Future<User?> getCurrentUser() async {
+    try {
+      final currentFirebaseUser = firebase_auth.FirebaseAuth.instance.currentUser;
+      if (currentFirebaseUser == null) {
+        return null;
+      }
+      
+      return await getUser(currentFirebaseUser.uid);
+    } catch (e) {
+      if (kDebugMode) {
+        print('❌ Error getting current user: $e');
+      }
+      return null;
+    }
+  }
+
   // 사용자 실시간 스트림
   static Stream<User?> getUserStream(String id) {
     return _firestore

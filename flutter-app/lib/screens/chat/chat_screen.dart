@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../../components/common/common_confirm_dialog.dart';
 
 class ChatScreen extends StatefulWidget {
   final String meetingTitle;
@@ -563,33 +564,24 @@ class _ChatScreenState extends State<ChatScreen> {
     );
   }
 
-  void _showExitConfirmDialog() {
-    showDialog(
+  Future<void> _showExitConfirmDialog() async {
+    final confirmed = await CommonConfirmDialog.showWarning(
       context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('채팅방 나가기'),
-        content: const Text('정말 채팅방을 나가시겠습니까?\n대화 내용이 삭제됩니다.'),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('취소'),
-          ),
-          TextButton(
-            onPressed: () {
-              Navigator.pop(context);
-              Navigator.pop(context);
-              ScaffoldMessenger.of(context).showSnackBar(
-                SnackBar(
-                  content: const Text('채팅방을 나갔습니다'),
-                  backgroundColor: Theme.of(context).colorScheme.primary,
-                ),
-              );
-            },
-            child: Text('나가기', style: TextStyle(color: Colors.red[400])),
-          ),
-        ],
-      ),
+      title: '채팅방 나가기',
+      content: '정말 채팅방을 나가시겠습니까?\n대화 내용이 삭제됩니다.',
+      confirmText: '나가기',
+      cancelText: '취소',
     );
+    
+    if (confirmed) {
+      Navigator.pop(context);
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: const Text('채팅방을 나갔습니다'),
+          backgroundColor: Theme.of(context).colorScheme.primary,
+        ),
+      );
+    }
   }
 
   String _formatDate(DateTime date) {

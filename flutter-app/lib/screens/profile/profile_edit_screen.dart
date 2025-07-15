@@ -537,102 +537,98 @@ class _ProfileEditScreenState extends State<ProfileEditScreen> {
 
     return Container(
       width: double.infinity, // 가로 꽉 채우기
-      margin: AppPadding.horizontal16,
-      child: CommonCard(
-        padding: AppPadding.all24,
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          crossAxisAlignment: CrossAxisAlignment.center, // 가운데 정렬
-          children: [
-            Stack(
-              children: [
-                // 로딩 중일 때 표시할 오버레이
-                if (_isImageLoading)
-                  Container(
-                    width: 120,
-                    height: 120,
-                    decoration: BoxDecoration(
-                      shape: BoxShape.circle,
-                      color: Colors.black.withOpacity(0.3),
-                    ),
-                    child: const Center(
-                      child: CircularProgressIndicator(
-                        color: Colors.white,
-                        strokeWidth: 3,
-                      ),
-                    ),
-                  )
-                else
-                  CircleAvatar(
-                    radius: 60,
-                    backgroundColor: AppDesignTokens.primary.withOpacity(0.1),
-                    backgroundImage: imageProvider,
-                    child: imageProvider == null
-                        ? Text(
-                            widget.user.name.isNotEmpty ? widget.user.name[0] : '?',
-                            style: AppTextStyles.headlineLarge.copyWith(
-                              color: AppDesignTokens.primary,
-                              fontSize: 32,
-                            ),
-                          )
-                        : null,
+      padding: const EdgeInsets.symmetric(vertical: 24),
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        crossAxisAlignment: CrossAxisAlignment.center, // 가운데 정렬
+        children: [
+          Stack(
+            children: [
+              // 로딩 중일 때 표시할 오버레이
+              if (_isImageLoading)
+                Container(
+                  width: 120,
+                  height: 120,
+                  decoration: BoxDecoration(
+                    shape: BoxShape.circle,
+                    color: Colors.black.withOpacity(0.3),
                   ),
-                
-                // 카메라 버튼
-                if (!_isImageLoading)
-                  Positioned(
-                    bottom: 0,
-                    right: 0,
-                    child: Container(
-                      width: 40,
-                      height: 40,
-                      decoration: BoxDecoration(
-                        color: AppDesignTokens.primary,
-                        shape: BoxShape.circle,
-                        border: Border.all(
-                          color: AppDesignTokens.background,
-                          width: 3,
-                        ),
-                        boxShadow: [
-                          BoxShadow(
-                            color: Colors.black.withOpacity(0.1),
-                            blurRadius: 4,
-                            offset: const Offset(0, 2),
+                  child: const Center(
+                    child: CircularProgressIndicator(
+                      color: Colors.white,
+                      strokeWidth: 3,
+                    ),
+                  ),
+                )
+              else
+                CircleAvatar(
+                  radius: 60,
+                  backgroundColor: AppDesignTokens.primary.withOpacity(0.1),
+                  backgroundImage: imageProvider,
+                  child: imageProvider == null
+                      ? Text(
+                          widget.user.name.isNotEmpty ? widget.user.name[0] : '?',
+                          style: AppTextStyles.headlineLarge.copyWith(
+                            color: AppDesignTokens.primary,
+                            fontSize: 32,
                           ),
-                        ],
+                        )
+                      : null,
+                ),
+              
+              // 카메라 버튼
+              if (!_isImageLoading)
+                Positioned(
+                  bottom: 0,
+                  right: 0,
+                  child: Container(
+                    width: 40,
+                    height: 40,
+                    decoration: BoxDecoration(
+                      color: AppDesignTokens.primary,
+                      shape: BoxShape.circle,
+                      border: Border.all(
+                        color: AppDesignTokens.background,
+                        width: 3,
                       ),
-                      child: IconButton(
-                        padding: EdgeInsets.zero,
-                        icon: const Icon(
-                          Icons.camera_alt,
-                          size: 20,
-                          color: Colors.white,
+                      boxShadow: [
+                        BoxShadow(
+                          color: Colors.black.withOpacity(0.1),
+                          blurRadius: 4,
+                          offset: const Offset(0, 2),
                         ),
-                        onPressed: _selectAndUploadImage,
+                      ],
+                    ),
+                    child: IconButton(
+                      padding: EdgeInsets.zero,
+                      icon: const Icon(
+                        Icons.camera_alt,
+                        size: 20,
+                        color: Colors.white,
                       ),
+                      onPressed: _selectAndUploadImage,
                     ),
                   ),
-              ],
+                ),
+            ],
+          ),
+          const SizedBox(height: 20),
+          Text(
+            '프로필 사진 변경',
+            style: AppTextStyles.bodyLarge.copyWith(
+              color: AppDesignTokens.primary,
+              fontWeight: FontWeight.w600,
             ),
-            const SizedBox(height: 20),
-            Text(
-              '프로필 사진 변경',
-              style: AppTextStyles.bodyLarge.copyWith(
-                color: AppDesignTokens.primary,
-                fontWeight: FontWeight.w600,
-              ),
+          ),
+          const SizedBox(height: 8),
+          Text(
+            '카메라 아이콘을 터치하여 사진을 변경하세요',
+            style: AppTextStyles.bodySmall.copyWith(
+              color: Theme.of(context).colorScheme.outline,
             ),
-            const SizedBox(height: 8),
-            Text(
-              '카메라 아이콘을 터치하여 사진을 변경하세요',
-              style: AppTextStyles.bodySmall.copyWith(
-                color: Theme.of(context).colorScheme.outline,
-              ),
-              textAlign: TextAlign.center,
-            ),
-            const SizedBox(height: 12),
-          ],
-        ),
+            textAlign: TextAlign.center,
+          ),
+        ],
       ),
     );
   }

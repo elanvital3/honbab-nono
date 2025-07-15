@@ -87,6 +87,7 @@ class UserBadgesList extends StatelessWidget {
         : 0;
 
     return Wrap(
+      alignment: WrapAlignment.start,
       spacing: compact ? 6 : 8,
       runSpacing: compact ? 4 : 6,
       children: [

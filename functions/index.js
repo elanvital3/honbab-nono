@@ -859,6 +859,193 @@ exports.sendNotification = onCall(async (request) => {
   }
 });
 
+/**
+ * 모임 자동 완료 알림 스케줄러
+ * 🧪 테스트용: 매 2분마다 실행 (원래: 30분)
+ */
+exports.checkMeetingAutoCompletion = onScheduleV2({
+  schedule: 'every 2 minutes',
+  timeZone: 'Asia/Seoul',
+}, async (event) => {
+  logger.info('🔔 모임 자동 완료 알림 체크 시작');
+  
+  try {
+    const now = admin.firestore.Timestamp.now();
+    // 🧪 테스트용: 5분 후까지 (원래: 2시간 후까지)
+    const fiveMinutesAfter = admin.firestore.Timestamp.fromDate(
+      new Date(Date.now() + 5 * 60 * 1000)
+    );
+    
+    // status가 active인 모든 모임 조회 후 시간 필터링 (인덱스 불필요)
+    const meetingsSnapshot = await db.collection('meetings')
+      .where('status', '==', 'active')
+      .get();
+    
+    if (meetingsSnapshot.empty) {
+      logger.info('📝 완료 알림이 필요한 모임이 없습니다');
+      return;
+    }
+    
+    // 시간 필터링: 5분이 지난 모임들만 필터링
+    const eligibleMeetings = [];
+    for (const doc of meetingsSnapshot.docs) {
+      const meeting = doc.data();
+      const meetingTime = meeting.dateTime.toDate();
+      const autoCompleteTime = new Date(meetingTime.getTime() + 5 * 60 * 1000);
+      
+      if (new Date() >= autoCompleteTime) {
+        eligibleMeetings.push({ doc, meeting });
+      }
+    }
+    
+    if (eligibleMeetings.length === 0) {
+      logger.info('📝 5분이 지난 모임이 없습니다');
+      return;
+    }
+    
+    logger.info(`📋 총 ${eligibleMeetings.length}개 모임 자동완료 체크 중...`);
+    
+    let sentCount = 0;
+    
+    for (const { doc, meeting } of eligibleMeetings) {
+      const meetingId = doc.id;
+      
+      // 이미 알림을 보냈는지 확인 (중복 방지)
+      const notificationKey = `auto_complete_${meetingId}`;
+      const existingNotification = await db.collection('meeting_notifications')
+        .doc(notificationKey)
+        .get();
+      
+      if (existingNotification.exists) {
+        continue; // 이미 알림 보냄
+      }
+      
+      // 호스트 정보 조회
+      const hostSnapshot = await db.collection('users')
+        .doc(meeting.hostId)
+        .get();
+      
+      if (!hostSnapshot.exists) {
+        logger.warn(`❌ 호스트 정보를 찾을 수 없습니다: ${meeting.hostId}`);
+        continue;
+      }
+      
+      const host = hostSnapshot.data();
+      if (!host.fcmToken) {
+        logger.warn(`❌ 호스트 FCM 토큰이 없습니다: ${meeting.hostId}`);
+        continue;
+      }
+      
+      // FCM 알림 발송
+      const message = {
+        token: host.fcmToken,
+        notification: {
+          title: '모임 완료 확인',
+          body: `"${meeting.restaurantName || meeting.location}" 모임이 완료되었나요? 완료 처리를 해주세요 🍽️`,
+        },
+        data: {
+          type: 'meeting_auto_complete',
+          meetingId: meetingId,
+          meetingName: meeting.restaurantName || meeting.location,
+          clickAction: 'FLUTTER_NOTIFICATION_CLICK',
+        },
+        android: {
+          notification: {
+            channelId: 'meeting_notifications',
+            priority: 'high',
+            defaultSound: true,
+          },
+        },
+        apns: {
+          payload: {
+            aps: {
+              alert: {
+                title: '모임 완료 확인',
+                body: `"${meeting.restaurantName || meeting.location}" 모임이 완료되었나요? 완료 처리를 해주세요 🍽️`,
+              },
+              sound: 'default',
+              badge: 1,
+            },
+          },
+        },
+      };
+      
+      try {
+        const response = await messaging.send(message);
+        logger.info(`✅ 모임 완료 알림 발송 성공: ${meetingId} -> ${host.name}`);
+        
+        // 알림 발송 기록 저장 (중복 방지용)
+        await db.collection('meeting_notifications').doc(notificationKey).set({
+          meetingId: meetingId,
+          hostId: meeting.hostId,
+          type: 'auto_complete',
+          sentAt: admin.firestore.Timestamp.now(),
+          messageId: response,
+        });
+        
+        sentCount++;
+      } catch (error) {
+        logger.error(`❌ 모임 완료 알림 발송 실패: ${meetingId}`, error);
+      }
+    }
+    
+    logger.info(`🎉 모임 자동 완료 알림 체크 완료 - 총 ${sentCount}개 알림 발송`);
+    
+  } catch (error) {
+    logger.error('❌ 모임 자동 완료 알림 체크 실패:', error);
+  }
+});
+
+/**
+ * 모임 생성 시 자동 완료 알림 스케줄 등록
+ * 클라이언트에서 호출하는 Callable Function
+ */
+exports.scheduleMeetingAutoCompletion = onCall(async (request) => {
+  const data = request.data;
+  
+  if (!data.meetingId || !data.dateTime) {
+    throw new Error('meetingId와 dateTime이 필요합니다');
+  }
+  
+  try {
+    // 이미 등록된 스케줄이 있는지 확인
+    const scheduleKey = `auto_complete_schedule_${data.meetingId}`;
+    const existingSchedule = await db.collection('meeting_schedules')
+      .doc(scheduleKey)
+      .get();
+    
+    if (existingSchedule.exists) {
+      logger.info(`⏰ 이미 등록된 스케줄: ${data.meetingId}`);
+      return { success: true, message: '이미 등록된 스케줄입니다' };
+    }
+    
+    // 모임 시간 + 2시간 후 시간 계산
+    const meetingTime = new Date(data.dateTime);
+    const autoCompleteTime = new Date(meetingTime.getTime() + 2 * 60 * 60 * 1000);
+    
+    // 스케줄 정보 저장
+    await db.collection('meeting_schedules').doc(scheduleKey).set({
+      meetingId: data.meetingId,
+      meetingTime: admin.firestore.Timestamp.fromDate(meetingTime),
+      autoCompleteTime: admin.firestore.Timestamp.fromDate(autoCompleteTime),
+      createdAt: admin.firestore.Timestamp.now(),
+      processed: false,
+    });
+    
+    logger.info(`✅ 모임 자동 완료 스케줄 등록: ${data.meetingId} -> ${autoCompleteTime.toISOString()}`);
+    
+    return {
+      success: true,
+      meetingId: data.meetingId,
+      autoCompleteTime: autoCompleteTime.toISOString(),
+    };
+    
+  } catch (error) {
+    logger.error('❌ 모임 자동 완료 스케줄 등록 실패:', error);
+    throw new Error(`스케줄 등록 실패: ${error.message}`);
+  }
+});
+
 // 헬스체크 엔드포인트
 exports.healthCheck = onRequest((request, response) => {
   response.json({

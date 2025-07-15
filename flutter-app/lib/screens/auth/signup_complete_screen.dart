@@ -4,6 +4,9 @@ import '../../services/user_service.dart';
 import '../../services/auth_service.dart';
 import '../home/home_screen.dart';
 import '../profile/badge_selection_screen.dart';
+import '../../styles/text_styles.dart';
+import '../../constants/app_design_tokens.dart';
+import '../../components/common/common_button.dart';
 
 class SignupCompleteScreen extends StatefulWidget {
   final String userId;
@@ -158,20 +161,18 @@ class _SignupCompleteScreenState extends State<SignupCompleteScreen> {
                 const SizedBox(height: 20),
                 
                 // 환영 메시지
-                const Text(
+                Text(
                   '환영합니다! 🎉',
-                  style: TextStyle(
+                  style: AppTextStyles.displayLarge.copyWith(
                     fontSize: 28,
-                    fontWeight: FontWeight.bold,
-                    color: Color(0xFF333333),
+                    color: AppDesignTokens.onSurface,
                   ),
                 ),
                 const SizedBox(height: 8),
-                const Text(
+                Text(
                   '혼밥노노에서 사용할 닉네임을 설정해주세요',
-                  style: TextStyle(
-                    fontSize: 16,
-                    color: Color(0xFF666666),
+                  style: AppTextStyles.bodyLarge.copyWith(
+                    color: AppDesignTokens.onSurfaceVariant,
                     height: 1.5,
                   ),
                 ),
@@ -290,38 +291,14 @@ class _SignupCompleteScreenState extends State<SignupCompleteScreen> {
                 SizedBox(height: MediaQuery.of(context).viewInsets.bottom > 0 ? 20 : 60),
 
                 // 완료 버튼
-                SizedBox(
-                  width: double.infinity,
-                  child: ElevatedButton(
-                    onPressed: _isLoading || _isCheckingNickname || !_isNicknameAvailable 
-                        ? null 
-                        : _completeSignup,
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: const Color(0xFFD2B48C),
-                      padding: const EdgeInsets.symmetric(vertical: 16),
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(12),
-                      ),
-                      elevation: 0,
-                    ),
-                    child: _isLoading
-                        ? const SizedBox(
-                            width: 20,
-                            height: 20,
-                            child: CircularProgressIndicator(
-                              strokeWidth: 2,
-                              valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
-                            ),
-                          )
-                        : const Text(
-                            '완료',
-                            style: TextStyle(
-                              fontSize: 16,
-                              fontWeight: FontWeight.w600,
-                              color: Colors.white,
-                            ),
-                          ),
-                  ),
+                CommonButton(
+                  text: '완료',
+                  onPressed: _isLoading || _isCheckingNickname || !_isNicknameAvailable 
+                      ? null 
+                      : _completeSignup,
+                  isLoading: _isLoading,
+                  fullWidth: true,
+                  size: ButtonSize.large,
                 ),
                 SizedBox(height: MediaQuery.of(context).viewInsets.bottom > 0 ? 20 : 32),
               ],

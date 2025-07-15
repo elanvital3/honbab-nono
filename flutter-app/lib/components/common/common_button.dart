@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 import '../../constants/app_design_tokens.dart';
 import '../../styles/text_styles.dart';
 
-enum ButtonVariant { primary, secondary, outline, text }
+enum ButtonVariant { primary, secondary, outline, text, destructive }
 enum ButtonSize { small, medium, large }
 
 class CommonButton extends StatelessWidget {
@@ -38,7 +38,7 @@ class CommonButton extends StatelessWidget {
             child: CircularProgressIndicator(
               strokeWidth: 2,
               valueColor: AlwaysStoppedAnimation<Color>(
-                variant == ButtonVariant.primary 
+                (variant == ButtonVariant.primary || variant == ButtonVariant.destructive)
                     ? Colors.white 
                     : AppDesignTokens.primary,
               ),
@@ -118,6 +118,17 @@ class CommonButton extends StatelessWidget {
             borderRadius: AppBorderRadius.medium,
           ),
         );
+      case ButtonVariant.destructive:
+        return ElevatedButton.styleFrom(
+          backgroundColor: Colors.red.shade600,
+          foregroundColor: Colors.white,
+          disabledBackgroundColor: AppDesignTokens.outline,
+          elevation: AppDesignTokens.elevationLow,
+          padding: _getButtonPadding(),
+          shape: RoundedRectangleBorder(
+            borderRadius: AppBorderRadius.medium,
+          ),
+        );
     }
   }
 
@@ -149,6 +160,8 @@ class CommonButton extends StatelessWidget {
       case ButtonVariant.outline:
       case ButtonVariant.text:
         return AppDesignTokens.primary;
+      case ButtonVariant.destructive:
+        return Colors.white;
     }
   }
 

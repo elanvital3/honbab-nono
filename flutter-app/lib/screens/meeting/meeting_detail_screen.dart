@@ -10,16 +10,20 @@ import '../../services/chat_service.dart';
 import '../chat/chat_room_screen.dart';
 import '../profile/user_profile_screen.dart';
 import 'edit_meeting_screen.dart';
-import 'applicant_management_screen.dart';
 import '../../constants/app_design_tokens.dart';
 import '../../styles/text_styles.dart';
 import '../../components/common/common_card.dart';
 import '../../components/common/common_button.dart';
 import '../../components/common/common_confirm_dialog.dart';
+import '../../components/common/common_meeting_completion_dialog.dart';
+import '../../components/common/common_meeting_cancellation_dialog.dart';
+import '../../components/common/common_loading_dialog.dart';
 import '../../components/dutch_pay_calculator.dart';
 import '../../components/meeting_auto_complete_dialog.dart';
 import '../../services/meeting_auto_completion_service.dart';
+import '../../services/evaluation_service.dart';
 import '../evaluation/user_evaluation_screen.dart';
+import '../../components/evaluation_request_dialog.dart';
 
 class MeetingDetailScreen extends StatefulWidget {
   final Meeting meeting;
@@ -45,6 +49,7 @@ class _MeetingDetailScreenState extends State<MeetingDetailScreen> with WidgetsB
   List<app_user.User> _pendingApplicants = []; // 승인 대기자 목록
   bool _isLoadingParticipants = true;
   Meeting? _currentMeeting; // 현재 모임 데이터 (실시간 업데이트용)
+  bool _hasCompletedEvaluation = false; // 평가 완료 여부
   
   // 탭 컨트롤러 추가
   late TabController _tabController;
@@ -148,6 +153,8 @@ class _MeetingDetailScreenState extends State<MeetingDetailScreen> with WidgetsB
       });
       // 참여자 목록 로드
       _loadParticipants();
+      // 평가 완료 상태 확인
+      _checkEvaluationStatus();
     }
   }
   
@@ -371,10 +378,61 @@ class _MeetingDetailScreenState extends State<MeetingDetailScreen> with WidgetsB
                 onPressed: _refreshMeetingData,
                 tooltip: '새로고침',
               ),
-              IconButton(
-                icon: const Icon(Icons.share),
-                onPressed: () => _shareContent(currentMeeting),
-              ),
+              // 호스트인 경우 점 3개 메뉴, 아니면 공유 버튼
+              if (isCurrentlyHost)
+                PopupMenuButton<String>(
+                  icon: const Icon(Icons.more_vert),
+                  onSelected: (value) {
+                    switch (value) {
+                      case 'share':
+                        _shareContent(currentMeeting);
+                        break;
+                      case 'edit':
+                        _editMeeting();
+                        break;
+                      case 'delete':
+                        _deleteMeeting();
+                        break;
+                    }
+                  },
+                  itemBuilder: (context) => [
+                    const PopupMenuItem(
+                      value: 'share',
+                      child: Row(
+                        children: [
+                          Icon(Icons.share, size: 20),
+                          SizedBox(width: 12),
+                          Text('모임 공유'),
+                        ],
+                      ),
+                    ),
+                    const PopupMenuItem(
+                      value: 'edit',
+                      child: Row(
+                        children: [
+                          Icon(Icons.edit, size: 20),
+                          SizedBox(width: 12),
+                          Text('모임 수정'),
+                        ],
+                      ),
+                    ),
+                    const PopupMenuItem(
+                      value: 'delete',
+                      child: Row(
+                        children: [
+                          Icon(Icons.delete, size: 20, color: Color(0xFFE53935)),
+                          SizedBox(width: 12),
+                          Text('모임 삭제', style: TextStyle(color: Color(0xFFE53935))),
+                        ],
+                      ),
+                    ),
+                  ],
+                )
+              else
+                IconButton(
+                  icon: const Icon(Icons.share),
+                  onPressed: () => _shareContent(currentMeeting),
+                ),
             ],
           ),
           body: SingleChildScrollView(
@@ -961,7 +1019,7 @@ class _MeetingDetailScreenState extends State<MeetingDetailScreen> with WidgetsB
 
     return Row(
       children: [
-        // 1. 채팅방 (항상 표시)
+        // 1. 채팅방
         Expanded(
           child: CommonButton(
             text: '채팅방',
@@ -970,21 +1028,33 @@ class _MeetingDetailScreenState extends State<MeetingDetailScreen> with WidgetsB
             fullWidth: true,
           ),
         ),
-        const SizedBox(width: AppDesignTokens.spacing2),
+        const SizedBox(width: AppDesignTokens.spacing3),
         
-        // 2. 모임완료 또는 참여자 평가
+        // 2. 모임완료/평가하기 (호스트도 평가 참여)
         Expanded(
           child: CommonButton(
-            text: isCompleted ? '참여자 평가' : '모임완료',
-            variant: ButtonVariant.primary,
-            onPressed: isCompleted ? () => _navigateToEvaluation() : () => _completeMeeting(),
+            text: isCompleted 
+                ? (!_hasCompletedEvaluation ? '참여자 평가' : '평가 완료')
+                : '모임완료',
+            variant: isCompleted && _hasCompletedEvaluation
+                ? ButtonVariant.outline 
+                : ButtonVariant.primary,
+            onPressed: isCompleted && _hasCompletedEvaluation
+                ? null  // 비활성화
+                : isCompleted
+                    ? () => _navigateToEvaluation()  // 평가 화면으로 이동
+                    : () => _completeMeeting(),
             fullWidth: true,
-            icon: isCompleted ? const Icon(Icons.star, size: 18, color: Colors.white) : null,
+            icon: isCompleted && _hasCompletedEvaluation
+                ? const Icon(Icons.check_circle, size: 18, color: Colors.grey)
+                : isCompleted && !_hasCompletedEvaluation
+                    ? const Icon(Icons.star, size: 18, color: Colors.white)
+                    : null,
           ),
         ),
-        const SizedBox(width: AppDesignTokens.spacing2),
+        const SizedBox(width: AppDesignTokens.spacing3),
         
-        // 3. 더치페이 계산기 (계산기 아이콘)
+        // 3. 더치페이 계산기
         InkWell(
           onTap: () => _showDutchPayCalculator(),
           borderRadius: BorderRadius.circular(12),
@@ -1002,52 +1072,47 @@ class _MeetingDetailScreenState extends State<MeetingDetailScreen> with WidgetsB
             ),
           ),
         ),
-        const SizedBox(width: AppDesignTokens.spacing2),
-        
-        // 4. 모임수정 (연필 아이콘 - 테두리 없음)
-        InkWell(
-          onTap: () => _editMeeting(),
-          borderRadius: BorderRadius.circular(12),
-          child: Container(
-            width: 48,
-            height: 48,
-            decoration: BoxDecoration(
-              borderRadius: BorderRadius.circular(12),
-              color: Theme.of(context).colorScheme.surfaceContainer,
-            ),
-            child: Icon(
-              Icons.edit,
-              color: Theme.of(context).colorScheme.outline,
-              size: 20,
-            ),
-          ),
-        ),
-        const SizedBox(width: AppDesignTokens.spacing2),
-        
-        // 5. 모임삭제 (빨간색 쓰레기통 - 테두리 없음)
-        InkWell(
-          onTap: () => _deleteMeeting(),
-          borderRadius: BorderRadius.circular(12),
-          child: Container(
-            width: 48,
-            height: 48,
-            decoration: BoxDecoration(
-              borderRadius: BorderRadius.circular(12),
-              color: Theme.of(context).colorScheme.surfaceContainer,
-            ),
-            child: const Icon(
-              Icons.delete,
-              color: Color(0xFFE53935),
-              size: 20,
-            ),
-          ),
-        ),
       ],
     );
   }
   
   Widget _buildParticipantButton(Meeting meeting, bool isCurrentlyJoined, bool isCurrentlyPending) {
+    final isCompleted = meeting.status == 'completed';
+    
     if (isCurrentlyJoined) {
+      // 완료된 경우
+      if (isCompleted) {
+        return Row(
+          children: [
+            Expanded(
+              child: CommonButton(
+                text: '채팅방',
+                variant: ButtonVariant.outline,
+                onPressed: () => _showChatRoom(),
+                fullWidth: true,
+              ),
+            ),
+            const SizedBox(width: AppDesignTokens.spacing3),
+            Expanded(
+              child: CommonButton(
+                text: !_hasCompletedEvaluation ? '참여자 평가' : '평가 완료',
+                variant: _hasCompletedEvaluation
+                    ? ButtonVariant.outline
+                    : ButtonVariant.primary,
+                onPressed: _hasCompletedEvaluation
+                    ? null  // 비활성화
+                    : () => _navigateToEvaluation(),
+                fullWidth: true,
+                icon: _hasCompletedEvaluation
+                    ? const Icon(Icons.check_circle, size: 18, color: Colors.grey)
+                    : const Icon(Icons.star, size: 18, color: Colors.white),
+              ),
+            ),
+          ],
+        );
+      }
+      
+      // 일반 참여자 버튼들 (평가 전)
       return Row(
         children: [
           Expanded(
@@ -1145,64 +1210,123 @@ class _MeetingDetailScreenState extends State<MeetingDetailScreen> with WidgetsB
     }
   }
   
-  Future<void> _navigateToEvaluation() async {
-    Navigator.push(
-      context,
-      MaterialPageRoute(
-        builder: (context) => UserEvaluationScreen(
-          meetingId: widget.meeting.id,
-          meeting: _currentMeeting ?? widget.meeting,
-        ),
-      ),
-    );
-  }
   
   Future<void> _completeMeeting() async {
+    // 참여자 수 체크 (호스트 제외)
+    final totalParticipants = _currentMeeting?.participantIds.length ?? 0;
+    final hostId = _currentMeeting?.hostId;
+    
+    // 호스트를 제외한 실제 참여자 수 계산
+    final actualParticipantCount = hostId != null && _currentMeeting!.participantIds.contains(hostId) 
+        ? totalParticipants - 1 
+        : totalParticipants;
+    
+    if (kDebugMode) {
+      print('🔍 모임 완료 체크:');
+      print('   - 전체 참여자: $totalParticipants명');
+      print('   - 호스트 제외 참여자: $actualParticipantCount명');
+      print('   - 호스트 ID: $hostId');
+      print('   - 참여자 목록: ${_currentMeeting?.participantIds}');
+    }
+    
+    if (actualParticipantCount == 0) {
+      // 참여자가 없는 경우 취소 옵션 다이얼로그 표시
+      final result = await CommonMeetingCancellationDialog.show(
+        context: context,
+        message: '현재 참여자가 없습니다.\n모임을 어떻게 처리하시겠습니까?',
+      );
+      
+      if (result == null) return; // 뒤로가기
+      
+      switch (result) {
+        case 'cancel':
+          // 즉시 취소
+          await _performCancelMeeting();
+          return;
+        case 'wait':
+          // 모집 대기 - 그냥 팝업 닫기
+          return;
+        default:
+          // 기타 경우 (null 등) - 아무것도 하지 않음
+          return;
+      }
+    }
+    
+    // 모임 완료 확인 모달 표시
     final result = await MeetingAutoCompleteDialog.show(
       context: context,
-      meetingName: _currentMeeting?.description ?? widget.meeting.description,
-      onComplete: () {
-        // 다이얼로그 내부에서 처리됨
-      },
-      onPostpone: () {
-        // 1시간 후 다시 알림 (실제로는 사용되지 않음)
-      },
-      isManualCompletion: true, // 수동 완료임을 표시
+      meetingName: widget.meeting.restaurantName ?? widget.meeting.location,
+      onComplete: () {},
+      onPostpone: () {},
+      onCancelMeeting: () {},
+      isManualCompletion: true,
     );
-
-    if (result == null || result == 'cancel') return;
-
-    // result가 'complete_keep' 또는 'complete_close'
-    final keepChatActive = result == 'complete_keep';
-
+    
+    if (result != 'complete_keep' && result != 'complete_close') {
+      // "아직 모임중이에요"나 "모임 취소" 등 다른 선택의 경우
+      if (result == 'still_ongoing') {
+        // 아무것도 하지 않고 그냥 다이얼로그만 닫기
+        if (kDebugMode) {
+          print('✅ 사용자가 "아직 모임중이에요" 선택');
+        }
+      }
+      return;
+    }
+    
     try {
+      // 다이얼로그 결과에 따라 채팅방 유지 여부 결정
+      bool keepChatActive = result == 'complete_keep';
+      
+      // 모임을 완료 상태로 변경 (평가는 백그라운드 진행)
       await MeetingService.completeMeeting(widget.meeting.id, keepChatActive: keepChatActive);
       
       // 모임 완료 시스템 메시지 전송
-      final systemMessage = keepChatActive 
-          ? '모임이 완료되었습니다. 채팅방은 계속 사용할 수 있습니다! 🎉'
-          : '모임이 완료되었습니다. 수고하셨습니다! 🎉';
-      
       await ChatService.sendSystemMessage(
         meetingId: widget.meeting.id,
-        content: systemMessage,
+        content: '모임이 완료되었습니다! 참여자 평가를 진행해주세요 🎉',
       );
 
       if (kDebugMode) {
-        print('✅ 모임 완료 성공: ${widget.meeting.id}, 채팅방 유지: $keepChatActive');
+        print('✅ 모임 평가 진행 상태로 변경 성공: ${widget.meeting.id}');
       }
 
       if (mounted) {
-        final snackMessage = keepChatActive
-            ? '모임이 완료되었습니다!\n채팅방은 계속 사용 가능합니다 💬'
-            : '모임이 완료되었습니다!\n채팅방이 읽기 전용으로 전환됩니다 📖';
-            
+        // 화면 새로고침
+        _initializeUserState();
+        
+        // 바로 평가 화면으로 이동
+        _navigateToEvaluation();
+        
+        // 평가 요청은 FCM 알림을 통해 다른 참여자들에게 전달됨
+        // 호스트는 자신의 평가만 진행 (다른 참여자들을 평가)
+        if (kDebugMode) {
+          print('✅ 평가 요청 FCM 알림이 다른 참여자들에게 발송됨');
+          print('📝 호스트는 별도로 평가를 진행할 수 있습니다');
+        }
+      }
+    } catch (e) {
+      if (kDebugMode) {
+        print('❌ 모임 평가 진행 상태 변경 실패: $e');
+      }
+      
+      if (mounted) {
+        _showErrorMessage('모임 평가 시작에 실패했습니다');
+      }
+    }
+  }
+
+
+  // 모임 취소 처리
+  Future<void> _cancelMeeting() async {
+    try {
+      await MeetingService.cancelMeeting(widget.meeting.id);
+      
+      if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(snackMessage),
-            backgroundColor: Colors.green,
+          const SnackBar(
+            content: Text('모임이 취소되었습니다'),
+            backgroundColor: Colors.orange,
             behavior: SnackBarBehavior.floating,
-            duration: Duration(seconds: 4),
           ),
         );
         
@@ -1211,13 +1335,74 @@ class _MeetingDetailScreenState extends State<MeetingDetailScreen> with WidgetsB
       }
     } catch (e) {
       if (kDebugMode) {
-        print('❌ 모임 완료 실패: $e');
+        print('❌ 모임 취소 실패: $e');
       }
       
       if (mounted) {
-        _showErrorMessage('모임 완료에 실패했습니다');
+        _showErrorMessage('모임 취소에 실패했습니다');
       }
     }
+  }
+
+  // 상호평가 화면으로 이동
+  void _navigateToEvaluation() {
+    final meeting = _currentMeeting ?? widget.meeting;
+    
+    Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (context) => UserEvaluationScreen(
+          meetingId: meeting.id,
+          meeting: meeting,
+        ),
+      ),
+    ).then((_) {
+      // 평가 화면에서 돌아온 후 상태 새로고침
+      _checkEvaluationStatus();
+      _initializeUserState();
+    });
+  }
+
+  /// 평가 완료 상태 확인
+  Future<void> _checkEvaluationStatus() async {
+    if (_currentUserId == null || _currentMeeting == null) return;
+    
+    try {
+      // 대기 중인 평가 목록을 조회하여 완료 여부 확인
+      final pendingEvaluations = await EvaluationService.getPendingEvaluations(
+        _currentMeeting!.id,
+        _currentUserId!,
+      );
+      
+      // 대기 중인 평가가 없으면 모든 평가를 완료한 것
+      final hasCompleted = pendingEvaluations.isEmpty;
+      
+      setState(() {
+        _hasCompletedEvaluation = hasCompleted;
+      });
+      
+      if (kDebugMode) {
+        print('✅ 평가 완료 상태 확인: $_hasCompletedEvaluation (대기중: ${pendingEvaluations.length}개)');
+        if (_isHost) {
+          print('  - 호스트도 다른 참여자들을 평가합니다');
+        }
+      }
+    } catch (e) {
+      if (kDebugMode) {
+        print('❌ 평가 완료 상태 확인 실패: $e');
+      }
+    }
+  }
+
+  /// 모임 완료 확인 모달
+  Future<bool> _showMeetingCompletionDialog() async {
+    return await CommonMeetingCompletionDialog.show(
+      context: context,
+      checklistItems: [
+        '정산을 모두 완료하였나요?',
+        '모든 참여자에게 평가 요청이 전송됩니다',
+        '모든 평가가 완료되면 모임이 최종 완료됩니다',
+      ],
+    );
   }
   
   Future<void> _deleteMeeting() async {
@@ -1274,6 +1459,82 @@ class _MeetingDetailScreenState extends State<MeetingDetailScreen> with WidgetsB
         setState(() {
           _isLoading = false;
         });
+      }
+    }
+  }
+
+  /// 모임 즉시 취소 처리
+  Future<void> _performCancelMeeting() async {
+    setState(() {
+      _isLoading = true;
+    });
+    
+    try {
+      // 참여자들에게 취소 알림 먼저 발송
+      if (_currentMeeting != null && _currentMeeting!.participantIds.isNotEmpty) {
+        try {
+          await ChatService.sendSystemMessage(
+            meetingId: widget.meeting.id,
+            content: '호스트가 모임을 취소했습니다. 참여해주셔서 감사합니다.',
+          );
+        } catch (chatError) {
+          if (kDebugMode) {
+            print('⚠️ 취소 알림 메시지 발송 실패: $chatError');
+          }
+        }
+      }
+      
+      // 모임 취소 처리
+      await MeetingService.cancelMeeting(widget.meeting.id);
+      
+      if (kDebugMode) {
+        print('✅ 모임 취소 성공: ${widget.meeting.id}');
+      }
+      
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('모임이 취소되었습니다'),
+            backgroundColor: Colors.orange,
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
+        
+        // 홈 화면으로 돌아가기
+        Navigator.pop(context);
+      }
+    } catch (e) {
+      if (kDebugMode) {
+        print('❌ 모임 취소 실패: $e');
+      }
+      
+      if (mounted) {
+        _showErrorMessage('모임 취소에 실패했습니다');
+      }
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isLoading = false;
+        });
+      }
+    }
+  }
+
+  /// 4시간 후 자동 취소 스케줄링
+  Future<void> _scheduleAutoCancellation() async {
+    try {
+      await MeetingService.scheduleAutoCancellation(widget.meeting.id, delayHours: 4);
+      
+      if (kDebugMode) {
+        print('✅ 4시간 후 자동 취소 스케줄링 성공: ${widget.meeting.id}');
+      }
+    } catch (e) {
+      if (kDebugMode) {
+        print('❌ 자동 취소 스케줄링 실패: $e');
+      }
+      
+      if (mounted) {
+        _showErrorMessage('자동 취소 설정에 실패했습니다');
       }
     }
   }
@@ -1490,14 +1751,9 @@ class _MeetingDetailScreenState extends State<MeetingDetailScreen> with WidgetsB
   Future<void> _approveApplicant(String meetingId, String applicantId) async {
     try {
       // 로딩 상태 표시
-      showDialog(
+      CommonLoadingDialog.show(
         context: context,
-        barrierDismissible: false,
-        builder: (context) => const Center(
-          child: CircularProgressIndicator(
-            color: AppDesignTokens.primary,
-          ),
-        ),
+        message: '신청을 승인하는 중...',
       );
       
       await MeetingService.approveMeetingApplication(meetingId, applicantId);
@@ -1510,7 +1766,7 @@ class _MeetingDetailScreenState extends State<MeetingDetailScreen> with WidgetsB
       await _refreshMeetingData();
       
       // 로딩 다이얼로그 닫기
-      if (mounted) Navigator.pop(context);
+      if (mounted) CommonLoadingDialog.hide(context);
       
       _showSuccessMessage('신청자를 승인했습니다! 🎉', icon: Icons.check_circle);
     } catch (e) {
@@ -1519,7 +1775,7 @@ class _MeetingDetailScreenState extends State<MeetingDetailScreen> with WidgetsB
       }
       
       // 로딩 다이얼로그 닫기
-      if (mounted) Navigator.pop(context);
+      if (mounted) CommonLoadingDialog.hide(context);
       
       String errorMessage = '신청자 승인에 실패했습니다';
       if (e.toString().contains('Meeting is full')) {
@@ -1535,14 +1791,9 @@ class _MeetingDetailScreenState extends State<MeetingDetailScreen> with WidgetsB
   Future<void> _rejectApplicant(String meetingId, String applicantId) async {
     try {
       // 로딩 상태 표시
-      showDialog(
+      CommonLoadingDialog.show(
         context: context,
-        barrierDismissible: false,
-        builder: (context) => const Center(
-          child: CircularProgressIndicator(
-            color: AppDesignTokens.primary,
-          ),
-        ),
+        message: '신청을 거절하는 중...',
       );
       
       await MeetingService.rejectMeetingApplication(meetingId, applicantId);
@@ -1555,7 +1806,7 @@ class _MeetingDetailScreenState extends State<MeetingDetailScreen> with WidgetsB
       await _refreshMeetingData();
       
       // 로딩 다이얼로그 닫기
-      if (mounted) Navigator.pop(context);
+      if (mounted) CommonLoadingDialog.hide(context);
       
       _showSuccessMessage('신청자를 거절했습니다', icon: Icons.block);
     } catch (e) {
@@ -1564,7 +1815,7 @@ class _MeetingDetailScreenState extends State<MeetingDetailScreen> with WidgetsB
       }
       
       // 로딩 다이얼로그 닫기
-      if (mounted) Navigator.pop(context);
+      if (mounted) CommonLoadingDialog.hide(context);
       
       String errorMessage = '신청자 거절에 실패했습니다';
       if (e.toString().contains('permission-denied')) {
@@ -1649,11 +1900,15 @@ class _MeetingDetailScreenState extends State<MeetingDetailScreen> with WidgetsB
   
   // 더치페이 계산기 열기
   void _showDutchPayCalculator() async {
+    // 참여자 닉네임 목록 생성
+    final participantNames = _participants.map((user) => user.name).toList();
+    
     final result = await showDialog<String>(
       context: context,
       builder: (context) => DutchPayCalculator(
         participantCount: _currentMeeting?.currentParticipants ?? widget.meeting.currentParticipants,
         meetingName: _currentMeeting?.restaurantName ?? widget.meeting.restaurantName ?? widget.meeting.location,
+        participantNames: participantNames,
       ),
     );
     
@@ -1733,6 +1988,36 @@ class _MeetingDetailScreenState extends State<MeetingDetailScreen> with WidgetsB
           );
         }
       },
+      onCancelMeeting: () {
+        // 모임 취소 처리
+        _cancelMeeting();
+      },
     );
+  }
+
+  /// 테스트용 평가 요청 다이얼로그 표시
+  Future<void> _showEvaluationRequestDialogForTest() async {
+    try {
+      final meeting = _currentMeeting ?? widget.meeting;
+      
+      if (kDebugMode) {
+        print('⭐ 테스트용 평가 요청 다이얼로그 표시: ${meeting.id}');
+      }
+      
+      await EvaluationRequestDialog.show(
+        context: context,
+        meeting: meeting,
+        onEvaluationCompleted: () {
+          if (kDebugMode) {
+            print('✅ 평가 완료 - 화면 새로고침');
+          }
+          _initializeUserState();
+        },
+      );
+    } catch (e) {
+      if (kDebugMode) {
+        print('❌ 평가 요청 다이얼로그 표시 실패: $e');
+      }
+    }
   }
 }

@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:kakao_maps_flutter/kakao_maps_flutter.dart';
@@ -79,6 +80,14 @@ void main() async {
   try {
     await NotificationService().initialize();
     print('✅ 알림 서비스 초기화 성공');
+    
+    // 앱이 종료된 상태에서 알림 클릭으로 시작된 경우 처리
+    final initialMessage = await FirebaseMessaging.instance.getInitialMessage();
+    if (initialMessage != null) {
+      print('🔔 앱 시작 시 초기 메시지 발견: ${initialMessage.data}');
+      // NotificationService를 통해 처리 예약
+      await NotificationService.handleNotificationNavigation(initialMessage.data);
+    }
   } catch (e) {
     print('❌ 알림 서비스 초기화 실패: $e');
   }
@@ -126,8 +135,66 @@ void main() async {
   runApp(const HonbabNoNoApp());
 }
 
-class HonbabNoNoApp extends StatelessWidget {
+class HonbabNoNoApp extends StatefulWidget {
   const HonbabNoNoApp({super.key});
+
+  @override
+  State<HonbabNoNoApp> createState() => _HonbabNoNoAppState();
+}
+
+class _HonbabNoNoAppState extends State<HonbabNoNoApp> with WidgetsBindingObserver {
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addObserver(this);
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    super.didChangeAppLifecycleState(state);
+    
+    switch (state) {
+      case AppLifecycleState.resumed:
+        if (kDebugMode) {
+          print('🔄 앱 포그라운드 전환 - UI 새로고침');
+        }
+        // 포그라운드로 돌아올 때 UI 강제 새로고침
+        setState(() {});
+        // 추가 지연 후 한번 더 새로고침 (화면이 완전히 로드된 후)
+        Future.delayed(const Duration(milliseconds: 300), () {
+          if (mounted) {
+            setState(() {});
+          }
+        });
+        break;
+      case AppLifecycleState.paused:
+        if (kDebugMode) {
+          print('⏸️ 앱 백그라운드 전환');
+        }
+        break;
+      case AppLifecycleState.detached:
+        if (kDebugMode) {
+          print('🔌 앱 완전 종료');
+        }
+        break;
+      case AppLifecycleState.inactive:
+        if (kDebugMode) {
+          print('😴 앱 비활성 상태');
+        }
+        break;
+      case AppLifecycleState.hidden:
+        if (kDebugMode) {
+          print('🫥 앱 숨김 상태');
+        }
+        break;
+    }
+  }
 
   @override
   Widget build(BuildContext context) {

@@ -21,7 +21,7 @@ class Meeting {
   final String genderRestriction; // 성별 제한: 'all', 'male', 'female' (기존 genderPreference 대체)
   final String? city; // 도시 정보 (예: '천안시', '서울시')
   final String? fullAddress; // 전체 주소
-  final String status; // 모임 상태: 'active', 'completed'
+  final String status; // 모임 상태: 'active', 'evaluation_in_progress', 'completed'
   final DateTime createdAt;
   final DateTime updatedAt;
   final String? representativeImageUrl; // 대표 이미지 URL (식당 이미지)
@@ -55,7 +55,7 @@ class Meeting {
   }) : createdAt = createdAt ?? DateTime.now(),
         updatedAt = updatedAt ?? DateTime.now();
 
-  bool get isAvailable => currentParticipants < maxParticipants;
+  bool get isAvailable => currentParticipants < maxParticipants && status != 'completed';
   
   String get timeAgo {
     final now = DateTime.now();

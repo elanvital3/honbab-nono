@@ -7,11 +7,13 @@ import '../components/common/common_button.dart';
 class DutchPayCalculator extends StatefulWidget {
   final int participantCount;
   final String meetingName;
+  final List<String>? participantNames;
   
   const DutchPayCalculator({
     super.key,
     required this.participantCount,
     required this.meetingName,
+    this.participantNames,
   });
 
   @override
@@ -40,10 +42,16 @@ class _DutchPayCalculatorState extends State<DutchPayCalculator> {
       widget.participantCount,
       (_) => TextEditingController(),
     );
-    _participantNames = List.generate(
-      widget.participantCount,
-      (index) => '참여자 ${index + 1}',
-    );
+    
+    // 실제 참여자 이름이 있으면 사용, 없으면 기본값 사용
+    if (widget.participantNames != null && widget.participantNames!.length >= widget.participantCount) {
+      _participantNames = List.from(widget.participantNames!.take(widget.participantCount));
+    } else {
+      _participantNames = List.generate(
+        widget.participantCount,
+        (index) => '참여자 ${index + 1}',
+      );
+    }
   }
   
   @override
@@ -299,7 +307,6 @@ class _DutchPayCalculatorState extends State<DutchPayCalculator> {
           decoration: InputDecoration(
             hintText: '0',
             suffixText: '원',
-            prefixIcon: const Icon(Icons.attach_money),
             border: OutlineInputBorder(
               borderRadius: BorderRadius.circular(12),
             ),

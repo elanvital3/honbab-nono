@@ -1,5 +1,6 @@
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import '../../models/meeting.dart';
 import '../../models/message.dart';
 import '../../models/user.dart' as app_user;
@@ -8,6 +9,8 @@ import '../../services/auth_service.dart';
 import '../../services/user_service.dart';
 import '../../services/meeting_service.dart';
 import '../../styles/text_styles.dart';
+import '../../components/common/common_confirm_dialog.dart';
+import '../../components/common/common_loading_dialog.dart';
 import '../profile/user_profile_screen.dart';
 
 class ChatRoomScreen extends StatefulWidget {
@@ -44,8 +47,20 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
     _messageController.dispose();
     _scrollController.dispose();
     
-    // 채팅방 나갈 때 추가 읽음 처리 (안전장치)
+    // 채팅방 나갈 때 상태 정리
     if (_currentUserId != null) {
+      // 채팅방 퇴장 상태 업데이트 (알림 제외 해제)
+      UserService.leaveChatRoom(_currentUserId!).then((_) {
+        if (kDebugMode) {
+          print('✅ 채팅방 퇴장 상태 업데이트 완료');
+        }
+      }).catchError((error) {
+        if (kDebugMode) {
+          print('❌ 채팅방 퇴장 상태 업데이트 실패: $error');
+        }
+      });
+      
+      // 채팅방 나갈 때 추가 읽음 처리 (안전장치)
       ChatService.markMessagesAsRead(widget.meeting.id, _currentUserId!).then((_) {
         if (kDebugMode) {
           print('✅ 채팅방 종료 시 읽음 처리 완료');
@@ -69,8 +84,15 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
         if (user != null) {
           _currentUser = user;
           
+          // 채팅방 입장 상태 업데이트 (알림 제외용)
+          await UserService.enterChatRoom(_currentUserId!, widget.meeting.id);
+          
           // 메시지 읽음 처리
           await ChatService.markMessagesAsRead(widget.meeting.id, _currentUserId!);
+          
+          if (kDebugMode) {
+            print('✅ 채팅방 입장 상태 업데이트 완료: ${widget.meeting.id}');
+          }
         }
       }
     } catch (e) {
@@ -160,6 +182,27 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
         );
       }
     });
+  }
+
+  Future<void> _navigateToUserProfile(String userId) async {
+    try {
+      final user = await UserService.getUser(userId);
+      if (user != null && mounted) {
+        Navigator.push(
+          context,
+          MaterialPageRoute(
+            builder: (context) => UserProfileScreen(
+              user: user,
+              isCurrentUser: false,
+            ),
+          ),
+        );
+      }
+    } catch (e) {
+      if (kDebugMode) {
+        print('❌ 사용자 프로필 로드 실패: $e');
+      }
+    }
   }
 
   @override
@@ -311,75 +354,18 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
   Widget _buildMessage(Message message, bool isMyMessage) {
     return Container(
       margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
-      child: Row(
-        mainAxisAlignment: isMyMessage ? MainAxisAlignment.end : MainAxisAlignment.start,
-        crossAxisAlignment: CrossAxisAlignment.end,
-        children: [
-          if (!isMyMessage) ...[
-            CircleAvatar(
-              radius: 16,
-              backgroundColor: Theme.of(context).colorScheme.primary.withOpacity(0.1),
-              backgroundImage: message.senderProfileImage != null 
-                ? NetworkImage(message.senderProfileImage!)
-                : null,
-              child: message.senderProfileImage == null
-                ? Text(
-                    message.senderName[0],
-                    style: TextStyle(
-                      fontSize: 12,
-                      color: Theme.of(context).colorScheme.primary,
-                      fontWeight: FontWeight.bold,
-                    ),
-                  )
-                : null,
-            ),
-            const SizedBox(width: 8),
-          ],
-          
-          Flexible(
-            child: Column(
-              crossAxisAlignment: isMyMessage ? CrossAxisAlignment.end : CrossAxisAlignment.start,
-              children: [
-                if (!isMyMessage)
-                  Padding(
-                    padding: const EdgeInsets.only(bottom: 4),
-                    child: Text(
-                      message.senderName,
-                      style: TextStyle(
-                        fontSize: 12,
-                        color: Theme.of(context).colorScheme.outline,
-                        fontWeight: FontWeight.w500,
-                      ),
-                    ),
-                  ),
-                
-                Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-                  decoration: BoxDecoration(
-                    color: isMyMessage 
-                        ? Theme.of(context).colorScheme.primary
-                        : Theme.of(context).colorScheme.surfaceContainer,
-                    borderRadius: BorderRadius.circular(18).copyWith(
-                      bottomLeft: isMyMessage ? const Radius.circular(18) : const Radius.circular(4),
-                      bottomRight: isMyMessage ? const Radius.circular(4) : const Radius.circular(18),
-                    ),
-                  ),
-                  child: Text(
-                    message.content,
-                    style: TextStyle(
-                      fontSize: 16,
-                      color: isMyMessage 
-                          ? Colors.white
-                          : Theme.of(context).colorScheme.onSurface,
-                    ),
-                  ),
-                ),
-              ],
-            ),
-          ),
-          
-          if (isMyMessage) ...[
-            const SizedBox(width: 8),
+      child: isMyMessage ? _buildMyMessage(message) : _buildOtherMessage(message),
+    );
+  }
+
+  Widget _buildMyMessage(Message message) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.end,
+      children: [
+        Row(
+          mainAxisAlignment: MainAxisAlignment.end,
+          crossAxisAlignment: CrossAxisAlignment.end,
+          children: [
             Text(
               message.shortTime,
               style: TextStyle(
@@ -387,9 +373,117 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
                 color: Theme.of(context).colorScheme.outline,
               ),
             ),
+            const SizedBox(width: 8),
+            GestureDetector(
+              onLongPress: () => _showMessageOptions(context, message),
+              child: Container(
+                constraints: BoxConstraints(
+                  maxWidth: MediaQuery.of(context).size.width * 0.7,
+                ),
+                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                decoration: BoxDecoration(
+                  color: Theme.of(context).colorScheme.primary,
+                  borderRadius: BorderRadius.circular(18).copyWith(
+                    bottomRight: const Radius.circular(4),
+                  ),
+                ),
+                child: Text(
+                  message.content,
+                  style: const TextStyle(
+                    fontSize: 16,
+                    color: Colors.white,
+                  ),
+                ),
+              ),
+            ),
           ],
-        ],
-      ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildOtherMessage(Message message) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            GestureDetector(
+              onTap: () => _navigateToUserProfile(message.senderId),
+              child: CircleAvatar(
+                radius: 20,
+                backgroundColor: Theme.of(context).colorScheme.primary.withOpacity(0.1),
+                backgroundImage: message.senderProfileImage != null 
+                  ? NetworkImage(message.senderProfileImage!)
+                  : null,
+                child: message.senderProfileImage == null
+                  ? Text(
+                      message.senderName[0],
+                      style: TextStyle(
+                        fontSize: 14,
+                        color: Theme.of(context).colorScheme.primary,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    )
+                  : null,
+              ),
+            ),
+            const SizedBox(width: 8),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    message.senderName,
+                    style: TextStyle(
+                      fontSize: 13,
+                      color: Theme.of(context).colorScheme.outline,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                  const SizedBox(height: 4),
+                  Row(
+                    crossAxisAlignment: CrossAxisAlignment.end,
+                    children: [
+                      GestureDetector(
+                        onLongPress: () => _showMessageOptions(context, message),
+                        child: Container(
+                          constraints: BoxConstraints(
+                            maxWidth: MediaQuery.of(context).size.width * 0.6,
+                          ),
+                          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                          decoration: BoxDecoration(
+                            color: Theme.of(context).colorScheme.surfaceContainer,
+                            borderRadius: BorderRadius.circular(18).copyWith(
+                              bottomLeft: const Radius.circular(4),
+                            ),
+                          ),
+                          child: Text(
+                            message.content,
+                            style: TextStyle(
+                              fontSize: 16,
+                              color: Theme.of(context).colorScheme.onSurface,
+                            ),
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      Text(
+                        message.shortTime,
+                        style: TextStyle(
+                          fontSize: 11,
+                          color: Theme.of(context).colorScheme.outline,
+                        ),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ],
     );
   }
 
@@ -431,7 +525,7 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
       child: SafeArea(
         child: isChatDisabled
             ? Container(
-                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
                 decoration: BoxDecoration(
                   color: Theme.of(context).colorScheme.surfaceContainer,
                   borderRadius: BorderRadius.circular(20),
@@ -1145,65 +1239,33 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
   }
 
   Future<void> _showCancelMeetingDialog() async {
-    final confirmed = await showDialog<bool>(
+    final confirmed = await CommonConfirmDialog.showDelete(
       context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('모임 취소'),
-        content: const Text(
-          '정말로 이 모임을 취소하시겠습니까?\n\n'
+      title: '모임 취소',
+      content: '정말로 이 모임을 취소하시겠습니까?\n\n'
           '모임이 취소되면 모든 참여자에게 알림이 전송되고, '
           '채팅방도 함께 삭제됩니다.\n\n'
           '이 작업은 되돌릴 수 없습니다.',
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context, false),
-            child: const Text('취소'),
-          ),
-          ElevatedButton(
-            onPressed: () => Navigator.pop(context, true),
-            style: ElevatedButton.styleFrom(backgroundColor: Colors.red),
-            child: const Text(
-              '모임 취소',
-              style: TextStyle(color: Colors.white),
-            ),
-          ),
-        ],
-      ),
+      confirmText: '모임 취소',
+      cancelText: '취소',
     );
 
-    if (confirmed == true) {
+    if (confirmed) {
       await _cancelMeeting();
     }
   }
 
   Future<void> _showLeaveMeetingDialog() async {
-    final confirmed = await showDialog<bool>(
+    final confirmed = await CommonConfirmDialog.showWarning(
       context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('모임 나가기'),
-        content: const Text(
-          '정말로 이 모임에서 나가시겠습니까?\n\n'
+      title: '모임 나가기',
+      content: '정말로 이 모임에서 나가시겠습니까?\n\n'
           '나가신 후에는 다시 참여하려면 새로 신청해야 합니다.',
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context, false),
-            child: const Text('취소'),
-          ),
-          ElevatedButton(
-            onPressed: () => Navigator.pop(context, true),
-            style: ElevatedButton.styleFrom(backgroundColor: Colors.orange),
-            child: const Text(
-              '나가기',
-              style: TextStyle(color: Colors.white),
-            ),
-          ),
-        ],
-      ),
+      confirmText: '나가기',
+      cancelText: '취소',
     );
 
-    if (confirmed == true) {
+    if (confirmed) {
       await _leaveMeeting();
     }
   }
@@ -1211,19 +1273,16 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
   Future<void> _cancelMeeting() async {
     try {
       // 로딩 표시
-      showDialog(
+      CommonLoadingDialog.show(
         context: context,
-        barrierDismissible: false,
-        builder: (context) => const Center(
-          child: CircularProgressIndicator(),
-        ),
+        message: '모임을 취소하고 있습니다...',
       );
 
       // 모임 삭제
       await MeetingService.deleteMeeting(widget.meeting.id);
       
       // 로딩 닫기
-      Navigator.pop(context);
+      CommonLoadingDialog.hide(context);
       
       // 모달 닫기
       Navigator.pop(context);
@@ -1239,7 +1298,7 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
       );
     } catch (e) {
       // 로딩 닫기
-      Navigator.pop(context);
+      CommonLoadingDialog.hide(context);
       
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
@@ -1255,19 +1314,16 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
     
     try {
       // 로딩 표시
-      showDialog(
+      CommonLoadingDialog.show(
         context: context,
-        barrierDismissible: false,
-        builder: (context) => const Center(
-          child: CircularProgressIndicator(),
-        ),
+        message: '모임에서 나가고 있습니다...',
       );
 
       // 모임 나가기
       await MeetingService.leaveMeeting(widget.meeting.id, _currentUserId!);
       
       // 로딩 닫기
-      Navigator.pop(context);
+      CommonLoadingDialog.hide(context);
       
       // 모달 닫기
       Navigator.pop(context);
@@ -1283,7 +1339,7 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
       );
     } catch (e) {
       // 로딩 닫기
-      Navigator.pop(context);
+      CommonLoadingDialog.hide(context);
       
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
@@ -1295,33 +1351,17 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
   }
 
   Future<void> _showOwnershipRecoveryDialog() async {
-    final confirmed = await showDialog<bool>(
+    final confirmed = await CommonConfirmDialog.show(
       context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('모임 소유권 복구'),
-        content: const Text(
-          '계정 복구로 인해 모임 연결이 끊어진 것 같습니다.\n\n'
+      title: '모임 소유권 복구',
+      content: '계정 복구로 인해 모임 연결이 끊어진 것 같습니다.\n\n'
           '카카오 ID를 기반으로 이 모임의 소유권을 복구하시겠습니까?\n\n'
           '⚠️ 실제 모임 생성자가 아닌 경우 복구하지 마세요.',
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context, false),
-            child: const Text('취소'),
-          ),
-          ElevatedButton(
-            onPressed: () => Navigator.pop(context, true),
-            style: ElevatedButton.styleFrom(backgroundColor: Colors.blue),
-            child: const Text(
-              '소유권 복구',
-              style: TextStyle(color: Colors.white),
-            ),
-          ),
-        ],
-      ),
+      confirmText: '소유권 복구',
+      cancelText: '취소',
     );
 
-    if (confirmed == true) {
+    if (confirmed) {
       await _recoverOwnership();
     }
   }
@@ -1339,12 +1379,9 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
     
     try {
       // 로딩 표시
-      showDialog(
+      CommonLoadingDialog.show(
         context: context,
-        barrierDismissible: false,
-        builder: (context) => const Center(
-          child: CircularProgressIndicator(),
-        ),
+        message: '소유권을 복구하고 있습니다...',
       );
 
       // 기존 호스트의 카카오 ID 확인을 위해 호스트 사용자 정보 조회
@@ -1352,7 +1389,7 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
       
       if (originalHost?.kakaoId != _currentUser!.kakaoId) {
         // 로딩 닫기
-        Navigator.pop(context);
+        CommonLoadingDialog.hide(context);
         
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
@@ -1392,7 +1429,7 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
       
     } catch (e) {
       // 로딩 닫기
-      Navigator.pop(context);
+      CommonLoadingDialog.hide(context);
       
       if (kDebugMode) {
         print('❌ 소유권 복구 실패: $e');
@@ -1404,6 +1441,132 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
           backgroundColor: Colors.red,
         ),
       );
+    }
+  }
+
+  // 메시지 옵션 표시 (길게 누르기)
+  void _showMessageOptions(BuildContext context, Message message) {
+    // 시스템 메시지는 복사 불가
+    if (message.type == MessageType.system) {
+      return;
+    }
+
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: Colors.transparent,
+      builder: (context) => Container(
+        decoration: BoxDecoration(
+          color: Theme.of(context).colorScheme.surface,
+          borderRadius: const BorderRadius.only(
+            topLeft: Radius.circular(20),
+            topRight: Radius.circular(20),
+          ),
+        ),
+        child: SafeArea(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              // 핸들 바
+              Container(
+                margin: const EdgeInsets.only(top: 12, bottom: 20),
+                width: 40,
+                height: 4,
+                decoration: BoxDecoration(
+                  color: Colors.grey[300],
+                  borderRadius: BorderRadius.circular(2),
+                ),
+              ),
+              
+              // 메시지 미리보기
+              Container(
+                margin: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
+                padding: const EdgeInsets.all(16),
+                decoration: BoxDecoration(
+                  color: Theme.of(context).colorScheme.surfaceContainer,
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: Row(
+                  children: [
+                    Icon(
+                      Icons.chat_bubble_outline,
+                      size: 20,
+                      color: Theme.of(context).colorScheme.outline,
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Text(
+                        message.content.length > 50 
+                            ? '${message.content.substring(0, 50)}...'
+                            : message.content,
+                        style: TextStyle(
+                          fontSize: 14,
+                          color: Theme.of(context).colorScheme.onSurface,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              
+              // 복사하기 버튼
+              ListTile(
+                leading: const Icon(Icons.copy),
+                title: const Text('복사하기'),
+                onTap: () async {
+                  await _copyMessageToClipboard(message.content);
+                  Navigator.pop(context);
+                },
+              ),
+              
+              const SizedBox(height: 20),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  // 메시지 클립보드 복사
+  Future<void> _copyMessageToClipboard(String content) async {
+    try {
+      await Clipboard.setData(ClipboardData(text: content));
+      
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: const Row(
+              children: [
+                Icon(Icons.check_circle, color: Colors.white, size: 20),
+                SizedBox(width: 8),
+                Text('메시지가 복사되었습니다'),
+              ],
+            ),
+            backgroundColor: Colors.green,
+            behavior: SnackBarBehavior.floating,
+            duration: const Duration(seconds: 2),
+          ),
+        );
+      }
+    } catch (e) {
+      if (kDebugMode) {
+        print('❌ 메시지 복사 실패: $e');
+      }
+      
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: const Row(
+              children: [
+                Icon(Icons.error, color: Colors.white, size: 20),
+                SizedBox(width: 8),
+                Text('복사 중 오류가 발생했습니다'),
+              ],
+            ),
+            backgroundColor: Colors.red,
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
+      }
     }
   }
 }
