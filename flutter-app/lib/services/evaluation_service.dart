@@ -9,39 +9,66 @@ class EvaluationService {
   static final FirebaseFirestore _firestore = FirebaseFirestore.instance;
   static const String _collection = 'user_evaluations';
 
-  /// 사용자 평가 제출
+  /// 사용자 평가 제출 (1대1 평가 시스템)
   static Future<void> submitEvaluation(UserEvaluation evaluation) async {
     try {
-      // 중복 평가 방지 - 같은 모임에서 같은 사용자를 이미 평가했는지 확인
+      // 중복 평가 방지 - 해당 사용자를 평생 한 번만 평가 가능
       final existingEvaluation = await _firestore
           .collection(_collection)
-          .where('meetingId', isEqualTo: evaluation.meetingId)
           .where('evaluatorId', isEqualTo: evaluation.evaluatorId)
           .where('evaluatedUserId', isEqualTo: evaluation.evaluatedUserId)
           .limit(1)
           .get();
 
       if (existingEvaluation.docs.isNotEmpty) {
-        throw Exception('이미 해당 사용자를 평가하셨습니다');
+        // 기존 평가가 있으면 업데이트
+        final docId = existingEvaluation.docs.first.id;
+        await _firestore.collection(_collection).doc(docId).update(evaluation.toFirestore());
+        
+        if (kDebugMode) {
+          print('✅ 기존 평가 업데이트 완료: ${evaluation.evaluatedUserId}');
+        }
+      } else {
+        // 새로운 평가 저장
+        await _firestore.collection(_collection).add(evaluation.toFirestore());
+        
+        if (kDebugMode) {
+          print('✅ 신규 평가 저장 완료: ${evaluation.evaluatedUserId}');
+        }
       }
-
-      // 평가 저장
-      await _firestore.collection(_collection).add(evaluation.toFirestore());
 
       // 평가받은 사용자의 평점 업데이트
       await _updateUserRating(evaluation.evaluatedUserId);
 
       // 모든 평가가 완료되었는지 확인
       await _checkAndCompleteMeetingIfAllEvaluationsFinished(evaluation.meetingId);
-
-      if (kDebugMode) {
-        print('✅ 사용자 평가 제출 완료: ${evaluation.evaluatedUserId}');
-      }
     } catch (e) {
       if (kDebugMode) {
         print('❌ 사용자 평가 제출 실패: $e');
       }
       rethrow;
+    }
+  }
+
+  /// 기존 평가 조회 (수정 모드용)
+  static Future<UserEvaluation?> getExistingEvaluation(String evaluatorId, String evaluatedUserId) async {
+    try {
+      final querySnapshot = await _firestore
+          .collection(_collection)
+          .where('evaluatorId', isEqualTo: evaluatorId)
+          .where('evaluatedUserId', isEqualTo: evaluatedUserId)
+          .limit(1)
+          .get();
+
+      if (querySnapshot.docs.isNotEmpty) {
+        return UserEvaluation.fromFirestore(querySnapshot.docs.first);
+      }
+      return null;
+    } catch (e) {
+      if (kDebugMode) {
+        print('❌ 기존 평가 조회 실패: $e');
+      }
+      return null;
     }
   }
 
@@ -86,8 +113,8 @@ class EvaluationService {
     }
   }
 
-  /// 특정 모임에서 내가 평가해야 할 사용자 목록 조회
-  static Future<List<String>> getPendingEvaluations(String meetingId, String currentUserId) async {
+  /// 특정 모임에서 내가 평가할 수 있는 사용자 목록 조회 (1대1 평가 시스템)
+  static Future<List<Map<String, dynamic>>> getPendingEvaluations(String meetingId, String currentUserId) async {
     try {
       // 모임 정보 조회
       final meetingDoc = await FirebaseFirestore.instance
@@ -106,27 +133,33 @@ class EvaluationService {
           .where((id) => id != currentUserId)
           .toList();
 
-      // 이미 평가한 사용자들 조회
-      final existingEvaluations = await _firestore
-          .collection(_collection)
-          .where('meetingId', isEqualTo: meetingId)
-          .where('evaluatorId', isEqualTo: currentUserId)
-          .get();
+      // 결과 리스트 (userId와 기존 평가 여부 포함)
+      final result = <Map<String, dynamic>>[];
 
-      final evaluatedUserIds = existingEvaluations.docs
-          .map((doc) => doc.data()['evaluatedUserId'] as String)
-          .toSet();
+      for (final userId in otherParticipants) {
+        // 해당 사용자에 대한 기존 평가 조회
+        final existingEvaluation = await getExistingEvaluation(currentUserId, userId);
+        
+        result.add({
+          'userId': userId,
+          'hasExistingEvaluation': existingEvaluation != null,
+          'existingEvaluation': existingEvaluation,
+        });
+      }
 
-      // 아직 평가하지 않은 사용자들 반환
-      return otherParticipants
-          .where((userId) => !evaluatedUserIds.contains(userId))
-          .toList();
+      return result;
     } catch (e) {
       if (kDebugMode) {
-        print('❌ 대기 중인 평가 조회 실패: $e');
+        print('❌ 평가 대상자 조회 실패: $e');
       }
       return [];
     }
+  }
+
+  /// 레거시 메소드 호환성 유지 (기존 코드에서 사용)
+  static Future<List<String>> getPendingEvaluationUserIds(String meetingId, String currentUserId) async {
+    final pendingEvaluations = await getPendingEvaluations(meetingId, currentUserId);
+    return pendingEvaluations.map((item) => item['userId'] as String).toList();
   }
 
   /// 사용자가 받은 평가 목록 조회

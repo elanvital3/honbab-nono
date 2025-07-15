@@ -7,10 +7,11 @@ import '../../constants/privacy_policy_content.dart';
 import 'adult_verification_screen.dart';
 import 'privacy_policy_screen.dart';
 import 'login_screen.dart';
+import 'nickname_input_screen.dart';
 import '../home/home_screen.dart';
 
 class PrivacyConsentScreen extends StatefulWidget {
-  final String userId;
+  final String? userId; // nullable로 변경 (회원가입 완료 시 생성)
   final String? defaultName;
   final String? profileImageUrl;
   final String? email;
@@ -19,7 +20,7 @@ class PrivacyConsentScreen extends StatefulWidget {
 
   const PrivacyConsentScreen({
     super.key,
-    required this.userId,
+    this.userId, // required 제거
     this.defaultName,
     this.profileImageUrl,
     this.email,
@@ -36,7 +37,21 @@ class _PrivacyConsentScreenState extends State<PrivacyConsentScreen> {
   bool _essentialConsent = true; // 필수 동의 - 기본 체크
   
   @override
+  void initState() {
+    super.initState();
+    if (kDebugMode) {
+      print('🏗️ PrivacyConsentScreen 초기화됨');
+      print('  - userId: ${widget.userId}');
+      print('  - defaultName: ${widget.defaultName}');
+      print('  - email: ${widget.email}');
+    }
+  }
+
+  @override
   Widget build(BuildContext context) {
+    if (kDebugMode) {
+      print('🎨 PrivacyConsentScreen build() 호출됨');
+    }
     return Scaffold(
       backgroundColor: AppDesignTokens.background,
       body: SafeArea(
@@ -268,16 +283,21 @@ class _PrivacyConsentScreenState extends State<PrivacyConsentScreen> {
           // 설정 업데이트인 경우 홈으로
           Navigator.pushReplacementNamed(context, '/home');
         } else {
-          // 신규 가입인 경우 성인인증으로
+          // 신규 가입인 경우 성인인증 건너뛰고 바로 닉네임 입력으로
+          // TODO: 성인인증 심사 완료 후 다시 활성화
           Navigator.push(
             context,
             MaterialPageRoute(
-              builder: (context) => AdultVerificationScreen(
+              builder: (context) => NicknameInputScreen(
                 userId: widget.userId,
-                defaultName: widget.defaultName,
                 profileImageUrl: widget.profileImageUrl,
                 email: widget.email,
                 kakaoId: widget.kakaoId,
+                // 성인인증 정보는 임시로 null (심사 완료 시 복원)
+                verifiedName: null,
+                verifiedGender: null,
+                verifiedBirthYear: null,
+                verifiedPhone: null,
               ),
             ),
           );

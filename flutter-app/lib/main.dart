@@ -23,7 +23,7 @@ import 'screens/auth/signup_complete_screen.dart';
 import 'screens/home/home_screen.dart';
 import 'screens/meeting/create_meeting_screen.dart';
 import 'screens/meeting/meeting_detail_screen.dart';
-import 'screens/test/badge_test_screen.dart';
+import 'debug/badge_test_screen.dart';
 import 'models/meeting.dart';
 import 'models/user.dart' as app_user;
 
@@ -142,6 +142,9 @@ class HonbabNoNoApp extends StatefulWidget {
   State<HonbabNoNoApp> createState() => _HonbabNoNoAppState();
 }
 
+// 전역 네비게이션 키
+final GlobalKey<NavigatorState> navigatorKey = GlobalKey<NavigatorState>();
+
 class _HonbabNoNoAppState extends State<HonbabNoNoApp> with WidgetsBindingObserver {
   @override
   void initState() {
@@ -164,12 +167,14 @@ class _HonbabNoNoAppState extends State<HonbabNoNoApp> with WidgetsBindingObserv
         if (kDebugMode) {
           print('🔄 앱 포그라운드 전환 - UI 새로고침');
         }
-        // 포그라운드로 돌아올 때 UI 강제 새로고침
-        setState(() {});
-        // 추가 지연 후 한번 더 새로고침 (화면이 완전히 로드된 후)
-        Future.delayed(const Duration(milliseconds: 300), () {
+        // 카카오 로그인 등 인증 과정에서는 강제 새로고침을 피함
+        // 대신 필요한 경우에만 선택적으로 새로고침
+        Future.delayed(const Duration(milliseconds: 500), () {
           if (mounted) {
-            setState(() {});
+            // 조건적 새로고침: 홈 화면에 있을 때만
+            if (ModalRoute.of(context)?.settings.name == '/home') {
+              setState(() {});
+            }
           }
         });
         break;
@@ -202,6 +207,7 @@ class _HonbabNoNoAppState extends State<HonbabNoNoApp> with WidgetsBindingObserv
       value: AuthService.authStateChanges,
       initialData: null,
       child: MaterialApp(
+      navigatorKey: navigatorKey,
       title: '혼밥노노',
       locale: const Locale('ko', 'KR'),
       localizationsDelegates: const [

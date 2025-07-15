@@ -31,7 +31,7 @@ class UserEvaluationScreen extends StatefulWidget {
 }
 
 class _UserEvaluationScreenState extends State<UserEvaluationScreen> {
-  List<String> _pendingEvaluationUserIds = [];
+  List<Map<String, dynamic>> _evaluationData = []; // 평가 대상자와 기존 평가 정보
   List<User> _pendingEvaluationUsers = [];
   bool _isLoading = true;
   bool _isSubmitting = false;
@@ -42,6 +42,9 @@ class _UserEvaluationScreenState extends State<UserEvaluationScreen> {
   Map<String, int> _mannersRatings = {};
   Map<String, int> _meetAgainRatings = {};
   Map<String, String> _comments = {};
+  
+  // 기존 평가 여부 추적
+  Map<String, bool> _hasExistingEvaluation = {};
 
   // 식당 평가 데이터
   int _restaurantRating = 5;
@@ -61,39 +64,55 @@ class _UserEvaluationScreenState extends State<UserEvaluationScreen> {
         return;
       }
 
-      // 평가해야 할 사용자 ID 목록 조회
-      final pendingIds = await EvaluationService.getPendingEvaluations(
+      // 평가 대상자와 기존 평가 정보 조회 (새로운 1대1 평가 시스템)
+      final evaluationData = await EvaluationService.getPendingEvaluations(
         widget.meetingId,
         _currentUserId!,
       );
 
-      if (pendingIds.isEmpty) {
+      if (evaluationData.isEmpty) {
         _showCompletionDialog();
         return;
       }
 
-      // 사용자 정보 조회
+      // 사용자 정보 조회 및 평가 데이터 설정
       final users = <User>[];
-      for (final userId in pendingIds) {
+      for (final data in evaluationData) {
+        final userId = data['userId'] as String;
+        final hasExisting = data['hasExistingEvaluation'] as bool;
+        final existingEvaluation = data['existingEvaluation'] as UserEvaluation?;
+        
         final user = await UserService.getUser(userId);
         if (user != null) {
           users.add(user);
-          // 기본값 설정
-          _punctualityRatings[userId] = 5;
-          _mannersRatings[userId] = 5;
-          _meetAgainRatings[userId] = 5;
-          _comments[userId] = '';
+          _hasExistingEvaluation[userId] = hasExisting;
+          
+          if (hasExisting && existingEvaluation != null) {
+            // 기존 평가 데이터 로드
+            _punctualityRatings[userId] = existingEvaluation.punctualityRating;
+            _mannersRatings[userId] = existingEvaluation.friendlinessRating;
+            _meetAgainRatings[userId] = existingEvaluation.communicationRating;
+            _comments[userId] = existingEvaluation.comment ?? '';
+          } else {
+            // 기본값 설정
+            _punctualityRatings[userId] = 5;
+            _mannersRatings[userId] = 5;
+            _meetAgainRatings[userId] = 5;
+            _comments[userId] = '';
+          }
         }
       }
 
       setState(() {
-        _pendingEvaluationUserIds = pendingIds;
+        _evaluationData = evaluationData;
         _pendingEvaluationUsers = users;
         _isLoading = false;
       });
 
       if (kDebugMode) {
         print('✅ 평가 대상자 로드 완료: ${users.length}명');
+        print('   - 신규 평가: ${users.where((user) => !_hasExistingEvaluation[user.id]!).length}명');
+        print('   - 수정 가능: ${users.where((user) => _hasExistingEvaluation[user.id]!).length}명');
       }
     } catch (e) {
       if (kDebugMode) {
@@ -104,12 +123,24 @@ class _UserEvaluationScreenState extends State<UserEvaluationScreen> {
   }
 
   void _showCompletionDialog() {
+    final hasAnyNewEvaluations = _hasExistingEvaluation.values.any((hasExisting) => !hasExisting);
+    final hasAnyExistingEvaluations = _hasExistingEvaluation.values.any((hasExisting) => hasExisting);
+    
+    String message;
+    if (hasAnyNewEvaluations && hasAnyExistingEvaluations) {
+      message = '이미 모든 참여자를 평가하셨습니다.\n기존 평가를 수정하실 수 있습니다! ✨';
+    } else if (hasAnyExistingEvaluations) {
+      message = '이미 모든 참여자를 평가하셨습니다.\n언제든 평가를 수정하실 수 있어요! ✨';
+    } else {
+      message = '모든 참여자에 대한 평가가 완료되었습니다.\n참여해주셔서 감사합니다! 🎉';
+    }
+    
     showDialog(
       context: context,
       barrierDismissible: false,
       builder: (context) => CommonConfirmDialog(
         title: '평가 완료',
-        content: '모든 참여자에 대한 평가가 완료되었습니다.\n참여해주셔서 감사합니다! 🎉',
+        content: message,
         icon: Icons.celebration,
         iconColor: AppDesignTokens.primary,
         confirmText: '확인',
@@ -363,6 +394,7 @@ class _UserEvaluationScreenState extends State<UserEvaluationScreen> {
                 mannersRating: _mannersRatings[user.id] ?? 5,
                 meetAgainRating: _meetAgainRatings[user.id] ?? 5,
                 comment: _comments[user.id] ?? '',
+                hasExistingEvaluation: _hasExistingEvaluation[user.id] ?? false,
                 onPunctualityChanged: (rating) {
                   setState(() {
                     _punctualityRatings[user.id] = rating;

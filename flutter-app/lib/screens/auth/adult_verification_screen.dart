@@ -9,7 +9,7 @@ import 'nickname_input_screen.dart';
 import 'webview_certification_screen.dart';
 
 class AdultVerificationScreen extends StatefulWidget {
-  final String userId;
+  final String? userId; // nullable로 변경
   final String? defaultName;
   final String? profileImageUrl;
   final String? email;
@@ -17,7 +17,7 @@ class AdultVerificationScreen extends StatefulWidget {
 
   const AdultVerificationScreen({
     super.key,
-    required this.userId,
+    this.userId, // required 제거
     this.defaultName,
     this.profileImageUrl,
     this.email,

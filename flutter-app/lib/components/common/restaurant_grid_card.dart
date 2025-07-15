@@ -4,13 +4,13 @@ import '../../styles/text_styles.dart';
 import '../../models/restaurant.dart';
 import 'common_card.dart';
 
-class RestaurantCard extends StatelessWidget {
+class RestaurantGridCard extends StatelessWidget {
   final Restaurant restaurant;
   final VoidCallback? onTap;
   final double? width;
   final double? height;
 
-  const RestaurantCard({
+  const RestaurantGridCard({
     super.key,
     required this.restaurant,
     this.onTap,

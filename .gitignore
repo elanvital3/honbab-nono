@@ -16,6 +16,11 @@ web-build/
 .env.local
 .env.production
 .env.naver
+flutter-app/.env
+functions/.env
+
+# API 키가 포함된 백업 파일들
+functions/restaurants_backup_*.json
 
 # OS generated files
 .DS_Store

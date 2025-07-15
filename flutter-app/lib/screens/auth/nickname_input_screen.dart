@@ -4,6 +4,7 @@ import 'package:flutter/services.dart';
 import '../../services/user_service.dart';
 import '../../services/notification_service.dart';
 import '../../services/deletion_history_service.dart';
+import '../../services/kakao_auth_service.dart';
 import '../home/home_screen.dart';
 import '../../models/user_badge.dart';
 import '../../components/user_badge_chip.dart';
@@ -12,7 +13,7 @@ import '../../styles/text_styles.dart';
 import '../../components/common/common_button.dart';
 
 class NicknameInputScreen extends StatefulWidget {
-  final String userId;
+  final String? userId; // nullable로 변경
   final String? profileImageUrl;
   final String? email;
   final String? kakaoId;
@@ -24,7 +25,7 @@ class NicknameInputScreen extends StatefulWidget {
 
   const NicknameInputScreen({
     super.key,
-    required this.userId,
+    this.userId, // required 제거
     this.profileImageUrl,
     this.email,
     this.kakaoId,
@@ -45,6 +46,10 @@ class _NicknameInputScreenState extends State<NicknameInputScreen> {
   String? _nicknameError;
   final Set<String> _selectedBadgeIds = <String>{}; // 뱃지 선택
   static const int _maxBadges = 3; // 최대 선택 가능한 뱃지 수
+  
+  // 새로 추가된 필드들
+  int _birthYear = 1990; // 기본값 1990
+  String? _selectedGender; // 성별 선택 (null, 'M', 'F')
 
   @override
   void initState() {
@@ -98,8 +103,8 @@ class _NicknameInputScreenState extends State<NicknameInputScreen> {
 
 
   bool _isFormValid() {
-    // 닉네임만 체크 (성인인증에서 나머지 정보를 받을 예정)
-    return _isNicknameValid;
+    // 닉네임, 성별, 출생년도 모두 필수
+    return _isNicknameValid && _selectedGender != null && _birthYear > 0;
   }
 
   Future<void> _checkNicknameAvailability() async {
@@ -165,19 +170,23 @@ class _NicknameInputScreenState extends State<NicknameInputScreen> {
         print('  - 전화번호: ${widget.verifiedPhone}');
       }
       
-      // 사용자 정보 업데이트 (성인인증 정보만 저장, 없으면 null)
-      final user = await UserService.createUserWithNickname(
-        id: widget.userId,
-        name: _nicknameController.text.trim(),
-        email: widget.email,
+      // 카카오 정보 가져오기
+      final kakaoInfo = KakaoAuthService.getTempKakaoUserInfo();
+      if (kakaoInfo == null) {
+        throw Exception('카카오 정보를 찾을 수 없습니다. 다시 로그인해주세요.');
+      }
+      
+      // Firebase Auth + Firestore 동시 생성
+      final user = await KakaoAuthService.createFirebaseUserOnSignupComplete(
+        kakaoInfo['email']!,
+        kakaoInfo['kakaoId']!,
+        _nicknameController.text.trim(),
+        widget.profileImageUrl ?? kakaoInfo['profileImageUrl'],
         phoneNumber: widget.verifiedPhone,
-        gender: widget.verifiedGender,
-        birthYear: widget.verifiedBirthYear,
-        profileImageUrl: widget.profileImageUrl,
-        kakaoId: widget.kakaoId,
+        gender: _selectedGender, // 사용자가 입력한 성별
+        birthYear: _birthYear, // 사용자가 입력한 출생년도
         badges: _selectedBadgeIds.toList(), // 선택된 뱃지 포함
-        isAdultVerified: isVerified, // 본인인증을 거쳤으면 true
-        adultVerifiedAt: isVerified ? DateTime.now() : null,
+        adultVerifiedAt: DateTime.now(), // 모든 가입자를 인증된 것으로 처리
       );
 
       if (user != null && mounted) {
@@ -377,8 +386,7 @@ class _NicknameInputScreenState extends State<NicknameInputScreen> {
                       controller: _nicknameController,
                       enabled: !_isLoading,
                       decoration: InputDecoration(
-                        labelText: '닉네임 *',
-                        hintText: '2-10글자로 입력해주세요',
+                        hintText: '사용할 이름을 입력해주세요 (2-10글자)',
                         border: OutlineInputBorder(
                           borderRadius: BorderRadius.circular(12),
                           borderSide: const BorderSide(color: Color(0xFFE0E0E0)),
@@ -403,6 +411,16 @@ class _NicknameInputScreenState extends State<NicknameInputScreen> {
                       ),
                       maxLength: 10,
                     ),
+                    
+                    const SizedBox(height: 20),
+                    
+                    // 출생년도 선택
+                    _buildBirthYearSelector(),
+                    
+                    const SizedBox(height: 20),
+                    
+                    // 성별 선택
+                    _buildGenderSelector(),
                     
                     const SizedBox(height: 24),
                     
@@ -436,6 +454,288 @@ class _NicknameInputScreenState extends State<NicknameInputScreen> {
     );
   }
 
+
+  Widget _buildBirthYearSelector() {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const Text(
+          '출생년도 *',
+          style: TextStyle(
+            fontSize: 16,
+            fontWeight: FontWeight.w500,
+            color: Color(0xFF333333),
+          ),
+        ),
+        const SizedBox(height: 8),
+        GestureDetector(
+          onTap: () => _showBirthYearPicker(),
+          child: Container(
+            width: double.infinity,
+            height: 56, // TextField와 동일한 높이로 고정
+            padding: const EdgeInsets.symmetric(horizontal: 16),
+            decoration: BoxDecoration(
+              border: Border.all(color: const Color(0xFFE0E0E0)),
+              borderRadius: BorderRadius.circular(12),
+            ),
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                Text(
+                  '$_birthYear년',
+                  style: const TextStyle(
+                    fontSize: 16,
+                    color: Color(0xFF333333),
+                  ),
+                ),
+                const Icon(
+                  Icons.keyboard_arrow_down,
+                  color: Color(0xFF666666),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildGenderSelector() {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const Text(
+          '성별 *',
+          style: TextStyle(
+            fontSize: 16,
+            fontWeight: FontWeight.w500,
+            color: Color(0xFF333333),
+          ),
+        ),
+        const SizedBox(height: 8),
+        Row(
+          children: [
+            // 남성 선택
+            Expanded(
+              child: GestureDetector(
+                onTap: () => setState(() => _selectedGender = 'M'),
+                child: Container(
+                  height: 56, // TextField와 동일한 높이로 고정
+                  decoration: BoxDecoration(
+                    border: Border.all(
+                      color: _selectedGender == 'M' 
+                        ? AppDesignTokens.primary 
+                        : const Color(0xFFE0E0E0),
+                      width: _selectedGender == 'M' ? 2 : 1,
+                    ),
+                    borderRadius: BorderRadius.circular(12),
+                    color: _selectedGender == 'M' 
+                      ? AppDesignTokens.primary.withOpacity(0.1) 
+                      : Colors.white,
+                  ),
+                  child: Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      Icon(
+                        Icons.male,
+                        color: _selectedGender == 'M' 
+                          ? AppDesignTokens.primary 
+                          : const Color(0xFF666666),
+                      ),
+                      const SizedBox(width: 8),
+                      Text(
+                        '남성',
+                        style: TextStyle(
+                          fontSize: 16,
+                          fontWeight: _selectedGender == 'M' 
+                            ? FontWeight.w600 
+                            : FontWeight.normal,
+                          color: _selectedGender == 'M' 
+                            ? AppDesignTokens.primary 
+                            : const Color(0xFF333333),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+            const SizedBox(width: 12),
+            // 여성 선택
+            Expanded(
+              child: GestureDetector(
+                onTap: () => setState(() => _selectedGender = 'F'),
+                child: Container(
+                  height: 56, // TextField와 동일한 높이로 고정
+                  decoration: BoxDecoration(
+                    border: Border.all(
+                      color: _selectedGender == 'F' 
+                        ? AppDesignTokens.primary 
+                        : const Color(0xFFE0E0E0),
+                      width: _selectedGender == 'F' ? 2 : 1,
+                    ),
+                    borderRadius: BorderRadius.circular(12),
+                    color: _selectedGender == 'F' 
+                      ? AppDesignTokens.primary.withOpacity(0.1) 
+                      : Colors.white,
+                  ),
+                  child: Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      Icon(
+                        Icons.female,
+                        color: _selectedGender == 'F' 
+                          ? AppDesignTokens.primary 
+                          : const Color(0xFF666666),
+                      ),
+                      const SizedBox(width: 8),
+                      Text(
+                        '여성',
+                        style: TextStyle(
+                          fontSize: 16,
+                          fontWeight: _selectedGender == 'F' 
+                            ? FontWeight.w600 
+                            : FontWeight.normal,
+                          color: _selectedGender == 'F' 
+                            ? AppDesignTokens.primary 
+                            : const Color(0xFF333333),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+          ],
+        ),
+      ],
+    );
+  }
+
+  void _showBirthYearPicker() {
+    // 현재 선택된 년도의 인덱스 계산 (디폴트 위치)
+    final currentYear = DateTime.now().year;
+    final initialIndex = (currentYear - 10) - _birthYear;
+    int tempSelectedYear = _birthYear; // 임시 선택 년도
+    
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: Colors.white,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
+      ),
+      builder: (context) {
+        return StatefulBuilder(
+          builder: (context, setModalState) {
+            return Container(
+              height: 300,
+              padding: const EdgeInsets.all(16),
+              child: Column(
+                children: [
+                  // 헤더
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      TextButton(
+                        onPressed: () => Navigator.pop(context),
+                        child: const Text(
+                          '취소',
+                          style: TextStyle(
+                            color: Colors.grey,
+                            fontSize: 16,
+                          ),
+                        ),
+                      ),
+                      Text(
+                        '출생년도 선택',
+                        style: TextStyle(
+                          fontSize: 18,
+                          fontWeight: FontWeight.w600,
+                          color: AppDesignTokens.onSurface,
+                        ),
+                      ),
+                      TextButton(
+                        onPressed: () {
+                          setState(() {
+                            _birthYear = tempSelectedYear;
+                          });
+                          Navigator.pop(context);
+                          // 포커스 해제
+                          FocusScope.of(context).unfocus();
+                        },
+                        child: Text(
+                          '확인',
+                          style: TextStyle(
+                            color: AppDesignTokens.primary,
+                            fontSize: 16,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 16),
+                  // 년도 선택 휠
+                  Expanded(
+                    child: Stack(
+                      children: [
+                        // 중앙 선택 표시기 (배경)
+                        Center(
+                          child: Container(
+                            height: 55,
+                            decoration: BoxDecoration(
+                              color: AppDesignTokens.primary.withOpacity(0.1),
+                              borderRadius: BorderRadius.circular(12),
+                              border: Border.all(
+                                color: AppDesignTokens.primary.withOpacity(0.3),
+                                width: 1,
+                              ),
+                            ),
+                          ),
+                        ),
+                        // 휠 스크롤뷰
+                        ListWheelScrollView.useDelegate(
+                          itemExtent: 55,
+                          perspective: 0.005,
+                          diameterRatio: 1.2,
+                          physics: const FixedExtentScrollPhysics(),
+                          controller: FixedExtentScrollController(initialItem: initialIndex),
+                          onSelectedItemChanged: (index) {
+                            final selectedYear = currentYear - 10 - index;
+                            setModalState(() {
+                              tempSelectedYear = selectedYear;
+                            });
+                          },
+                          childDelegate: ListWheelChildBuilderDelegate(
+                            builder: (context, index) {
+                              final year = currentYear - 10 - index;
+                              final isSelected = year == tempSelectedYear;
+                              return Container(
+                                alignment: Alignment.center,
+                                child: Text(
+                                  '$year년',
+                                  style: TextStyle(
+                                    fontSize: isSelected ? 24 : 20,
+                                    fontWeight: isSelected ? FontWeight.w600 : FontWeight.normal,
+                                    color: isSelected ? AppDesignTokens.primary : Colors.black54,
+                                  ),
+                                ),
+                              );
+                            },
+                            childCount: 80, // 1944~2024 (80년)
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+            );
+          },
+        );
+      },
+    );
+  }
 
   Widget _buildBadgeSelection() {
     return Column(

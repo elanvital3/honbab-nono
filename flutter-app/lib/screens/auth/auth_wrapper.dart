@@ -4,9 +4,11 @@ import 'package:provider/provider.dart';
 import 'package:firebase_auth/firebase_auth.dart' as firebase_auth;
 import '../../services/user_service.dart';
 import '../../services/notification_service.dart';
+import '../../services/kakao_auth_service.dart';
 import '../../models/user.dart' as app_user;
 import '../splash/splash_screen.dart';
 import 'login_screen.dart';
+import 'privacy_consent_screen.dart';
 import '../home/home_screen.dart';
 
 class AuthWrapper extends StatelessWidget {
@@ -14,9 +16,9 @@ class AuthWrapper extends StatelessWidget {
 
   // Firestore 사용자 데이터 가져오기 (재시도 로직 포함)
   Future<app_user.User?> _getFirestoreUserWithRetry(String uid) async {
-    for (int attempt = 1; attempt <= 3; attempt++) {
+    for (int attempt = 1; attempt <= 2; attempt++) {
       if (kDebugMode) {
-        print('🔄 AuthWrapper: Firestore 조회 시도 $attempt/3');
+        print('🔄 AuthWrapper: Firestore 조회 시도 $attempt/2');
       }
       
       try {
@@ -28,25 +30,25 @@ class AuthWrapper extends StatelessWidget {
           return user;
         }
         
-        // 첫 번째와 두 번째 시도에서 null이면 잠깐 대기
-        if (attempt < 3) {
+        // 첫 번째 시도에서 null이면 잠깐 대기
+        if (attempt < 2) {
           if (kDebugMode) {
-            print('⏳ AuthWrapper: 시도 $attempt 실패, ${attempt * 500}ms 대기 후 재시도...');
+            print('⏳ AuthWrapper: 시도 $attempt 실패, ${attempt * 1000}ms 대기 후 재시도...');
           }
-          await Future.delayed(Duration(milliseconds: attempt * 500));
+          await Future.delayed(Duration(milliseconds: attempt * 1000));
         }
       } catch (e) {
         if (kDebugMode) {
           print('❌ AuthWrapper: 시도 $attempt 오류: $e');
         }
-        if (attempt < 3) {
-          await Future.delayed(Duration(milliseconds: attempt * 500));
+        if (attempt < 2) {
+          await Future.delayed(Duration(milliseconds: attempt * 1000));
         }
       }
     }
     
     if (kDebugMode) {
-      print('❌ AuthWrapper: 3번 시도 모두 실패, null 반환');
+      print('❌ AuthWrapper: 2번 시도 모두 실패, null 반환');
     }
     return null;
   }
@@ -62,6 +64,22 @@ class AuthWrapper extends StatelessWidget {
       } catch (e) {
         if (kDebugMode) {
           print('❌ AuthWrapper: FCM 토큰 저장 실패: $e');
+        }
+      }
+    });
+  }
+
+  // 미완성 Firebase Auth 삭제 (백그라운드에서 실행)
+  void _deleteIncompleteFirebaseAuth(firebase_auth.User firebaseUser) {
+    Future.microtask(() async {
+      try {
+        await firebaseUser.delete();
+        if (kDebugMode) {
+          print('✅ AuthWrapper: 미완성 Firebase Auth 삭제 완료');
+        }
+      } catch (e) {
+        if (kDebugMode) {
+          print('❌ AuthWrapper: Firebase Auth 삭제 실패: $e');
         }
       }
     });
@@ -83,6 +101,22 @@ class AuthWrapper extends StatelessWidget {
       if (kDebugMode) {
         print('❌ AuthWrapper: Firebase 사용자 없음 → 로그인 화면으로 이동');
       }
+      
+      // 카카오 정보가 있으면 신규 사용자 처리
+      final kakaoInfo = KakaoAuthService.getTempKakaoUserInfo();
+      if (kakaoInfo != null) {
+        if (kDebugMode) {
+          print('✅ AuthWrapper: 카카오 정보 발견 → PrivacyConsentScreen으로 이동');
+        }
+        return PrivacyConsentScreen(
+          userId: null,
+          email: kakaoInfo['email'],
+          kakaoId: kakaoInfo['kakaoId'],
+          defaultName: kakaoInfo['name'],
+          profileImageUrl: kakaoInfo['profileImageUrl'],
+        );
+      }
+      
       return const LoginScreen();
     }
     
@@ -132,7 +166,7 @@ class AuthWrapper extends StatelessWidget {
           }
         }
         
-        if (firestoreUser != null && firestoreUser.name.isNotEmpty && firestoreUser.name != 'NEW_USER') {
+        if (firestoreUser != null && firestoreUser.name.isNotEmpty) {
           if (kDebugMode) {
             print('✅ AuthWrapper: 완전한 사용자 데이터 확인 → 홈 화면으로 이동');
             print('  - 사용자: ${firestoreUser.name}');
@@ -143,14 +177,34 @@ class AuthWrapper extends StatelessWidget {
           
           return const HomeScreen();
         } else {
+          // Firestore에 사용자 데이터가 없음 → 미완성 회원가입으로 판단
           if (kDebugMode) {
-            print('❌ AuthWrapper: 불완전한 사용자 데이터 → 로그인 화면으로');
-            if (firestoreUser != null) {
-              print('  - 이름: "${firestoreUser.name}"');
-              print('  - NEW_USER 여부: ${firestoreUser.name == 'NEW_USER'}');
-            }
+            print('🧹 AuthWrapper: Firestore 사용자 없음 → 미완성 회원가입 정리');
+            print('  - Firebase Auth UID: ${firebaseUser.uid}');
           }
-          return const LoginScreen();
+          
+          // 미완성 회원가입 정리 (Firebase Auth 삭제) - 비동기 처리
+          _deleteIncompleteFirebaseAuth(firebaseUser);
+          
+          // 카카오 정보 확인
+          final kakaoInfo = KakaoAuthService.getTempKakaoUserInfo();
+          if (kakaoInfo != null) {
+            if (kDebugMode) {
+              print('✅ AuthWrapper: 카카오 정보 발견 → PrivacyConsentScreen으로 이동');
+            }
+            return PrivacyConsentScreen(
+              userId: null,
+              email: kakaoInfo['email'],
+              kakaoId: kakaoInfo['kakaoId'],
+              defaultName: kakaoInfo['name'],
+              profileImageUrl: kakaoInfo['profileImageUrl'],
+            );
+          } else {
+            if (kDebugMode) {
+              print('❌ AuthWrapper: 카카오 정보 없음 → 로그인 화면으로');
+            }
+            return const LoginScreen();
+          }
         }
       },
     );

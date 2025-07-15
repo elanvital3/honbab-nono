@@ -12,7 +12,7 @@ import '../../styles/text_styles.dart';
 import '../../components/common/common_card.dart';
 import '../../components/common/count_badge.dart';
 import '../../components/common/empty_state_card.dart';
-import '../../components/common/restaurant_card.dart';
+import '../../components/common/restaurant_grid_card.dart';
 import '../../components/common/stats_divider.dart';
 import '../../components/user_badge_chip.dart';
 import '../restaurant/restaurant_detail_screen.dart';
@@ -539,7 +539,7 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
                           ? AppDesignTokens.spacing2 
                           : 0,
                     ),
-                    child: RestaurantCard(
+                    child: RestaurantGridCard(
                       restaurant: restaurant,
                       onTap: () {
                         Navigator.push(

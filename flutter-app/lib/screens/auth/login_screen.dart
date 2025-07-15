@@ -7,6 +7,7 @@ import '../../services/kakao_auth_service.dart';
 import '../../services/user_service.dart';
 import 'nickname_input_screen.dart';
 import 'privacy_consent_screen.dart';
+import '../../main.dart';
 
 class LoginScreen extends StatefulWidget {
   const LoginScreen({super.key});
@@ -26,37 +27,56 @@ class _LoginScreenState extends State<LoginScreen> {
 
     try {
       print('🎯 KakaoAuthService.signInWithKakao() 호출 직전');
-      final user = await KakaoAuthService.signInWithKakao();
-      print('🎯 KakaoAuthService.signInWithKakao() 호출 완료, 결과: $user');
+      final success = await KakaoAuthService.signInWithKakao();
+      print('🎯 KakaoAuthService.signInWithKakao() 호출 완료, 결과: $success');
       
-      if (user != null && mounted) {
-        print('🔍 로그인 결과 확인:');
-        print('  - 사용자 ID: ${user.id}');
-        print('  - 사용자 이름: "${user.name}"');
-        print('  - 카카오 ID: ${user.kakaoId}');
-        print('  - 프로필 사진: ${user.profileImageUrl}');
+      if (success) {
+        // 카카오 로그인 성공
+        print('✅ 카카오 로그인 성공');
         
-        // 신규 사용자인지 기존 사용자인지 확인
-        if (user.name == 'NEW_USER') {
-          // 신규 사용자 - 개인정보 동의 화면으로 이동
-          print('➡️ 신규 사용자 → 개인정보 동의 화면으로 이동');
-          Navigator.pushReplacement(
-            context,
-            MaterialPageRoute(
-              builder: (context) => PrivacyConsentScreen(
-                userId: user.id,
-                defaultName: user.name,
-                profileImageUrl: user.profileImageUrl,
-                email: user.email,
-                kakaoId: user.kakaoId,
-              ),
-            ),
-          );
+        // 카카오 정보 확인
+        final kakaoInfo = KakaoAuthService.getTempKakaoUserInfo();
+        print('🔍 LoginScreen: 카카오 정보 확인 중...');
+        print('  - kakaoInfo: $kakaoInfo');
+        print('  - kakaoInfo == null: ${kakaoInfo == null}');
+        print('  - mounted: $mounted');
+        
+        if (kakaoInfo != null && mounted) {
+          // 신규 사용자 - 회원가입 프로세스 시작
+          print('🆕 LoginScreen: 신규 사용자 감지 → 회원가입 프로세스 시작');
+          print('✅ 카카오 정보 확인:');
+          print('  - 이메일: ${kakaoInfo['email']}');
+          print('  - 카카오ID: ${kakaoInfo['kakaoId']}');
+          print('  - 닉네임: ${kakaoInfo['name']}');
+          
+          // 즉시 네비게이션 실행
+          WidgetsBinding.instance.addPostFrameCallback((_) {
+            if (mounted) {
+              print('🚀 LoginScreen: PrivacyConsentScreen 네비게이션 시작');
+              Navigator.pushReplacement(
+                context,
+                MaterialPageRoute(
+                  builder: (context) => PrivacyConsentScreen(
+                    userId: null, // Firebase Auth는 회원가입 완료 시 생성
+                    email: kakaoInfo['email'],
+                    kakaoId: kakaoInfo['kakaoId'],
+                    defaultName: kakaoInfo['name'],
+                    profileImageUrl: kakaoInfo['profileImageUrl'],
+                  ),
+                ),
+              );
+            } else {
+              print('❌ LoginScreen: mounted=false, 네비게이션 건너뜀');
+            }
+          });
         } else {
-          // 기존 사용자 - 약간의 지연 후 홈 화면으로 이동 (Firestore 업데이트 완료 대기)
-          print('➡️ 기존 사용자 → 홈 화면으로 이동 (Firestore 완료 대기 중...)');
-          await Future.delayed(const Duration(milliseconds: 500));
-          Navigator.pushReplacementNamed(context, '/home');
+          // 기존 사용자 또는 카카오 정보 없음
+          if (kakaoInfo == null) {
+            print('❌ LoginScreen: 카카오 정보가 null → 기존 사용자 또는 오류');
+          } else {
+            print('❌ LoginScreen: mounted=false → 네비게이션 불가');
+          }
+          print('✅ 기존 사용자 로그인 성공 → AuthWrapper가 홈 화면으로 라우팅');
         }
       }
     } catch (e) {

@@ -318,7 +318,7 @@ class UltimateRestaurantCrawler {
    * 현재 타겟 지역 설정
    */
   getTargetRegions() {
-    return ['서울']; // 서울만 수집
+    return ['부산']; // 부산만 수집
     // return ['제주도', '서울', '부산']; // 전체 지역 (주석 처리)
   }
 

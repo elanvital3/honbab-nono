@@ -18,67 +18,6 @@ admin.initializeApp({
 const db = admin.firestore();
 const messaging = admin.messaging();
 
-/**
- * 카카오 ID 기반으로 고정된 Firebase UID를 가진 Custom Token 생성
- * 
- * @param {string} kakaoId - 카카오 사용자 ID
- * @returns {string} customToken - Firebase Custom Token
- */
-exports.createCustomToken = onCall(async (request) => {
-  const data = request.data;
-  // 입력 검증
-  if (!data.kakaoId) {
-    throw new Error('kakaoId is required');
-  }
-
-  const kakaoId = data.kakaoId.toString();
-  
-  try {
-    // 카카오 ID를 기반으로 고정된 UID 생성
-    // 'kakao_' 접두사를 붙여 다른 인증 방식과 구분
-    const uid = `kakao_${kakaoId}`;
-    
-    // 기존 사용자 확인 또는 생성
-    let userRecord;
-    try {
-      // 기존 사용자 조회
-      userRecord = await admin.auth().getUser(uid);
-      logger.info('기존 사용자 발견:', uid);
-    } catch (error) {
-      if (error.code === 'auth/user-not-found') {
-        // 신규 사용자 생성
-        userRecord = await admin.auth().createUser({
-          uid: uid,
-          // 카카오 관련 커스텀 클레임 추가
-          customClaims: {
-            provider: 'kakao',
-            kakaoId: kakaoId
-          }
-        });
-        logger.info('신규 사용자 생성:', uid);
-      } else {
-        throw error;
-      }
-    }
-    
-    // Custom Token 생성
-    const customToken = await admin.auth().createCustomToken(uid, {
-      provider: 'kakao',
-      kakaoId: kakaoId
-    });
-    
-    return {
-      customToken: customToken,
-      uid: uid,
-      isNewUser: !userRecord.metadata.lastSignInTime
-    };
-    
-  } catch (error) {
-    logger.error('Custom Token 생성 실패:', error);
-    throw new Error(`Failed to create custom token: ${error.message}`);
-  }
-});
-
 // TODO: 사용자 삭제 시 관련 데이터 정리는 추후 구현
 // Firebase Functions v2에서 beforeUserDeleted 지원 확인 필요
 

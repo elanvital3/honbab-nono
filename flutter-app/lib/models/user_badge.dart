@@ -67,13 +67,6 @@ class UserBadge {
       category: '성격/취향',
       description: '조용히 식사하는 스타일',
     ),
-    UserBadge(
-      id: 'mood_maker',
-      name: '분위기 메이커',
-      emoji: '🎉',
-      category: '성격/취향',
-      description: '재밌게 분위기 띄우는 스타일',
-    ),
 
     // 음식 취향
     UserBadge(

@@ -10,6 +10,7 @@ class ParticipantEvaluationCard extends StatelessWidget {
   final int mannersRating;
   final int meetAgainRating;
   final String comment;
+  final bool hasExistingEvaluation;
   final Function(int) onPunctualityChanged;
   final Function(int) onMannersChanged;
   final Function(int) onMeetAgainChanged;
@@ -22,6 +23,7 @@ class ParticipantEvaluationCard extends StatelessWidget {
     required this.mannersRating,
     required this.meetAgainRating,
     required this.comment,
+    this.hasExistingEvaluation = false,
     required this.onPunctualityChanged,
     required this.onMannersChanged,
     required this.onMeetAgainChanged,
@@ -100,11 +102,31 @@ class ParticipantEvaluationCard extends StatelessWidget {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Text(
-                user.name,
-                style: AppTextStyles.titleLarge.copyWith(
-                  fontWeight: FontWeight.bold,
-                ),
+              Row(
+                children: [
+                  Text(
+                    user.name,
+                    style: AppTextStyles.titleLarge.copyWith(
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  if (hasExistingEvaluation)
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                      decoration: BoxDecoration(
+                        color: AppDesignTokens.primary.withOpacity(0.15),
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      child: Text(
+                        '수정',
+                        style: AppTextStyles.caption.copyWith(
+                          color: AppDesignTokens.primary,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                    ),
+                ],
               ),
               const SizedBox(height: 4),
               if (user.rating > 0)

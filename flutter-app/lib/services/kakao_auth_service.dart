@@ -10,9 +10,88 @@ import 'user_service.dart';
 import 'auth_service.dart';
 
 class KakaoAuthService {
+  // 신규 사용자의 카카오 정보를 임시 저장 (회원가입 프로세스에서 사용)
+  static Map<String, dynamic>? _tempKakaoUserInfo;
   
-  // 카카오 로그인 (카카오톡 앱 우선, 실패시 브라우저)
-  static Future<app_user.User?> signInWithKakao() async {
+  // 임시 카카오 정보 가져오기 (삭제하지 않음)
+  static Map<String, dynamic>? getTempKakaoUserInfo() {
+    return _tempKakaoUserInfo;
+  }
+  
+  // 임시 카카오 정보 삭제
+  static void clearTempKakaoUserInfo() {
+    _tempKakaoUserInfo = null;
+  }
+
+  // 회원가입 완료 시점에서 Firebase Auth + Firestore 동시 생성
+  static Future<app_user.User?> createFirebaseUserOnSignupComplete(
+    String email,
+    String kakaoId,
+    String name,
+    String? profileImageUrl,
+    {
+      String? phoneNumber,
+      String? gender,
+      int? birthYear,
+      List<String>? badges,
+      DateTime? adultVerifiedAt,
+    }
+  ) async {
+    try {
+      if (kDebugMode) {
+        print('🔥 회원가입 완료 - Firebase Auth + Firestore 동시 생성 시작');
+        print('  - 이메일: $email');
+        print('  - 카카오ID: $kakaoId');
+        print('  - 닉네임: $name');
+      }
+
+      // 1. Firebase Auth 생성 (처음 생성)
+      final firebaseUser = await _createOrSignInWithEmail(email, kakaoId);
+      
+      if (firebaseUser != null) {
+        // 2. Firestore 사용자 생성
+        final newUser = app_user.User(
+          id: firebaseUser.uid,
+          name: name,
+          email: email,
+          phoneNumber: phoneNumber,
+          profileImageUrl: profileImageUrl,
+          kakaoId: kakaoId,
+          gender: gender,
+          birthYear: birthYear,
+          badges: badges ?? [],
+          isAdultVerified: true, // 모든 가입자를 인증된 것으로 처리
+          adultVerifiedAt: adultVerifiedAt,
+          createdAt: DateTime.now(),
+          updatedAt: DateTime.now(),
+        );
+
+        // 3. Firestore에 저장
+        await UserService.createUser(newUser);
+        
+        if (kDebugMode) {
+          print('✅ Firebase Auth + Firestore 동시 생성 완료');
+          print('  - Firebase UID: ${firebaseUser.uid}');
+          print('  - Firestore 사용자 생성 완료');
+        }
+
+        // 4. 임시 카카오 정보 삭제
+        clearTempKakaoUserInfo();
+
+        return newUser;
+      }
+      
+      return null;
+    } catch (e) {
+      if (kDebugMode) {
+        print('❌ Firebase Auth + Firestore 동시 생성 실패: $e');
+      }
+      rethrow;
+    }
+  }
+  
+  // 카카오 로그인 (Firebase Auth 생성하지 않음)
+  static Future<bool> signInWithKakao() async {
     try {
       // 1. 카카오톡 설치 여부 확인
       bool isKakaoTalkAvailable = await isKakaoTalkInstalled();
@@ -23,7 +102,7 @@ class KakaoAuthService {
           await UserApi.instance.loginWithKakaoTalk();
         } catch (error) {
           if (error is PlatformException && error.code == 'CANCELED') {
-            return null; // 사용자가 로그인을 취소한 경우
+            return false; // 사용자가 로그인을 취소한 경우
           }
           
           // 카카오톡 앱 로그인 실패 시 브라우저로 fallback
@@ -37,8 +116,8 @@ class KakaoAuthService {
       // 3. 카카오 사용자 정보 가져오기
       User kakaoUser = await UserApi.instance.me();
 
-      // 4. Firebase 연동 시작
-      return await _createOrGetFirebaseUser(kakaoUser);
+      // 4. 카카오 정보를 메모리에 저장 (Firebase Auth 생성하지 않음)
+      return await _saveKakaoUserInfo(kakaoUser);
       
     } catch (error) {
       rethrow;
@@ -57,8 +136,8 @@ class KakaoAuthService {
     }
   }
 
-  // Firebase 사용자 연동 (이메일 인증 + 카카오 정보 연결)
-  static Future<app_user.User?> _createOrGetFirebaseUser(User kakaoUser) async {
+  // 카카오 사용자 정보를 메모리에 저장 (Firebase Auth 생성하지 않음)
+  static Future<bool> _saveKakaoUserInfo(User kakaoUser) async {
     try {
       final kakaoId = kakaoUser.id.toString();
       final email = kakaoUser.kakaoAccount?.email;
@@ -66,7 +145,7 @@ class KakaoAuthService {
       final profileImage = kakaoUser.kakaoAccount?.profile?.profileImageUrl;
 
       if (kDebugMode) {
-        print('🔍 카카오 사용자 연동 시작: $kakaoId');
+        print('🔍 카카오 사용자 정보 저장 시작: $kakaoId');
         print('📧 카카오 이메일: $email');
       }
 
@@ -75,103 +154,33 @@ class KakaoAuthService {
         throw Exception('카카오 계정의 이메일 정보가 필요합니다. 카카오 계정 설정에서 이메일을 공개로 설정해주세요.');
       }
 
-      // 1. 카카오 ID로 기존 사용자 찾기
-      app_user.User? existingUser = await UserService.getUserByKakaoId(kakaoId);
+      // 신규 사용자 - 메모리에 카카오 정보만 저장 (Firebase Auth 생성하지 않음)
+      _tempKakaoUserInfo = {
+        'email': email,
+        'kakaoId': kakaoId,
+        'name': name,
+        'profileImageUrl': profileImage,
+      };
       
-      if (existingUser != null) {
-        if (kDebugMode) {
-          print('✅ 기존 사용자 발견: ${existingUser.id}');
-        }
-        
-        // 기존 사용자 - Firebase 인증 후 Firestore 데이터 유지
-        firebase_auth.User? firebaseUser;
-        try {
-          await _signInWithEmail(email, kakaoId);
-          firebaseUser = firebase_auth.FirebaseAuth.instance.currentUser;
-        } catch (e) {
-          if (kDebugMode) {
-            print('🔄 기존 사용자 Firebase 로그인 실패, 새 계정 생성 시도: $e');
-          }
-          // Firebase 계정이 없거나 문제가 있으면 새로 생성
-          firebaseUser = await _createOrSignInWithEmail(email, kakaoId);
-        }
-        
-        if (firebaseUser != null) {
-          // Firebase ID와 Firestore ID가 다르면 Firestore 데이터를 Firebase ID로 마이그레이션
-          if (existingUser.id != firebaseUser.uid) {
-            if (kDebugMode) {
-              print('🔄 사용자 ID 마이그레이션: ${existingUser.id} → ${firebaseUser.uid}');
-            }
-            
-            // 새로운 ID로 사용자 데이터 복사
-            final migratedUser = existingUser.copyWith(
-              id: firebaseUser.uid,
-              profileImageUrl: profileImage,
-              email: email,
-              updatedAt: DateTime.now(),
-            );
-            
-            // 새 ID로 데이터 저장
-            await UserService.createUserFromObject(migratedUser);
-            
-            // 기존 데이터 삭제 (선택적)
-            try {
-              await UserService.deleteUser(existingUser.id);
-            } catch (e) {
-              if (kDebugMode) {
-                print('⚠️ 기존 사용자 데이터 삭제 실패 (무시): $e');
-              }
-            }
-            
-            return migratedUser;
-          } else {
-            // ID가 같으면 기존 로직
-            final updatedUser = existingUser.copyWith(
-              profileImageUrl: profileImage,
-              email: email,
-              updatedAt: DateTime.now(),
-            );
-            
-            await UserService.updateUserFromObject(updatedUser);
-            return updatedUser;
-          }
-        }
-        
-        return existingUser; // fallback
-      }
-      
-      // 2. 신규 사용자 - Firebase 이메일 인증
       if (kDebugMode) {
-        print('🆕 신규 사용자 - Firebase 이메일 인증 시작');
+        print('🆕 카카오 정보 메모리 저장 완료 (Firebase Auth 생성 없음)');
+        print('   이메일: $email');
+        print('   카카오ID: $kakaoId');
+        print('   닉네임: $name');
+        print('   프로필 이미지: $profileImage');
       }
       
-      final firebaseUser = await _createOrSignInWithEmail(email, kakaoId);
+      return true;
       
-      if (firebaseUser != null) {
-        if (kDebugMode) {
-          print('✅ Firebase 이메일 인증 완료: ${firebaseUser.uid}');
-        }
-        
-        // 신규 사용자 데이터 생성
-        return app_user.User(
-          id: firebaseUser.uid,
-          name: 'NEW_USER',
-          email: email,
-          profileImageUrl: profileImage,
-          kakaoId: kakaoId,
-          createdAt: DateTime.now(),
-          updatedAt: DateTime.now(),
-        );
-      }
-      
-      return null;
+      return false;
     } catch (e) {
       if (kDebugMode) {
-        print('❌ Firebase 사용자 연동 실패: $e');
+        print('❌ 카카오 사용자 정보 저장 실패: $e');
       }
       rethrow;
     }
   }
+
 
   // 카카오 로그아웃
   static Future<void> signOut() async {
